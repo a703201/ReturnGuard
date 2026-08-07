@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ReturnGuard · 退件法医 Demo</title>
+<style>
+  :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0}
+  *{box-sizing:border-box;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
+  body{margin:0;background:var(--bg);color:var(--txt);padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#94a3b8;font-size:13px;margin-bottom:20px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
+  label{display:block;font-size:13px;margin:10px 0 4px;color:#cbd5e1}
+  input[type=text],input[type=number],textarea,select{width:100%;background:#0b1220;border:1px solid #334155;color:var(--txt);border-radius:8px;padding:8px;font-size:13px}
+  button{margin-top:14px;background:var(--acc);color:#04121f;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .bar{height:10px;border-radius:6px;background:#334155;overflow:hidden;margin-top:6px}
+  .bar > i{display:block;height:100%}
+  .tag{display:inline-block;background:#0b1220;border:1px solid #334155;border-radius:6px;padding:3px 8px;margin:3px;font-size:12px}
+  pre{white-space:pre-wrap;background:#0b1220;border-radius:8px;padding:12px;font-size:12px;line-height:1.5}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:8px;border-bottom:1px solid #334155;text-align:left}
+  th{color:#94a3b8;font-weight:600}
+  .hide{display:none}
+  .err{color:var(--bad);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+  <h1>ReturnGuard · 退件法医</h1>
+  <div class="sub">跨境退货举证官 Demo（AI 市场洞察赛道）· 个案举证 → 群体洞察双闭环</div>
+
+  <div class="grid">
+    <!-- 取证 -->
+    <div class="card">
+      <h3 style="margin-top:0">① 单案举证</h3>
+      <form id="f">
+        <label>退回商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
+        <label>本店主图 / 详情图 *</label><input type="file" name="product_image" accept="image/*" required>
+        <label>SKU</label><input type="text" name="sku" value="SKU-1001">
+        <label>订单金额 (¥)</label><input type="number" name="amount" value="120" step="0.01">
+        <label>Listing 承诺文本（可选）</label><textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
+        <label>运行模式</label>
+        <select name="mode">
+          <option value="mock" selected>mock（无需 Key，立即可演示）</option>
+          <option value="live">live（需 MODEL_ROUTER_API_KEY + 可公网图片）</option>
+        </select>
+        <button type="submit" id="btn">开始取证</button>
+      </form>
+      <div id="err" class="err"></div>
+      <div id="res" class="hide" style="margin-top:14px">
+        <div>同款一致性相似度：<b id="sim"></b></div>
+        <div class="bar"><i id="simbar"></i></div>
+        <div style="margin-top:8px">是否同一件：<span id="same" class="pill"></span> · 一致性：<span id="cons"></span></div>
+        <div style="margin-top:8px">瑕疵标签：<span id="defects"></span></div>
+        <div style="margin-top:8px">优先级评分：<b id="prio"></b></div>
+        <div style="margin-top:10px">举证报告：</div>
+        <pre id="dossier"></pre>
+        <div style="margin-top:8px">母语语音陈述：</div>
+        <pre id="vtext"></pre>
+        <audio id="audio" controls style="margin-top:6px;width:100%"></audio>
+      </div>
+    </div>
+
+    <!-- 洞察 -->
+    <div class="card">
+      <h3 style="margin-top:0">② 群体洞察看板</h3>
+      <button id="loadIns" style="margin-top:0">刷新洞察</button>
+      <div style="margin-top:12px">案件总数：<b id="total"></b></div>
+      <div style="margin-top:10px">高纠纷 SKU 排行：</div>
+      <table id="rank"><thead><tr><th>SKU</th><th>案件</th><th>均相似度</th><th>退款¥</th><th>高发问题</th></tr></thead><tbody></tbody></table>
+      <div style="margin-top:12px">缺陷分布：<span id="defdist"></span></div>
+      <div style="margin-top:12px">选品 / 品控建议：</div>
+      <pre id="recs"></pre>
+    </div>
+  </div>
+
+<script>
+const $ = s => document.querySelector(s);
+function color(p){return p>=0.82?'var(--ok)':p>=0.65?'var(--warn)':'var(--bad)';}
+async function doAnalyze(e){
+  e.preventDefault();
+  $('#err').textContent=''; $('#res').classList.add('hide');
+  const btn=$('#btn'); btn.disabled=true; btn.textContent='取证中…';
+  try{
+    const fd=new FormData($('#f'));
+    const r=await fetch('/api/analyze',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||'请求失败');
+    $('#sim').textContent=d.similarity;
+    $('#simbar').style.width=Math.round(d.similarity*100)+'%';
+    $('#simbar').style.background=color(d.similarity);
+    $('#same').textContent=d.same_item?'同一件':'疑似调包/非同款';
+    $('#same').style.background=d.same_item?'var(--ok)':'var(--bad)';
+    $('#cons').textContent=d.consistency;
+    $('#defects').innerHTML=(d.defect_tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
+    $('#prio').textContent=d.priority_score;
+    $('#dossier').textContent=d.dossier;
+    $('#vtext').textContent=d.voice_text;
+    $('#audio').src='data:audio/wav;base64,'+d.voice_audio_b64;
+    $('#res').classList.remove('hide');
+  }catch(err){ $('#err').textContent='错误：'+err.message; }
+  finally{ btn.disabled=false; btn.textContent='开始取证'; }
+}
+async function loadInsights(){
+  const r=await fetch('/api/insights'); const d=await r.json();
+  $('#total').textContent=d.total_cases;
+  const tb=$('#rank').querySelector('tbody'); tb.innerHTML='';
+  (d.sku_ranking||[]).forEach(x=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${x.sku}</td><td>${x.cases}</td><td>${x.avg_similarity}</td><td>${x.refund}</td><td>${x.top_defect}</td>`;
+    tb.appendChild(tr);
+  });
+  $('#defdist').innerHTML=Object.entries(d.defect_distribution||{}).map(([k,v])=>`<span class="tag">${k}: ${v}</span>`).join('');
+  $('#recs').textContent=(d.recommendations||[]).join('\n');
+}
+$('#f').addEventListener('submit',doAnalyze);
+$('#loadIns').addEventListener('click',loadInsights);
+loadInsights();
+</script>
+</body>
+</html>
