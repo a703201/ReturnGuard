@@ -1,8 +1,8 @@
 # ============================================================
 # ReturnGuard · 容器编排（openGauss 基于 openEuler 基底容器，docker compose up -d）
 # 两个服务：
-#   db  —— openGauss 7.0.0-RC3（华为开源国产库，兼容 PostgreSQL 协议；
-#          Docker Hub 无 6.0.x tag，故用当前可拉的 7.0.0-RC3.B025）
+#   db  —— openGauss 5.0.0（华为开源国产库，兼容 PostgreSQL 协议；
+#          Docker Hub 稳定 LTS tag，支持 GS_USERNAME/GS_DB 初始化）
 #   app —— ReturnGuard FastAPI 应用（本目录 Dockerfile 构建）
 # 双轨切换：app 的 DATABASE_URL 指向 db 服务即可，业务代码零改动。
 # ============================================================
@@ -12,9 +12,10 @@ services:
   # ---------- 国产数据库 openGauss ----------
   db:
     # Docker Hub 上 opengauss/opengauss 仓库无 6.0.x 稳定 tag；
-    # 7.0.0-RC3.B025 是当前官方维护、支持 GS_USERNAME/GS_DB 的可用版本，
-    # 与 6.x 初始化参数兼容，可直接替换。生产如需 6.x 稳定版请走华为云 SWR 或 OBS tar。
-    image: opengauss/opengauss:7.0.0-RC3.B025
+    # 7.0.0-RC3 预览版镜像存在缺库(libopenblas.so.0)bug，容器无法启动。
+    # 5.0.0 为官方 LTS 稳定版，同样支持 GS_USERNAME/GS_DB，本地/初赛验证首选。
+    # 生产如需 6.x 稳定版请走华为云 SWR 或 OBS tar 包。
+    image: opengauss/opengauss:5.0.0
     container_name: rg_opengauss
     privileged: true            # openGauss 需调整内核参数，必须提权
     environment:
