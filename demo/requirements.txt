@@ -2,3 +2,9 @@ fastapi
 uvicorn[standard]
 python-multipart
 requests
+
+# ---- 双轨存储层依赖（开发 SQLite / 部署 openGauss） ----
+SQLAlchemy>=2.0          # ORM 核心，SQLite 与 openGauss 同构
+psycopg2-binary>=2.9     # PostgreSQL/openGauss 协议驱动（部署期连接 openGauss 用）
+# 可选：openGauss 官方方言 opengauss+psycopg2://，仅当你要用 openGauss 特有类型/索引时安装
+# opengauss-sqlalchemy>=0.1.0

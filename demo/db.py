@@ -24,12 +24,21 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 BASE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(BASE, "cases.db")
 # 切换 openGauss 示例（部署期设置环境变量，无需改代码）：
-#   DATABASE_URL=postgresql+psycopg2://gaussdb:你的密码@数据库主机:5432/postgres
+#   DATABASE_URL=postgresql+psycopg2://gaussdb:你的密码@数据库主机:5432/returnguard
+# 进阶：想用 openGauss 官方方言（识别 openGauss 特有类型/索引）时改为：
+#   DATABASE_URL=opengauss+psycopg2://gaussdb:你的密码@数据库主机:5432/returnguard
+#   （需 pip install opengauss-sqlalchemy）
 DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE)
 
 # SQLite 需允许多线程复用连接（FastAPI 事件循环会并发访问）；openGauss 不需要
 _connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=_connect_args, future=True)
+# pool_pre_ping：取连接前先探活，避免 openGauss 长空闲后断连导致请求 500
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=_connect_args,
+    future=True,
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 Base = declarative_base()
 
