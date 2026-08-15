@@ -52,8 +52,13 @@ async def analyze(
 
 
 @app.get("/api/insights")
-def insights():
-    return JSONResponse(build_insights(load_cases(CASES_FILE)))
+def insights(mode: str = "mock", category: str = "", platform: str = ""):
+    cases = load_cases(CASES_FILE)
+    if category:
+        cases = [c for c in cases if c.get("category") == category]
+    if platform:
+        cases = [c for c in cases if c.get("platform") == platform]
+    return JSONResponse(build_insights(cases, mode))
 
 
 @app.get("/api/cases")

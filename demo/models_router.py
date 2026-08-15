@@ -4,8 +4,10 @@
   （生产用对象存储，如阿里云 OSS；本地演示无法被 Model Router 回源，故 live 需可公网地址）
 """
 import os
+import json
 import math
 import base64
+import re
 import requests
 
 API_BASE = "https://model-router.edu-aliyun.com/v1"
@@ -101,3 +103,63 @@ def live_analyze(returned_path, product_path, listing_text, sku, amount):
             "defect_description": ", ".join(defects), "consistency": consistency,
             "dossier": dossier, "voice_text": voice_text, "voice_audio_b64": audio,
             "priority_score": priority, "mode": "live"}
+
+
+def _extract_json(raw):
+    """从模型返回里稳健地抽取 JSON（兼容 deepseek-r1 的 <think> 包裹 / 多余文本）。"""
+    if not raw:
+        return {}
+    s = raw.strip()
+    # 去掉 <think>...</think>
+    s = re.sub(r"<think>.*?</think>", "", s, flags=re.S)
+    # 找第一个 { 到最后一个 }
+    start, end = s.find("{"), s.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return {}
+    block = s[start:end + 1]
+    try:
+        return json.loads(block)
+    except Exception:
+        return {}
+
+
+def llm_json(prompt, model="qwen/qwen3-max"):
+    r = requests.post(f"{API_BASE}/chat/completions", headers=_headers(),
+                      json={"model": model,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "stream": False}, timeout=120)
+    r.raise_for_status()
+    return _extract_json(r.json()["choices"][0]["message"]["content"])
+
+
+def build_insights_live(aggregated):
+    """用大模型对聚合统计做缺陷聚类 + 根因归因 + 选品/品控建议（方案阶段B 核心）。
+
+    aggregated 来自 pipeline._aggregate，含 sku_ranking / defect_distribution / total_cases。
+    返回 {root_cause, sku_insights[], recommendations[], report}。
+    """
+    if not API_KEY:
+        raise RuntimeError("未配置 MODEL_ROUTER_API_KEY")
+    ctx = {
+        "total_cases": aggregated.get("total_cases"),
+        "sku_ranking": aggregated.get("sku_ranking"),
+        "defect_distribution": aggregated.get("defect_distribution"),
+    }
+    prompt = (
+        "你是一名资深的跨境电商品控与选品分析师。下面是一位跨境卖家退货案件的聚合统计（JSON）：\n"
+        f"{json.dumps(ctx, ensure_ascii=False)}\n\n"
+        "请完成四件事，并以 JSON 返回（不要任何解释文本，只返回 JSON）：\n"
+        "1) root_cause：字符串，归纳退货高发的根因（如包装防护不足 / 供应商质量不稳定 / listing 过度承诺 / 物流暴力分拣等），并给出数据依据。\n"
+        "2) sku_insights：数组，取退款金额最高的前 3 个 SKU，每个元素为 {\"sku\":..,\"finding\":..,\"action\":..}，finding 指出该 SKU 的核心问题，action 给可执行整改动作。\n"
+        "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写建议，面向卖家管理者。\n"
+        "4) report：字符串，一段《选品 / 品控洞察报告》正文（中文，约 150 字），总结现状与下一步。\n"
+    )
+    out = llm_json(prompt, model="qwen/qwen3-max")
+    if not out:
+        raise RuntimeError("洞察 LLM 未返回有效 JSON")
+    return {
+        "root_cause": out.get("root_cause", ""),
+        "sku_insights": out.get("sku_insights", []),
+        "recommendations": out.get("recommendations", []),
+        "report": out.get("report", ""),
+    }

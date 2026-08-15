@@ -3,44 +3,130 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReturnGuard · 退件法医 Demo</title>
+<title>ReturnGuard · 退货情报站</title>
 <style>
   :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0}
   *{box-sizing:border-box;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
   body{margin:0;background:var(--bg);color:var(--txt);padding:24px}
   h1{font-size:22px;margin:0 0 4px}
-  .sub{color:#94a3b8;font-size:13px;margin-bottom:20px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-  @media(max-width:860px){.grid{grid-template-columns:1fr}}
-  .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
-  label{display:block;font-size:13px;margin:10px 0 4px;color:#cbd5e1}
-  input[type=text],input[type=number],textarea,select{width:100%;background:#0b1220;border:1px solid #334155;color:var(--txt);border-radius:8px;padding:8px;font-size:13px}
-  button{margin-top:14px;background:var(--acc);color:#04121f;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  .bar{height:10px;border-radius:6px;background:#334155;overflow:hidden;margin-top:6px}
-  .bar > i{display:block;height:100%}
-  .tag{display:inline-block;background:#0b1220;border:1px solid #334155;border-radius:6px;padding:3px 8px;margin:3px;font-size:12px}
-  pre{white-space:pre-wrap;background:#0b1220;border-radius:8px;padding:12px;font-size:12px;line-height:1.5}
+  .sub{color:#94a3b8;font-size:13px;margin-bottom:14px}
+  .note{color:#64748b;font-size:11px;margin-top:6px}
+  .bar-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  select,input[type=text],input[type=number],textarea{background:#0b1220;border:1px solid #334155;color:var(--txt);border-radius:8px;padding:8px;font-size:13px}
+  button{background:var(--acc);color:#04121f;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
   .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:900px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 4px 18px rgba(0,0,0,.25);margin-bottom:18px}
+  .card h3{margin:0 0 12px;font-size:15px}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
+  .kpi .v{font-size:24px;font-weight:700}
+  .kpi .l{color:#94a3b8;font-size:12px;margin-top:4px}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{padding:8px;border-bottom:1px solid #334155;text-align:left}
+  th,td{padding:7px 8px;border-bottom:1px solid #334155;text-align:left}
   th{color:#94a3b8;font-weight:600}
-  .hide{display:none}
+  .tag{display:inline-block;background:#0b1220;border:1px solid #334155;border-radius:6px;padding:3px 8px;margin:3px;font-size:12px}
+  .bar{height:14px;border-radius:6px;background:#334155;overflow:hidden;margin-top:4px}
+  .bar > i{display:block;height:100%;background:var(--acc)}
+  .warnbox{background:rgba(248,113,113,.12);border:1px solid var(--bad);border-radius:8px;padding:10px;margin-top:8px;font-size:13px}
+  .alert{background:rgba(251,191,36,.12);border-left:3px solid var(--warn);padding:8px 10px;margin-top:8px;border-radius:4px;font-size:13px}
+  pre{white-space:pre-wrap;background:#0b1220;border-radius:8px;padding:12px;font-size:12px;line-height:1.5}
+  .sup{display:flex;justify-content:space-between;align-items:center;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;margin-top:6px;font-size:13px}
   .err{color:var(--bad);font-size:12px;margin-top:8px}
+  details{margin-top:8px} summary{cursor:pointer;font-weight:600;color:var(--acc)}
+  label{display:block;font-size:13px;margin:10px 0 4px;color:#cbd5e1}
+  .hide{display:none}
 </style>
 </head>
 <body>
-  <h1>ReturnGuard · 退件法医</h1>
-  <div class="sub">跨境退货举证官 Demo（AI 市场洞察赛道）· 个案举证 → 群体洞察双闭环</div>
+  <h1>ReturnGuard · 退货情报站</h1>
+  <div class="sub">AI 市场洞察赛道 · 退货负面信号 → 选品 / 品控情报（取证为数据采集管道，洞察才是产品）</div>
+
+  <div class="bar-top">
+    <select id="catSel"><option value="">全部品类</option></select>
+    <select id="platSel"><option value="">全部平台</option></select>
+    <select id="insMode">
+      <option value="mock" selected>洞察模式：mock（规则归因）</option>
+      <option value="live">洞察模式：live（LLM 归因，需 Key）</option>
+    </select>
+    <button id="loadIns">刷新洞察</button>
+    <span id="insModeTag" class="pill"></span>
+    <span id="scopeTag" class="pill" style="background:#334155"></span>
+  </div>
+
+  <!-- KPI -->
+  <div class="kpis">
+    <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">沉淀案件数</div></div>
+    <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款 ¥</div></div>
+    <div class="kpi"><div class="v" id="kWin">-</div><div class="l">综合胜诉率</div></div>
+    <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">平均纠纷率</div></div>
+  </div>
 
   <div class="grid">
-    <!-- 取证 -->
+    <!-- 品类热力 -->
     <div class="card">
-      <h3 style="margin-top:0">① 单案举证</h3>
+      <h3>① 品类退货热力</h3>
+      <table id="catTbl"><thead><tr><th>品类</th><th>案件</th><th>退款¥</th><th>胜诉率</th><th>头号缺陷</th></tr></thead><tbody></tbody></table>
+      <div class="note">行底色越红=纠纷率越高，直观定位"钱漏在哪个品类"。</div>
+    </div>
+
+    <!-- 根因归因 -->
+    <div class="card">
+      <h3>② 退货根因归因</h3>
+      <div id="rootDist"></div>
+      <pre id="rootCause" style="margin-top:10px"></pre>
+    </div>
+
+    <!-- 供应商红黑榜 -->
+    <div class="card">
+      <h3>③ 供应商红黑榜（质量分）</h3>
+      <div id="supBlack"></div>
+      <div id="supRed" style="margin-top:8px"></div>
+    </div>
+
+    <!-- 平台对比 -->
+    <div class="card">
+      <h3>④ 平台胜诉对比</h3>
+      <table id="platTbl"><thead><tr><th>平台</th><th>案件</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
+      <div class="note">买家友好型平台（AliExpress / PayPal）普遍胜诉率更低，举证需更硬。</div>
+    </div>
+  </div>
+
+  <!-- 异常预警 -->
+  <div class="card">
+    <h3>⑤ 异常预警（近期纠纷环比）</h3>
+    <div id="alerts"><span class="note">无异常。</span></div>
+  </div>
+
+  <!-- SKU 明细 -->
+  <div class="card">
+    <h3>⑥ SKU 纠纷明细排行（按退款金额）</h3>
+    <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>案件</th><th>退款¥</th><th>胜诉率</th><th>头号缺陷</th><th>预警</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <!-- 报告 + 建议 -->
+  <div class="grid">
+    <div class="card">
+      <h3>⑦ 《选品 / 品控洞察报告》</h3>
+      <pre id="report"></pre>
+    </div>
+    <div class="card">
+      <h3>⑧ 选品避坑 / 品控建议</h3>
+      <div id="advice"></div>
+    </div>
+  </div>
+  <div class="note">数据说明：当前为模拟退货数据集（演示用），结构与真实取证流水一致；接入真实数据后可一键替换，洞察层无需改动。</div>
+
+  <!-- 单案举证（次级，数据采集入口） -->
+  <details style="margin-top:22px">
+    <summary>⑨ 单案举证（数据采集管道）· 点击展开</summary>
+    <div class="card" style="margin-top:10px">
       <form id="f">
         <label>退回商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
         <label>本店主图 / 详情图 *</label><input type="file" name="product_image" accept="image/*" required>
-        <label>SKU</label><input type="text" name="sku" value="SKU-1001">
+        <label>SKU</label><input type="text" name="sku" value="SKU-3C01">
         <label>订单金额 (¥)</label><input type="number" name="amount" value="120" step="0.01">
         <label>Listing 承诺文本（可选）</label><textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
         <label>运行模式</label>
@@ -64,23 +150,113 @@
         <audio id="audio" controls style="margin-top:6px;width:100%"></audio>
       </div>
     </div>
-
-    <!-- 洞察 -->
-    <div class="card">
-      <h3 style="margin-top:0">② 群体洞察看板</h3>
-      <button id="loadIns" style="margin-top:0">刷新洞察</button>
-      <div style="margin-top:12px">案件总数：<b id="total"></b></div>
-      <div style="margin-top:10px">高纠纷 SKU 排行：</div>
-      <table id="rank"><thead><tr><th>SKU</th><th>案件</th><th>均相似度</th><th>退款¥</th><th>高发问题</th></tr></thead><tbody></tbody></table>
-      <div style="margin-top:12px">缺陷分布：<span id="defdist"></span></div>
-      <div style="margin-top:12px">选品 / 品控建议：</div>
-      <pre id="recs"></pre>
-    </div>
-  </div>
+  </details>
 
 <script>
 const $ = s => document.querySelector(s);
-function color(p){return p>=0.82?'var(--ok)':p>=0.65?'var(--warn)':'var(--bad)';}
+const pct = x => (x*100).toFixed(0) + '%';
+const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
+
+async function loadInsights(){
+  const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
+  const qs=new URLSearchParams({mode});
+  if(cat) qs.set('category',cat);
+  if(plat) qs.set('platform',plat);
+  const r=await fetch('/api/insights?'+qs.toString()); const d=await r.json();
+  $('#insModeTag').textContent=d.mode||mode;
+  $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
+  $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台');
+  if(d.error) $('#insModeTag').textContent+=' (回退mock)';
+
+  // KPI
+  $('#kTotal').textContent=d.total_cases;
+  $('#kRefund').textContent=Number(d.total_refund||0).toLocaleString();
+  $('#kWin').textContent=pct(d.win_rate||0);
+  $('#kWin').style.color=wrColor(d.win_rate||0);
+  $('#kDisp').textContent=pct(d.avg_dispute_rate||0);
+  $('#kDisp').style.color='var(--bad)';
+
+  // 品类热力
+  const ct=$('#catTbl').querySelector('tbody'); ct.innerHTML='';
+  (d.category_heatmap||[]).forEach(x=>{
+    const a=Math.min(0.5,(x.dispute_rate||0)*0.7);
+    const tr=document.createElement('tr');
+    tr.style.background=`rgba(248,113,113,${a.toFixed(2)})`;
+    tr.innerHTML=`<td>${x.category}</td><td>${x.cases}</td><td>${x.refund}</td>`
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td><td>${x.top_defect}</td>`;
+    ct.appendChild(tr);
+  });
+
+  // 根因归因
+  const rd=$('#rootDist'); rd.innerHTML='';
+  const rc=d.root_cause_dist||{}; const rmax=Math.max(1,...Object.values(rc));
+  Object.entries(rc).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    const div=document.createElement('div'); div.style.marginTop='6px';
+    div.innerHTML=`<div style="font-size:12px;display:flex;justify-content:space-between"><span>${k}</span><span>${v} 笔</span></div>`
+      +`<div class="bar"><i style="width:${Math.round(v/rmax*100)}%;background:var(--warn)"></i></div>`;
+    rd.appendChild(div);
+  });
+  $('#rootCause').textContent=d.root_cause||'-';
+
+  // 供应商红黑榜
+  const sc=d.supplier_scorecard||[];
+  const black=sc.filter(s=>s.level==='高风险');
+  const red=sc.slice(-3).reverse();
+  const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">黑榜 · 高风险供应商</div>';
+  (black.length?black:sc.slice(0,1)).forEach(s=>{
+    const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
+    div.innerHTML=`<span><b>${s.supplier}</b> ${s.name}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
+      +`<span class="pill" style="background:var(--bad)">质量分 ${s.quality_score}</span>`;
+    sg.appendChild(div);
+  });
+  const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">红榜 · 优质供应商</div>';
+  red.forEach(s=>{
+    const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--ok)';
+    div.innerHTML=`<span><b>${s.supplier}</b> ${s.name}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
+      +`<span class="pill" style="background:var(--ok)">质量分 ${s.quality_score}</span>`;
+    sr.appendChild(div);
+  });
+
+  // 平台对比
+  const pt=$('#platTbl').querySelector('tbody'); pt.innerHTML='';
+  (d.platform_view||[]).forEach(x=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${x.platform}</td><td>${x.cases}</td>`
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td><td>${x.refund}</td>`;
+    pt.appendChild(tr);
+  });
+
+  // 异常预警
+  const al=$('#alerts'); al.innerHTML='';
+  (d.anomaly_alerts||[]).forEach(a=>{
+    const div=document.createElement('div'); div.className='alert';
+    div.textContent='⚠ '+a.reason; al.appendChild(div);
+  });
+  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">未检测到近期纠纷集中爆发。</span>';
+
+  // SKU 明细
+  const st=$('#skuTbl').querySelector('tbody'); st.innerHTML='';
+  (d.sku_ranking||[]).slice(0,15).forEach(x=>{
+    const tr=document.createElement('tr');
+    if(x.anomaly) tr.style.background='rgba(251,191,36,.12)';
+    tr.innerHTML=`<td>${x.sku}</td><td>${x.category}</td><td>${x.supplier}</td>`
+      +`<td>${x.cases}</td><td>${x.refund}</td>`
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`
+      +`<td>${x.top_defect}</td><td>${x.anomaly?'⚠':'-'}</td>`;
+    st.appendChild(tr);
+  });
+
+  // 报告 + 建议
+  $('#report').textContent=d.report||'-';
+  const adv=$('#advice'); adv.innerHTML='';
+  (d.sourcing_advice||d.recommendations||[]).forEach(t=>{
+    const div=document.createElement('div'); div.style.cssText='background:#0b1220;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:8px;font-size:13px';
+    div.textContent='▸ '+t; adv.appendChild(div);
+  });
+  if(d.error) $('#report').textContent+='\n[注意] live 失败已回退 mock：'+d.error;
+}
+
+// 单案举证
 async function doAnalyze(e){
   e.preventDefault();
   $('#err').textContent=''; $('#res').classList.add('hide');
@@ -92,7 +268,7 @@ async function doAnalyze(e){
     if(!r.ok) throw new Error(d.detail||'请求失败');
     $('#sim').textContent=d.similarity;
     $('#simbar').style.width=Math.round(d.similarity*100)+'%';
-    $('#simbar').style.background=color(d.similarity);
+    $('#simbar').style.background=d.similarity>=0.82?'var(--ok)':'var(--bad)';
     $('#same').textContent=d.same_item?'同一件':'疑似调包/非同款';
     $('#same').style.background=d.same_item?'var(--ok)':'var(--bad)';
     $('#cons').textContent=d.consistency;
@@ -105,20 +281,20 @@ async function doAnalyze(e){
   }catch(err){ $('#err').textContent='错误：'+err.message; }
   finally{ btn.disabled=false; btn.textContent='开始取证'; }
 }
-async function loadInsights(){
-  const r=await fetch('/api/insights'); const d=await r.json();
-  $('#total').textContent=d.total_cases;
-  const tb=$('#rank').querySelector('tbody'); tb.innerHTML='';
-  (d.sku_ranking||[]).forEach(x=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${x.sku}</td><td>${x.cases}</td><td>${x.avg_similarity}</td><td>${x.refund}</td><td>${x.top_defect}</td>`;
-    tb.appendChild(tr);
-  });
-  $('#defdist').innerHTML=Object.entries(d.defect_distribution||{}).map(([k,v])=>`<span class="tag">${k}: ${v}</span>`).join('');
-  $('#recs').textContent=(d.recommendations||[]).join('\n');
-}
+
+// 初始化筛选下拉
+(async function init(){
+  const r=await fetch('/api/insights?mode=mock'); const d=await r.json();
+  const cats=[...new Set((d.category_heatmap||[]).map(x=>x.category))];
+  const plats=[...new Set((d.platform_view||[]).map(x=>x.platform))];
+  cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#catSel').appendChild(o);});
+  plats.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;$('#platSel').appendChild(o);});
+})();
+
 $('#f').addEventListener('submit',doAnalyze);
 $('#loadIns').addEventListener('click',loadInsights);
+$('#catSel').addEventListener('change',loadInsights);
+$('#platSel').addEventListener('change',loadInsights);
 loadInsights();
 </script>
 </body>
