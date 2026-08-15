@@ -133,23 +133,9 @@ def analyze_case(returned_path, product_path, listing_text, sku, amount, mode="m
 
 
 # ===================== 案件持久化（数据沉淀）=====================
-def load_cases(path):
-    """读取案件库（cases.json）。文件损坏/缺失时返回空列表，避免崩溃。"""
-    if not os.path.exists(path):
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return []
-
-
-def save_case(path, case):
-    """把一单取证结果追加写入案件库（这是阶段B洞察的数据来源）。"""
-    cases = load_cases(path)
-    cases.append(case)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(cases, f, ensure_ascii=False, indent=2)
+# 持久化已迁移到 db.py（SQLAlchemy 仓储层，SQLite / openGauss 双轨）。
+# 这里只做 re-export，保持 main.py 的 import 路径不变。
+from db import load_cases, save_case
 
 
 # ===================== 阶段B · 群体洞察（功能⑥）=====================
@@ -293,7 +279,7 @@ def _aggregate(cases):
     # 注：跳过"未知"供应商——没记录供货方无从"换供"，且会污染红黑榜可读性。
     supplier_scorecard = []
     for k, v in sup.items():
-        if k == "未知":
+        if not k or k == "未知":   # 跳过缺失/未知供应商，避免污染红黑榜可读性
             continue
         defect_rate = round(v["real"] / v["cases"], 3) if v["cases"] else 0
         wr = round(v["won"] / v["cases"], 3) if v["cases"] else 0

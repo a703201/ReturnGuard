@@ -11,6 +11,7 @@
 
 import os
 import uuid
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -18,15 +19,22 @@ from fastapi.staticfiles import StaticFiles
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
 from pipeline import analyze_case, load_cases, save_case, build_insights
+from db import init_db   # 数据持久层（SQLite / openGauss 双轨）
 
 # ---- 路径配置 ----
 BASE = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE, "uploads")          # 上传图片临时目录
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-CASES_FILE = os.path.join(BASE, "cases.json")        # 案件库（阶段B 的数据来源）
 INDEX = os.path.join(BASE, "static", "index.html")   # 前端页面
 
-app = FastAPI(title="ReturnGuard Demo")
+@asynccontextmanager
+async def lifespan(app):
+    """服务启动时初始化数据库（建表 + 首次从 cases.json 导入种子数据）。"""
+    init_db()
+    yield
+
+
+app = FastAPI(title="ReturnGuard Demo", lifespan=lifespan)
 # 把 static 目录挂成 /static，前端可加载其中的资源
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
 
@@ -67,7 +75,7 @@ async def analyze(
     result["case_id"] = rid
 
     # 数据沉淀：把这一单写入案件库，阶段B 洞察才有"米"下锅
-    save_case(CASES_FILE, {
+    save_case({
         **result, "sku": sku, "amount": amount,
         "returned_image": os.path.basename(rp),
         "product_image": os.path.basename(pp),
@@ -85,7 +93,7 @@ def insights(mode: str = "mock", category: str = "", platform: str = ""):
         platform 按平台下钻（可选）
     返回：KPI、品类热力、根因归因、供应商红黑榜、平台对比、异常预警、SKU明细、洞察报告、选品建议。
     """
-    cases = load_cases(CASES_FILE)
+    cases = load_cases()
     if category:
         cases = [c for c in cases if c.get("category") == category]
     if platform:
@@ -96,7 +104,7 @@ def insights(mode: str = "mock", category: str = "", platform: str = ""):
 @app.get("/api/cases")
 def cases():
     """查看已沉淀的案件库（调试/演示用）。"""
-    return JSONResponse(load_cases(CASES_FILE))
+    return JSONResponse(load_cases())
 
 
 if __name__ == "__main__":
