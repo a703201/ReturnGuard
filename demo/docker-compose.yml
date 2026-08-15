@@ -1,5 +1,5 @@
 # ============================================================
-# ReturnGuard · 容器编排（openEuler 主机上 docker compose up -d）
+# ReturnGuard · 容器编排（openGauss 基于 openEuler 基底容器，docker compose up -d）
 # 两个服务：
 #   db  —— openGauss 7.0.0-RC3（华为开源国产库，兼容 PostgreSQL 协议；
 #          Docker Hub 无 6.0.x tag，故用当前可拉的 7.0.0-RC3.B025）
@@ -27,13 +27,14 @@ services:
       - "5432:5432"              # 对外暴露，便于运维/本地直连（生产可仅留内网）
     volumes:
       - ogdata:/var/lib/opengauss   # 数据持久化，容器重建不丢数据
+    shm_size: 1gb            # openGauss/PostgreSQL 类数据库需要足够共享内存
     healthcheck:
-      # openGauss 镜像基于 openEuler，自带 bash，可用 /dev/tcp 探活
-      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/5432'"]
+      # openGauss 镜像基于 openEuler，自带 bash；用 /dev/tcp 探测 5432 是否真在监听
+      test: ["CMD-SHELL", "timeout 5 bash -c 'cat < /dev/tcp/127.0.0.1/5432'"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 60s
+      retries: 18            # 首次初始化可能较慢，给足 3min 缓冲
+      start_period: 120s
     restart: unless-stopped
 
   # ---------- ReturnGuard 应用 ----------
