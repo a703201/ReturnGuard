@@ -1,0 +1,46 @@
+# ============================================================
+# ReturnGuard · 本地验证兜底编排（PostgreSQL 版）
+# 用途：当 openGauss 镜像在 Docker Desktop/WSL2 等环境下实在起不来时，
+#       用官方 PostgreSQL 容器做本地全链路验证，业务代码零改动。
+# 运行：docker compose -f docker-compose.pg.yml up -d
+# ============================================================
+name: returnguard
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: rg_postgres
+    environment:
+      POSTGRES_USER: gaussdb
+      POSTGRES_PASSWORD: ${GS_PASSWORD:-Gauss-2026}
+      POSTGRES_DB: returnguard
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gaussdb -d returnguard"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: rg_app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+      MODEL_ROUTER_API_KEY: ${MODEL_ROUTER_API_KEY:-}
+      MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-}
+      PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

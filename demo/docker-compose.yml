@@ -2,7 +2,7 @@
 # ReturnGuard · 容器编排（openGauss 基于 openEuler 基底容器，docker compose up -d）
 # 两个服务：
 #   db  —— openGauss 5.0.0（华为开源国产库，兼容 PostgreSQL 协议；
-#          Docker Hub 稳定 LTS tag，支持 GS_USERNAME/GS_DB 初始化）
+#          使用社区维护更稳定的 enmotech/opengauss:5.0.0）
 #   app —— ReturnGuard FastAPI 应用（本目录 Dockerfile 构建）
 # 双轨切换：app 的 DATABASE_URL 指向 db 服务即可，业务代码零改动。
 # ============================================================
@@ -11,15 +11,17 @@ name: returnguard
 services:
   # ---------- 国产数据库 openGauss ----------
   db:
-    # Docker Hub 上 opengauss/opengauss 仓库无 6.0.x 稳定 tag；
-    # 7.0.0-RC3 预览版镜像存在缺库(libopenblas.so.0)bug，容器无法启动。
-    # 5.0.0 为官方 LTS 稳定版，同样支持 GS_USERNAME/GS_DB，本地/初赛验证首选。
-    # 生产如需 6.x 稳定版请走华为云 SWR 或 OBS tar 包。
-    image: opengauss/opengauss:5.0.0
+    # 说明：
+    # - opengauss/opengauss 官方仓库在 Docker Hub 上无 6.0.x 稳定 tag；
+    # - 7.0.0-RC3 预览版镜像存在缺库(libopenblas.so.0)bug，容器无法启动；
+    # - opengauss/opengauss:5.0.0 在 Docker Desktop(WSL2) 下偶发 cgroup/内存不稳；
+    # - enmotech/opengauss:5.0.0 为国内社区最常用的稳定镜像，与官方协议/参数兼容。
+    image: enmotech/opengauss:5.0.0
     container_name: rg_opengauss
     privileged: true            # openGauss 需调整内核参数，必须提权
     environment:
-      GS_PASSWORD: ${GS_PASSWORD:-Gauss@2026}   # 必填：omm 与 gaussdb 用户密码
+      # 默认密码 Gauss-2026（注意：不含 @/# 等 URL 保留字符，避免 DATABASE_URL 解析错误）
+      GS_PASSWORD: ${GS_PASSWORD:-Gauss-2026}
       GS_USERNAME: gaussdb       # 业务连接用户（默认即 gaussdb）
       GS_DB: returnguard         # 初始化时自动创建的库
       GS_PORT: 5432
@@ -28,15 +30,16 @@ services:
       - "5432:5432"              # 对外暴露，便于运维/本地直连（生产可仅留内网）
     volumes:
       - ogdata:/var/lib/opengauss   # 数据持久化，容器重建不丢数据
-    shm_size: 1gb            # openGauss/PostgreSQL 类数据库需要足够共享内存
+    shm_size: 2gb            # openGauss/PostgreSQL 类数据库需要足够共享内存；WSL2 建议 ≥2GB
+    # 重要：Docker Desktop WSL2 请确保内存 ≥4GB（Settings → Resources → Memory）
     healthcheck:
-      # /dev/tcp 探测在 openGauss 5.0.0 容器内不工作，改用自带的 gsql 执行 SELECT 1。
-      # 需显式设置 LD_LIBRARY_PATH，密码用 PGPASSWORD 传入（容器内本地连接仍需密码）。
-      test: ["CMD-SHELL", "LD_LIBRARY_PATH=/usr/local/opengauss/lib PGPASSWORD=${GS_PASSWORD:-Gauss@2026} /usr/local/opengauss/bin/gsql -U gaussdb -d postgres -h 127.0.0.1 -p 5432 -c 'SELECT 1;' || exit 1"]
+      # /dev/tcp 与 gsql 在该镜像初始化阶段均不够稳，改用进程探测：
+      # gaussdb 主进程存在即认为数据库已启动（应用 entrypoint 会再做 TCP 端口确认）。
+      test: ["CMD-SHELL", "pgrep -x gaussdb > /dev/null 2>&1 || exit 1"]
       interval: 10s
-      timeout: 10s
-      retries: 18            # 首次初始化可能较慢，给足 3min 缓冲
-      start_period: 120s
+      timeout: 5s
+      retries: 30            # 首次初始化可能较慢，给足 5min 缓冲
+      start_period: 180s
     restart: unless-stopped
 
   # ---------- ReturnGuard 应用 ----------
@@ -48,7 +51,8 @@ services:
         condition: service_healthy   # 等 openGauss 真正可连再起应用
     environment:
       # 双轨切换核心：部署期用 openGauss（postgresql+psycopg2 方言，协议兼容）
-      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss@2026}@db:5432/returnguard
+      # 密码里不含 @/#，可直接写明文；若后续改含保留字符的密码，需 URL 编码。
+      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
       MODEL_ROUTER_API_KEY: ${MODEL_ROUTER_API_KEY:-}
       MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-}
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
