@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ReturnGuard · 退货情报站</title>
+<title>退件法医 · 退货情报站</title>
 <style>
   :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0}
   *{box-sizing:border-box;font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
   body{margin:0;background:var(--bg);color:var(--txt);padding:24px}
   h1{font-size:22px;margin:0 0 4px}
-  .sub{color:#94a3b8;font-size:13px;margin-bottom:14px}
-  .note{color:#64748b;font-size:11px;margin-top:6px}
+  .sub{color:#94a3b8;font-size:13px;margin-bottom:14px;line-height:1.5}
+  .note{color:#64748b;font-size:11px;margin-top:6px;line-height:1.5}
   .bar-top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
   select,input[type=text],input[type=number],textarea{background:#0b1220;border:1px solid #334155;color:var(--txt);border-radius:8px;padding:8px;font-size:13px}
   button{background:var(--acc);color:#04121f;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
@@ -18,12 +18,14 @@
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   @media(max-width:900px){.grid{grid-template-columns:1fr}}
   .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 4px 18px rgba(0,0,0,.25);margin-bottom:18px}
-  .card h3{margin:0 0 12px;font-size:15px}
+  .card h3{margin:0 0 6px;font-size:15px}
+  .card .desc{color:#94a3b8;font-size:12px;margin:0 0 12px;line-height:1.5}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
   @media(max-width:760px){.kpis{grid-template-columns:repeat(2,1fr)}}
   .kpi{background:var(--card);border-radius:12px;padding:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}
   .kpi .v{font-size:24px;font-weight:700}
   .kpi .l{color:#94a3b8;font-size:12px;margin-top:4px}
+  .kpi .h{color:#64748b;font-size:10.5px;margin-top:3px;line-height:1.4}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{padding:7px 8px;border-bottom:1px solid #334155;text-align:left}
   th{color:#94a3b8;font-weight:600}
@@ -41,111 +43,119 @@
 </style>
 </head>
 <body>
-  <h1>ReturnGuard · 退货情报站</h1>
-  <div class="sub">AI 市场洞察赛道 · 退货负面信号 → 选品 / 品控情报（取证为数据采集管道，洞察才是产品）</div>
+  <h1>退件法医 · 退货情报站</h1>
+  <div class="sub">一句话：把每一笔退货变成"市场情报"。系统帮你少赔一单纠纷，更能看清"钱到底亏在哪些品类、哪些供应商"，反过来指导你下次卖什么、找谁供货。<br>
+  （左边是给老板看的「洞察看板」，是产品真正的主角；下面折叠的"一笔退货举证"只是往里喂数据的入口。）</div>
 
   <div class="bar-top">
     <select id="catSel"><option value="">全部品类</option></select>
     <select id="platSel"><option value="">全部平台</option></select>
     <select id="insMode">
-      <option value="mock" selected>洞察模式：mock（规则归因）</option>
-      <option value="live">洞察模式：live（LLM 归因，需 Key）</option>
+      <option value="mock" selected>洞察模式：演示数据（无需联网）</option>
+      <option value="live">洞察模式：AI 实算（需联网 Key）</option>
     </select>
-    <button id="loadIns">刷新洞察</button>
+    <button id="loadIns">刷新看板</button>
     <span id="insModeTag" class="pill"></span>
     <span id="scopeTag" class="pill" style="background:#334155"></span>
   </div>
 
-  <!-- KPI -->
+  <!-- KPI：老板最关心的总账 -->
   <div class="kpis">
-    <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">沉淀案件数</div></div>
-    <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款 ¥</div></div>
-    <div class="kpi"><div class="v" id="kWin">-</div><div class="l">综合胜诉率</div></div>
-    <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">平均纠纷率</div></div>
+    <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">已分析退货</div><div class="h">系统帮你看过多少笔退货纠纷</div></div>
+    <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款</div><div class="h">这些退货一共退给买家多少钱</div></div>
+    <div class="kpi"><div class="v" id="kWin">-</div><div class="l">维权胜诉率</div><div class="h">你成功挽回（没白赔）的比例</div></div>
+    <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">平均退货争议率</div><div class="h">退货里"说不清是不是你的问题"的占比</div></div>
   </div>
 
   <div class="grid">
-    <!-- 品类热力 -->
+    <!-- ① 品类热力 -->
     <div class="card">
-      <h3>① 品类退货热力</h3>
-      <table id="catTbl"><thead><tr><th>品类</th><th>案件</th><th>退款¥</th><th>胜诉率</th><th>头号缺陷</th></tr></thead><tbody></tbody></table>
-      <div class="note">行底色越红=纠纷率越高，直观定位"钱漏在哪个品类"。</div>
+      <h3>① 钱都亏在哪些品类</h3>
+      <p class="desc">退货热力图：哪类商品退货最多、最亏钱、最难赢。行越红=越该警惕，一眼看出"钱漏在哪儿"。</p>
+      <table id="catTbl"><thead><tr><th>品类</th><th>退货笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody></tbody></table>
     </div>
 
-    <!-- 根因归因 -->
+    <!-- ② 根因归因 -->
     <div class="card">
-      <h3>② 退货根因归因</h3>
+      <h3>② 退货到底为什么发生</h3>
+      <p class="desc">把退货原因归到几大类（包装？供应商质量？商品页吹过头？），告诉你最该先治哪一环。</p>
       <div id="rootDist"></div>
       <pre id="rootCause" style="margin-top:10px"></pre>
     </div>
 
-    <!-- 供应商红黑榜 -->
+    <!-- ③ 供应商红黑榜 -->
     <div class="card">
-      <h3>③ 供应商红黑榜（质量分）</h3>
+      <h3>③ 哪些供应商最该换</h3>
+      <p class="desc">按退货缺陷率和胜诉率给每个供应商打"质量分"。黑榜=高风险建议换，红榜=靠谱可长期合作。</p>
       <div id="supBlack"></div>
       <div id="supRed" style="margin-top:8px"></div>
     </div>
 
-    <!-- 平台对比 -->
+    <!-- ④ 平台对比 -->
     <div class="card">
-      <h3>④ 平台胜诉对比</h3>
-      <table id="platTbl"><thead><tr><th>平台</th><th>案件</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
-      <div class="note">买家友好型平台（AliExpress / PayPal）普遍胜诉率更低，举证需更硬。</div>
+      <h3>④ 各平台维权难度</h3>
+      <p class="desc">不同平台判买家赢的倾向不同。买家友好型平台（如 AliExpress/PayPal）普遍更难赢，举证要更硬。</p>
+      <table id="platTbl"><thead><tr><th>平台</th><th>退货笔数</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
     </div>
   </div>
 
-  <!-- 异常预警 -->
+  <!-- ⑤ 异常预警 -->
   <div class="card">
-    <h3>⑤ 异常预警（近期纠纷环比）</h3>
-    <div id="alerts"><span class="note">无异常。</span></div>
+    <h3>⑤ 最近突然暴增的退货</h3>
+    <p class="desc">监控近期（30天）比前期明显增多的商品，提前发现批次/物流/供应商问题，及时止损。</p>
+    <div id="alerts"><span class="note">暂无异常。</span></div>
   </div>
 
-  <!-- SKU 明细 -->
+  <!-- ⑥ SKU 明细 -->
   <div class="card">
-    <h3>⑥ SKU 纠纷明细排行（按退款金额）</h3>
-    <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>案件</th><th>退款¥</th><th>胜诉率</th><th>头号缺陷</th><th>预警</th></tr></thead><tbody></tbody></table>
+    <h3>⑥ 最烧钱的退货商品排行</h3>
+    <p class="desc">按退款金额排的退货商品清单。点开看每个商品的高发问题，决定要不要下架、换供或改描述。</p>
+    <table id="skuTbl"><thead><tr><th>商品SKU</th><th>品类</th><th>供应商</th><th>退货笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
   </div>
 
-  <!-- 报告 + 建议 -->
+  <!-- ⑦⑧ 报告 + 建议 -->
   <div class="grid">
     <div class="card">
-      <h3>⑦ 《选品 / 品控洞察报告》</h3>
+      <h3>⑦ 给老板的洞察总结</h3>
+      <p class="desc">一段话讲清本期退货全貌，不用懂技术也能拿去汇报。</p>
       <pre id="report"></pre>
     </div>
     <div class="card">
-      <h3>⑧ 选品避坑 / 品控建议</h3>
+      <h3>⑧ 下一步该怎么做</h3>
+      <p class="desc">落到动作的选品避坑与品控建议：换谁、改什么、停哪个推广。</p>
       <div id="advice"></div>
     </div>
   </div>
-  <div class="note">数据说明：当前为模拟退货数据集（演示用），结构与真实取证流水一致；接入真实数据后可一键替换，洞察层无需改动。</div>
+  <div class="note">数据说明：当前看板用的是一批"模拟退货数据"（演示用），结构和你真实退货流水一致；接上你自己的退货记录后可一键替换，看板无需改动。</div>
 
   <!-- 单案举证（次级，数据采集入口） -->
   <details style="margin-top:22px">
-    <summary>⑨ 单案举证（数据采集管道）· 点击展开</summary>
+    <summary>⑨ 一笔退货怎么快速举证（往看板喂数据）· 点击展开</summary>
     <div class="card" style="margin-top:10px">
+      <p class="desc" style="margin-top:0">上传退货商品图 + 你店里原本的商品图，系统自动比对是不是同一件、有没有破损/缺件，并生成一份能直接提交平台仲裁的举证材料（含语音）。每处理一单，上面的看板就多一份数据。</p>
       <form id="f">
-        <label>退回商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
-        <label>本店主图 / 详情图 *</label><input type="file" name="product_image" accept="image/*" required>
-        <label>SKU</label><input type="text" name="sku" value="SKU-3C01">
-        <label>订单金额 (¥)</label><input type="number" name="amount" value="120" step="0.01">
-        <label>Listing 承诺文本（可选）</label><textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
-        <label>运行模式</label>
+        <label>退货商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
+        <label>店里原本的商品图 *</label><input type="file" name="product_image" accept="image/*" required>
+        <label>商品编号 SKU</label><input type="text" name="sku" value="SKU-3C01">
+        <label>这笔订单金额 (¥)</label><input type="number" name="amount" value="120" step="0.01">
+        <label>商品页承诺（可选，如"全新未拆/30天退换"）</label><textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
+        <label>运行方式</label>
         <select name="mode">
-          <option value="mock" selected>mock（无需 Key，立即可演示）</option>
-          <option value="live">live（需 MODEL_ROUTER_API_KEY + 可公网图片）</option>
+          <option value="mock" selected>演示（无需联网，立即可看）</option>
+          <option value="live">真实 AI（需联网 Key + 可公网访问的图片）</option>
         </select>
-        <button type="submit" id="btn">开始取证</button>
+        <button type="submit" id="btn">开始举证</button>
       </form>
       <div id="err" class="err"></div>
       <div id="res" class="hide" style="margin-top:14px">
-        <div>同款一致性相似度：<b id="sim"></b></div>
+        <div>这俩是不是同一件？<b id="sim"></b>（越接近 100% 越像你店里的原货；低则疑似调包/非同款）</div>
         <div class="bar"><i id="simbar"></i></div>
-        <div style="margin-top:8px">是否同一件：<span id="same" class="pill"></span> · 一致性：<span id="cons"></span></div>
-        <div style="margin-top:8px">瑕疵标签：<span id="defects"></span></div>
-        <div style="margin-top:8px">优先级评分：<b id="prio"></b></div>
-        <div style="margin-top:10px">举证报告：</div>
+        <div style="margin-top:8px">判断：<span id="same" class="pill"></span> · 和商品页描述是否一致：<span id="cons"></span></div>
+        <div style="margin-top:8px">发现的问题：<span id="defects"></span></div>
+        <div style="margin-top:8px">优先处理级别：<b id="prio"></b>（越高越该先救这一单）</div>
+        <div style="margin-top:10px">自动生成的举证材料：</div>
         <pre id="dossier"></pre>
-        <div style="margin-top:8px">母语语音陈述：</div>
+        <div style="margin-top:8px">可直接播放给客服/仲裁方的语音说明：</div>
         <pre id="vtext"></pre>
         <audio id="audio" controls style="margin-top:6px;width:100%"></audio>
       </div>
@@ -166,7 +176,7 @@ async function loadInsights(){
   $('#insModeTag').textContent=d.mode||mode;
   $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
   $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台');
-  if(d.error) $('#insModeTag').textContent+=' (回退mock)';
+  if(d.error) $('#insModeTag').textContent+=' (已切回演示)';
 
   // KPI
   $('#kTotal').textContent=d.total_cases;
@@ -176,7 +186,7 @@ async function loadInsights(){
   $('#kDisp').textContent=pct(d.avg_dispute_rate||0);
   $('#kDisp').style.color='var(--bad)';
 
-  // 品类热力
+  // ① 品类热力
   const ct=$('#catTbl').querySelector('tbody'); ct.innerHTML='';
   (d.category_heatmap||[]).forEach(x=>{
     const a=Math.min(0.5,(x.dispute_rate||0)*0.7);
@@ -187,7 +197,7 @@ async function loadInsights(){
     ct.appendChild(tr);
   });
 
-  // 根因归因
+  // ② 根因归因
   const rd=$('#rootDist'); rd.innerHTML='';
   const rc=d.root_cause_dist||{}; const rmax=Math.max(1,...Object.values(rc));
   Object.entries(rc).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
@@ -198,18 +208,18 @@ async function loadInsights(){
   });
   $('#rootCause').textContent=d.root_cause||'-';
 
-  // 供应商红黑榜
+  // ③ 供应商红黑榜
   const sc=d.supplier_scorecard||[];
   const black=sc.filter(s=>s.level==='高风险');
   const red=sc.slice(-3).reverse();
-  const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">黑榜 · 高风险供应商</div>';
+  const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">黑榜 · 高风险，建议换</div>';
   (black.length?black:sc.slice(0,1)).forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
     div.innerHTML=`<span><b>${s.supplier}</b> ${s.name}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
       +`<span class="pill" style="background:var(--bad)">质量分 ${s.quality_score}</span>`;
     sg.appendChild(div);
   });
-  const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">红榜 · 优质供应商</div>';
+  const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">红榜 · 优质，可长期合作</div>';
   red.forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--ok)';
     div.innerHTML=`<span><b>${s.supplier}</b> ${s.name}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
@@ -217,7 +227,7 @@ async function loadInsights(){
     sr.appendChild(div);
   });
 
-  // 平台对比
+  // ④ 平台对比
   const pt=$('#platTbl').querySelector('tbody'); pt.innerHTML='';
   (d.platform_view||[]).forEach(x=>{
     const tr=document.createElement('tr');
@@ -226,15 +236,15 @@ async function loadInsights(){
     pt.appendChild(tr);
   });
 
-  // 异常预警
+  // ⑤ 异常预警
   const al=$('#alerts'); al.innerHTML='';
   (d.anomaly_alerts||[]).forEach(a=>{
     const div=document.createElement('div'); div.className='alert';
     div.textContent='⚠ '+a.reason; al.appendChild(div);
   });
-  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">未检测到近期纠纷集中爆发。</span>';
+  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">未检测到近期退货突然增多。</span>';
 
-  // SKU 明细
+  // ⑥ SKU 明细
   const st=$('#skuTbl').querySelector('tbody'); st.innerHTML='';
   (d.sku_ranking||[]).slice(0,15).forEach(x=>{
     const tr=document.createElement('tr');
@@ -246,30 +256,30 @@ async function loadInsights(){
     st.appendChild(tr);
   });
 
-  // 报告 + 建议
+  // ⑦⑧ 报告 + 建议
   $('#report').textContent=d.report||'-';
   const adv=$('#advice'); adv.innerHTML='';
   (d.sourcing_advice||d.recommendations||[]).forEach(t=>{
     const div=document.createElement('div'); div.style.cssText='background:#0b1220;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:8px;font-size:13px';
     div.textContent='▸ '+t; adv.appendChild(div);
   });
-  if(d.error) $('#report').textContent+='\n[注意] live 失败已回退 mock：'+d.error;
+  if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示数据：'+d.error;
 }
 
 // 单案举证
 async function doAnalyze(e){
   e.preventDefault();
   $('#err').textContent=''; $('#res').classList.add('hide');
-  const btn=$('#btn'); btn.disabled=true; btn.textContent='取证中…';
+  const btn=$('#btn'); btn.disabled=true; btn.textContent='举证中…';
   try{
     const fd=new FormData($('#f'));
     const r=await fetch('/api/analyze',{method:'POST',body:fd});
     const d=await r.json();
     if(!r.ok) throw new Error(d.detail||'请求失败');
-    $('#sim').textContent=d.similarity;
+    $('#sim').textContent=Math.round(d.similarity*100)+'%';
     $('#simbar').style.width=Math.round(d.similarity*100)+'%';
     $('#simbar').style.background=d.similarity>=0.82?'var(--ok)':'var(--bad)';
-    $('#same').textContent=d.same_item?'同一件':'疑似调包/非同款';
+    $('#same').textContent=d.same_item?'是同一件':'疑似调包/非同款';
     $('#same').style.background=d.same_item?'var(--ok)':'var(--bad)';
     $('#cons').textContent=d.consistency;
     $('#defects').innerHTML=(d.defect_tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
@@ -279,10 +289,10 @@ async function doAnalyze(e){
     $('#audio').src='data:audio/wav;base64,'+d.voice_audio_b64;
     $('#res').classList.remove('hide');
   }catch(err){ $('#err').textContent='错误：'+err.message; }
-  finally{ btn.disabled=false; btn.textContent='开始取证'; }
+  finally{ btn.disabled=false; btn.textContent='开始举证'; }
 }
 
-// 初始化筛选下拉
+// 初始化筛选下拉（从看板取品类/平台选项）
 (async function init(){
   const r=await fetch('/api/insights?mode=mock'); const d=await r.json();
   const cats=[...new Set((d.category_heatmap||[]).map(x=>x.category))];

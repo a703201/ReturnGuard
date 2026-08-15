@@ -1,4 +1,22 @@
-"""ReturnGuard 取证 + 洞察流水线（mock / live 双模式）"""
+"""ReturnGuard · 取证 + 洞察流水线（pipeline.py）
+
+本文件是整个产品的「业务逻辑层」，分两大阶段，对应方案文档的 6 大功能：
+
+【阶段A · 个案举证】—— 把每一笔退货变成结构化证据（数据采集管道）
+    功能① 同款一致性比对  → analyze_case：相似度（live 走模型路由，mock 走确定性哈希）
+    功能② 瑕疵视觉识别    → analyze_case：瑕疵标签
+    功能③ listing 承诺核验 → analyze_case：货不对板一致性判断
+    功能④ 证据卷宗+语音   → analyze_case：生成举证报告 + 母语语音 + 关键帧说明
+    功能⑤ 案件优先级排序  → analyze_case：priority_score（live 可用 rerank 重排）
+
+【阶段B · 群体洞察】—— 沉淀后的案件反哺选品/品控（这是 AI 市场洞察赛道的核心交付物）
+    功能⑥ 退货群体洞察    → build_insights：多维聚合 + 根因归因 + 供应商红黑榜 + 异常预警 + 选品建议
+
+双模式设计：
+    - mock 模式：不依赖任何 Key，用确定性规则/合成数据，立即可演示，结果可复现。
+    - live 模式：调用 models_router 走真实模型；失败时自动回退 mock，保证演示不中断。
+"""
+
 import os
 import json
 import math
@@ -11,23 +29,30 @@ import hashlib
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
+# ---- 缺陷词表（与方案功能②对齐）----
 DEFECT_POOL = ["外包装破损", "商品缺件", "污渍划痕", "使用痕迹", "功能故障", "货不对板", "色差明显"]
+# 各缺陷的严重程度权重（用于优先级评分与排序，0~1）
 SEVERITY = {"外包装破损": 0.3, "商品缺件": 0.5, "污渍划痕": 0.2, "使用痕迹": 0.6,
             "功能故障": 0.8, "货不对板": 0.7, "色差明显": 0.3, "无明显瑕疵": 0.0}
 
 
+# ===================== 工具函数 =====================
 def _hash_seed(*paths):
+    """用文件名生成稳定随机种子（mock 模式专用），保证同一张图每次结果一致、可复现。"""
     h = hashlib.md5("|".join(str(p) for p in paths).encode("utf-8")).hexdigest()
     return int(h, 16)
 
 
 def _mock_similarity(returned_path, product_path):
+    """mock 相似度：由两张图文件名算出的确定性值（0.55~0.98），仅用于免 Key 演示。
+    注意：这不是模型真实能力，真实相似度在 live 模式由图向量余弦得到。"""
     s = _hash_seed(returned_path, product_path)
-    return round(0.55 + (s % 1000) / 1000 * 0.43, 3)  # 0.55 ~ 0.98
+    return round(0.55 + (s % 1000) / 1000 * 0.43, 3)
 
 
 def _gen_wav(text, sr=16000, dur=1.2):
-    """生成一段占位 WAV（正弦音），mock 模式下充当 TTS 产物。"""
+    """生成一段占位 WAV（正弦音），mock 模式下充当 TTS 产物。
+    真实语音由 models_router.tts 生成；此处仅保证前端有可播放音频。"""
     n = int(sr * dur)
     buf = io.BytesIO()
     w = wave.open(buf, "wb")
@@ -41,18 +66,28 @@ def _gen_wav(text, sr=16000, dur=1.2):
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+# ===================== 阶段A · 个案举证（功能①②③④⑤）=====================
 def _mock(returned_path, product_path, listing_text, sku, amount):
+    """mock 模式的单案取证：用确定性规则模拟一单结果（无需模型）。
+    字段含义与 live 模式一致，便于前端/洞察层无缝切换。"""
     sim = _mock_similarity(returned_path, product_path)
+    # 用文件名种子决定瑕疵数量与种类（确定性）
     random.seed(_hash_seed(returned_path))
     n_def = random.randint(0, 3)
     defects = random.sample(DEFECT_POOL, n_def) if n_def > 0 else ["无明显瑕疵"]
-    same = sim >= 0.82
+    same = sim >= 0.82  # 阈值：≥0.82 视为同一件商品
+
+    # 功能③ 一致性判断：同款且无瑕疵→倾向于买家责任；否则存在货不对板/质量瑕疵
     if same and defects == ["无明显瑕疵"]:
         consistency = "一致（疑似非质量原因，倾向买家责任）"
     else:
         consistency = "存在差异（货不对板 / 运输或质量瑕疵）"
+
+    # 功能⑤ 优先级评分：相似度越低、缺陷越重、金额越高 → 越该先处理
     sev_score = max([SEVERITY.get(d, 0.2) for d in defects])
     priority = round(min(1.0, 0.4 + (1 - sim) * 0.3 + sev_score * 0.3 + (0.2 if amount > 50 else 0)), 3)
+
+    # 功能④ 举证卷宗 + 母语陈述（mock 文本）
     dossier = (
         f"《ReturnGuard 举证报告》\nSKU：{sku}\n"
         f"同款一致性相似度：{sim}（{'同一件商品' if same else '疑似调包 / 非同款'}）\n"
@@ -80,6 +115,11 @@ def _mock(returned_path, product_path, listing_text, sku, amount):
 
 
 def analyze_case(returned_path, product_path, listing_text, sku, amount, mode="mock"):
+    """阶段A 统一入口：对一笔退货做取证，返回结构化结果（功能①②③④⑤）。
+    - mode="mock"：确定性规则，免 Key 立即可演示。
+    - mode="live"：调用 models_router.live_analyze 走真实模型；任何异常都回退 mock 并标注，
+      确保现场演示不会因网络/额度问题而卡死。
+    """
     if mode == "live":
         try:
             from models_router import live_analyze
@@ -92,7 +132,9 @@ def analyze_case(returned_path, product_path, listing_text, sku, amount, mode="m
     return _mock(returned_path, product_path, listing_text, sku, amount)
 
 
+# ===================== 案件持久化（数据沉淀）=====================
 def load_cases(path):
+    """读取案件库（cases.json）。文件损坏/缺失时返回空列表，避免崩溃。"""
     if not os.path.exists(path):
         return []
     try:
@@ -103,13 +145,15 @@ def load_cases(path):
 
 
 def save_case(path, case):
+    """把一单取证结果追加写入案件库（这是阶段B洞察的数据来源）。"""
     cases = load_cases(path)
     cases.append(case)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(cases, f, ensure_ascii=False, indent=2)
 
 
-# 缺陷类型 -> 根因桶映射（用于归因与整改建议）
+# ===================== 阶段B · 群体洞察（功能⑥）=====================
+# 缺陷类型 → 根因桶（用于归因与整改建议，对应方案「根因归因」）
 _DEFECT_BUCKET = {
     "外包装破损": "物流与包装",
     "污渍划痕": "物流与包装",
@@ -127,11 +171,11 @@ _BUCKET_ADVICE = {
     "Listing与图文": "核对实物与listing图文，去掉过度承诺，补充实拍与色差说明",
     "非质量(倾向买家)": "保留同款一致性证据，主张买家责任，提升举证完整度",
 }
-_DEFECT_SEV = {"外包装破损": 0.3, "商品缺件": 0.5, "污渍划痕": 0.2, "使用痕迹": 0.6,
-               "功能故障": 0.8, "货不对板": 0.7, "色差明显": 0.3, "无明显瑕疵": 0.0}
+_DEFECT_SEV = SEVERITY  # 复用严重程度权重
 
 
 def _dominant_defect(defects):
+    """取一笔案件的主缺陷（忽略「无明显瑕疵」），用于根因归因。"""
     real = [d for d in defects if d != "无明显瑕疵"]
     if not real:
         return "无明显瑕疵"
@@ -146,7 +190,8 @@ def _parse_date(c):
 
 
 def _aggregate(cases):
-    """多维聚合（确定性，mock/live 通用底层）。"""
+    """多维聚合（确定性，mock/live 通用底层）：把案件库汇总成可洞察的指标。
+    输出涵盖：KPI、品类热力、缺陷分布、根因分布、供应商质量分、平台胜诉、SKU 预警等。"""
     if not cases:
         return {"total_cases": 0, "total_refund": 0.0, "win_rate": 0.0,
                 "avg_dispute_rate": 0.0, "outcome_dist": {},
@@ -155,17 +200,20 @@ def _aggregate(cases):
                 "platform_view": [], "root_cause_dist": {}, "anomaly_alerts": [],
                 "sourcing_advice": [], "recommendations": ["暂无案件数据，请先提交退货取证。"],
                 "report": "暂无足够案件数据生成洞察报告。"}
+
     total = len(cases)
     total_refund = sum(float(c.get("amount", 0) or 0) for c in cases)
     outcome_dist = Counter(c.get("outcome", "未知") for c in cases)
     wins = outcome_dist.get("赢", 0)
     win_rate = round(wins / total, 3)
 
+    # 三个维度的累加器：品类 / 供应商 / 平台
     cat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "sim": 0.0,
                                "defects": Counter(), "won": 0})
     sup = defaultdict(lambda: {"cases": 0, "refund": 0.0, "defects": Counter(),
                               "won": 0, "name": "未知", "real": 0})
     plat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    # SKU 维度（含日期，用于近期异常预警）
     sku = defaultdict(lambda: {"cases": 0, "refund": 0.0, "sim": 0.0,
                                "defects": Counter(), "won": 0, "cat": "未分类",
                                "supplier": "未知", "dates": []})
@@ -189,10 +237,13 @@ def _aggregate(cases):
         for t in dt:
             d["defects"][t] += 1
             defect_all[t] += 1
+        # 主缺陷归入根因桶，用于根因分布
         dom = _dominant_defect(dt)
         root_all[_DEFECT_BUCKET.get(dom, "其他")] += 1
         if c.get("date"):
             d["dates"].append(c["date"])
+
+        # 品类维度
         cc = cat[c.get("category", "未分类")]
         cc["cases"] += 1
         cc["refund"] += amt
@@ -201,6 +252,8 @@ def _aggregate(cases):
             cc["defects"][t] += 1
         if c.get("outcome") == "赢":
             cc["won"] += 1
+
+        # 供应商维度（real=含真实缺陷的案件数，用于缺陷率）
         ss = sup[c.get("supplier", "未知")]
         ss["cases"] += 1
         ss["refund"] += amt
@@ -211,6 +264,8 @@ def _aggregate(cases):
             ss["real"] += 1
         if c.get("outcome") == "赢":
             ss["won"] += 1
+
+        # 平台维度
         pp = plat[c.get("platform", "未知")]
         pp["cases"] += 1
         pp["refund"] += amt
@@ -220,6 +275,7 @@ def _aggregate(cases):
 
     avg_dispute = round(1 - sim_sum / total, 3) if total else 0.0
 
+    # —— ① 品类退货热力 ——
     category_heatmap = []
     for k, v in cat.items():
         top = v["defects"].most_common(1)[0][0] if v["defects"] else "-"
@@ -232,8 +288,13 @@ def _aggregate(cases):
         })
     category_heatmap.sort(key=lambda x: -x["refund"])
 
+    # —— ③ 供应商红黑榜（质量分）——
+    # 质量分 = 100 × (0.5×胜诉率 + 0.5×(1−有真实缺陷案件占比))
+    # 注：跳过"未知"供应商——没记录供货方无从"换供"，且会污染红黑榜可读性。
     supplier_scorecard = []
     for k, v in sup.items():
+        if k == "未知":
+            continue
         defect_rate = round(v["real"] / v["cases"], 3) if v["cases"] else 0
         wr = round(v["won"] / v["cases"], 3) if v["cases"] else 0
         score = round(100 * (0.5 * wr + 0.5 * (1 - defect_rate)), 1)
@@ -246,6 +307,7 @@ def _aggregate(cases):
         })
     supplier_scorecard.sort(key=lambda x: x["quality_score"])
 
+    # —— ④ 平台胜诉对比 ——
     platform_view = []
     for k, v in plat.items():
         platform_view.append({
@@ -255,6 +317,7 @@ def _aggregate(cases):
         })
     platform_view.sort(key=lambda x: -x["cases"])
 
+    # 最近日期（用于 SKU 近期异常预警）
     max_date = None
     for s, v in sku.items():
         for dt in v["dates"]:
@@ -265,6 +328,7 @@ def _aggregate(cases):
             except Exception:
                 pass
 
+    # —— ⑥ SKU 纠纷明细 + ⑤ 异常预警（近30天环比）——
     sku_ranking = []
     anomaly_alerts = []
     for s, v in sku.items():
@@ -277,6 +341,7 @@ def _aggregate(cases):
             "dispute_rate": round(1 - v["sim"] / v["cases"], 3) if v["cases"] else 0,
             "win_rate": wr, "top_defect": top, "anomaly": False,
         })
+        # 异常判定：案件≥6 笔且近30天数量≥前期的1.8倍，视为集中爆发
         if max_date and len(v["dates"]) >= 6:
             recent = sum(1 for dt in v["dates"]
                          if (max_date - datetime.strptime(dt, "%Y-%m-%d")).days <= 30)
@@ -314,7 +379,8 @@ def _aggregate(cases):
 
 
 def _mock_attribution(agg):
-    """基于结构化统计的确定性叙事归因（mock 模式，数据可溯源）。"""
+    """基于结构化统计的确定性叙事归因（mock 模式，数据可溯源，无需模型）。
+    生成：根因结论、供应商红黑榜提示、选品避坑建议、SKU 整改、洞察报告正文。"""
     rc = agg.get("root_cause_dist", {})
     ranked = sorted(rc.items(), key=lambda x: -x[1])
     if ranked:
@@ -373,7 +439,10 @@ def _mock_attribution(agg):
 
 
 def build_insights(cases, mode="mock"):
-    """群体洞察：mock=确定性规则归因；live=接大模型做聚类/根因/建议（失败回退 mock）。"""
+    """阶段B 统一入口：群体洞察（功能⑥）。
+    - mock：确定性规则归因，结果可复现，适合录屏演示。
+    - live：调用 models_router.build_insights_live 做 LLM 聚类/归因/建议；失败回退 mock。
+    兼容键：total_cases / sku_ranking / defect_distribution 始终保留，前端无需分支。"""
     agg = _aggregate(cases)
     if mode == "live":
         try:
