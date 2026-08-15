@@ -30,10 +30,11 @@ services:
       - ogdata:/var/lib/opengauss   # 数据持久化，容器重建不丢数据
     shm_size: 1gb            # openGauss/PostgreSQL 类数据库需要足够共享内存
     healthcheck:
-      # openGauss 镜像基于 openEuler，自带 bash；用 /dev/tcp 探测 5432 是否真在监听
-      test: ["CMD-SHELL", "timeout 5 bash -c 'cat < /dev/tcp/127.0.0.1/5432'"]
+      # /dev/tcp 探测在 openGauss 5.0.0 容器内不工作，改用自带的 gsql 执行 SELECT 1。
+      # 需显式设置 LD_LIBRARY_PATH，密码用 PGPASSWORD 传入（容器内本地连接仍需密码）。
+      test: ["CMD-SHELL", "LD_LIBRARY_PATH=/usr/local/opengauss/lib PGPASSWORD=${GS_PASSWORD:-Gauss@2026} /usr/local/opengauss/bin/gsql -U gaussdb -d postgres -h 127.0.0.1 -p 5432 -c 'SELECT 1;' || exit 1"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 18            # 首次初始化可能较慢，给足 3min 缓冲
       start_period: 120s
     restart: unless-stopped
