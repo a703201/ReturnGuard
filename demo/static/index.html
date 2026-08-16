@@ -509,7 +509,7 @@ let _ins = null;  // 最近一次 insights 响应，供供应商下钻本地计�
 // ---- 数据源开关（演示数据 / 实际数据）----
 // 当前数据源，持久化到 localStorage，刷新页面不丢失；所有数据接口经 apiFetch 附带 ?source=
 let CURRENT_SOURCE = (localStorage.getItem('rg_source') || 'demo');
-function setSource(s){
+async function setSource(s){
   CURRENT_SOURCE = (s==='real') ? 'real' : 'demo';
   localStorage.setItem('rg_source', CURRENT_SOURCE);
   document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
@@ -521,10 +521,10 @@ function setSource(s){
   } else {
     banner.classList.remove('show');
   }
-  // 切换数据源：看板与筛选下拉同步刷新
-  loadInsights();
+  // 切换数据源：先看板（写入 _ins）再填筛选下拉，避免用旧源数据填充；列表也等看板就绪
+  await loadInsights();
   if(typeof populateFilters==='function') populateFilters();
-  loadEntryList();
+  await loadEntryList();
 }
 // 统一给接口地址附加当前数据源（?source=）
 function apiUrl(path){
@@ -776,14 +776,14 @@ async function loadInsights(){
   const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">黑榜 · 高风险，建议换</div>';
   (black.length?black:sc.slice(0,1)).forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
-    div.innerHTML=`<span><b>${s.supplier}</b> ${s.name}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
+    div.innerHTML=`<span><b>${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
       +`<span class="pill" style="background:var(--bad)">质量分 ${s.quality_score}</span>`;
     sg.appendChild(div);
   });
   const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">红榜 · 优质，可长期合作</div>';
   red.forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--ok)';
-    div.innerHTML=`<span><b>${s.supplier}</b> ${s.name}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
+    div.innerHTML=`<span><b>${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
       +`<span class="pill" style="background:var(--ok)">质量分 ${s.quality_score}</span>`;
     sr.appendChild(div);
   });

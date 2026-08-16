@@ -428,13 +428,15 @@ def _aggregate(cases: list[dict]) -> dict:
     )
     defect_all = Counter()
     root_all = Counter()
-    sim_sum = 0.0
+    # 全量相似度累加（每案都计），用于代理争议率分母，避免只统计"有平台"案件导致虚高
+    sim_all = 0.0
 
     for c in cases:
         s = c.get("sku", "未知")
         d = sku[s]
         amt = float(c.get("amount", 0) or 0)
         sim = float(c.get("similarity", 0) or 0)
+        sim_all += sim
         d["cases"] += 1
         d["refund"] += amt
         d["sim"] += sim
@@ -489,7 +491,6 @@ def _aggregate(cases: list[dict]) -> dict:
             pp["refund"] += amt
             if c.get("outcome") == "赢":
                 pp["won"] += 1
-            sim_sum += sim
 
         # 平台 × 供应商 交叉：两端都需有效才入交叉矩阵
         p_val = c.get("platform")
@@ -504,7 +505,7 @@ def _aggregate(cases: list[dict]) -> dict:
     # 代理指标（非平台真实争议笔数）：以"退货图与本店主图的相似度"推得。
     # avg_dispute = 1 - 平均相似度，越接近 1 表示"货不对板/调包"嫌疑越强。
     # 前端务必标注为代理指标，不可当作平台标记的争议率。
-    avg_dispute = round(1 - sim_sum / total, 3) if total else 0.0
+    avg_dispute = round(1 - sim_all / total, 3) if total else 0.0
     dispute_rate_note = (
         "代理指标：由退货图与本店主图的平均相似度（1−相似度）推算，"
         "反映'货不对板/调包'嫌疑强度，并非平台标记的争议笔数。"
@@ -628,11 +629,17 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
     - mock：确定性规则归因，结果可复现，适合录屏演示。
     - live：调用 models_router.build_insights_live 做 LLM 聚类/归因/建议；失败回退 mock。
 
-    缓存：按 (mode, 案件数, 代际[按 source]) 缓存聚合结果，save_case 时对应 source 代际
-    自增即失效，避免每次 /api/insights 都全量重算（P2-5）。空数据提前返回，避免
+    缓存：按 (mode, source, 案件集合指纹, 代际) 缓存聚合结果，save_case 时对应 source
+    代际自增即失效，避免每次 /api/insights 都全量重算（P2-5）。空数据提前返回，避免
     recommendations 回归（P3-1）。source 用于隔离 demo/real 两源的缓存，互不串扰。
+
+    注意：调用方会在外部按 category/platform 预过滤 cases，若仅以 len(cases) 作缓存键，
+    不同筛选命中相同条数会冲突（复现：A 5笔 / B 5笔 返回同一结果）。故键必须唯一标识
+    "被聚合的那一批案件"——用案件 id 集合指纹（配合代际防陈旧），确保下钻结果互不污染。
     """
-    key = (mode, len(cases), get_generation(source))
+    # 案件 id 指纹（缺失 id 归一为 "" 以避免 None 不可排序）；唯一标识被聚合批次
+    sig = hash(tuple(sorted((c.get("case_id") or "") for c in cases)))
+    key = (mode, source, sig, get_generation(source))
     if key in _ins_cache:
         return _ins_cache[key]
     agg = _aggregate(cases)
