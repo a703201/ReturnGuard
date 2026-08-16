@@ -62,6 +62,13 @@ services:
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
     ports:
       - "8000:8000"
+    # 应用健康检查：探测 /health 探针（python 内置 urllib，无需额外装 curl）
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
 volumes:

@@ -1,0 +1,5 @@
+# ReturnGuard 开发/测试依赖（不参与运行时镜像）
+-r requirements.txt
+pytest>=8.0
+httpx>=0.27
+ruff>=0.6

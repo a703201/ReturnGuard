@@ -1,0 +1,27 @@
+# ============================================================
+# ReturnGuard · 工程化配置（lint / format / type / test）
+# 仅作为本地与 CI 的质量门禁，不参与运行时依赖。
+# ============================================================
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/F: pycodestyle + pyflakes（基础错误/未使用）；I: import 排序；
+# W: 警告；UP: pyupgrade；B: bugbear（常见坑）
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501"]  # 长行交给 black 处理
+
+# FastAPI 在依赖函数默认参数里写 File()/Form() 是惯用法（B008 误报），对此文件豁免
+[tool.ruff.lint.per-file-ignores]
+"demo/main.py" = ["B008"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = false

@@ -5,6 +5,7 @@
       consistency, outcome, mode
 说明：全部为模拟数据，仅用于演示洞察能力；接入真实取证流水后可直接替换。
 """
+
 import json
 import os
 import random
@@ -19,35 +20,63 @@ DAY0 = TODAY - timedelta(days=120)
 
 # 品类 -> 缺陷倾向权重（与 pipeline.DEFECT_POOL 对齐）
 CATEGORY_DEFECTS = {
-    "3C数码":   {"功能故障": 0.40, "外包装破损": 0.25, "货不对板": 0.15, "使用痕迹": 0.10, "无明显瑕疵": 0.10},
-    "饰品配件": {"商品缺件": 0.30, "货不对板": 0.25, "色差明显": 0.20, "污渍划痕": 0.10, "无明显瑕疵": 0.15},
-    "小家电":   {"功能故障": 0.35, "外包装破损": 0.25, "使用痕迹": 0.15, "货不对板": 0.10, "无明显瑕疵": 0.15},
-    "服饰鞋包": {"色差明显": 0.30, "污渍划痕": 0.25, "外包装破损": 0.20, "货不对板": 0.10, "无明显瑕疵": 0.15},
+    "3C数码": {
+        "功能故障": 0.40,
+        "外包装破损": 0.25,
+        "货不对板": 0.15,
+        "使用痕迹": 0.10,
+        "无明显瑕疵": 0.10,
+    },
+    "饰品配件": {
+        "商品缺件": 0.30,
+        "货不对板": 0.25,
+        "色差明显": 0.20,
+        "污渍划痕": 0.10,
+        "无明显瑕疵": 0.15,
+    },
+    "小家电": {
+        "功能故障": 0.35,
+        "外包装破损": 0.25,
+        "使用痕迹": 0.15,
+        "货不对板": 0.10,
+        "无明显瑕疵": 0.15,
+    },
+    "服饰鞋包": {
+        "色差明显": 0.30,
+        "污渍划痕": 0.25,
+        "外包装破损": 0.20,
+        "货不对板": 0.10,
+        "无明显瑕疵": 0.15,
+    },
 }
 
 # 供应商画像：quality 越低越易出真实缺陷；bias 为偏好的缺陷类型
 SUPPLIERS = {
-    "S1": {"quality": 0.92, "bias": None,        "name": "鼎峰精密"},
-    "S2": {"quality": 0.80, "bias": None,        "name": "云仓优选"},
-    "S3": {"quality": 0.45, "bias": "功能故障",   "name": "鑫源电子(劣)"},
+    "S1": {"quality": 0.92, "bias": None, "name": "鼎峰精密"},
+    "S2": {"quality": 0.80, "bias": None, "name": "云仓优选"},
+    "S3": {"quality": 0.45, "bias": "功能故障", "name": "鑫源电子(劣)"},
     "S4": {"quality": 0.62, "bias": "外包装破损", "name": "通达包装弱"},
-    "S5": {"quality": 0.78, "bias": None,        "name": "联创供货"},
-    "S6": {"quality": 0.50, "bias": "货不对板",   "name": "海贸乱发(劣)"},
-    "S7": {"quality": 0.85, "bias": None,        "name": "锐捷制造"},
-    "S8": {"quality": 0.68, "bias": "商品缺件",   "name": "万通杂货"},
+    "S5": {"quality": 0.78, "bias": None, "name": "联创供货"},
+    "S6": {"quality": 0.50, "bias": "货不对板", "name": "海贸乱发(劣)"},
+    "S7": {"quality": 0.85, "bias": None, "name": "锐捷制造"},
+    "S8": {"quality": 0.68, "bias": "商品缺件", "name": "万通杂货"},
 }
 
 PLATFORMS = {
-    "AliExpress": {"win": 0.28, "langs": ["ru", "es", "pt", "en"], "regions": ["RU", "ES", "BR", "US"]},
-    "Amazon":     {"win": 0.42, "langs": ["en", "de", "fr"],      "regions": ["US", "UK", "DE", "FR"]},
-    "PayPal":     {"win": 0.30, "langs": ["en", "es"],            "regions": ["US", "ES", "MX"]},
-    "TikTok Shop":{"win": 0.38, "langs": ["en", "pt"],            "regions": ["US", "BR", "UK"]},
+    "AliExpress": {
+        "win": 0.28,
+        "langs": ["ru", "es", "pt", "en"],
+        "regions": ["RU", "ES", "BR", "US"],
+    },
+    "Amazon": {"win": 0.42, "langs": ["en", "de", "fr"], "regions": ["US", "UK", "DE", "FR"]},
+    "PayPal": {"win": 0.30, "langs": ["en", "es"], "regions": ["US", "ES", "MX"]},
+    "TikTok Shop": {"win": 0.38, "langs": ["en", "pt"], "regions": ["US", "BR", "UK"]},
 }
 
 SKU_POOL = {
-    "3C数码":   ["无线蓝牙耳机", "移动电源", "手机壳", "快充数据线", "蓝牙音箱", "智能手环"],
+    "3C数码": ["无线蓝牙耳机", "移动电源", "手机壳", "快充数据线", "蓝牙音箱", "智能手环"],
     "饰品配件": ["925银项链", "珍珠耳钉", "合金手链", "钛钢戒指", "水晶吊坠", "发饰胸针"],
-    "小家电":   ["迷你加湿器", "电动牙刷", "便携榨汁杯", "卷发棒", "暖风机", "电热水壶"],
+    "小家电": ["迷你加湿器", "电动牙刷", "便携榨汁杯", "卷发棒", "暖风机", "电热水壶"],
     "服饰鞋包": ["运动卫帽卫衣", "真皮短钱包", "帆布休闲鞋", "牛仔直筒裤", "双肩背包", "针织开衫"],
 }
 
@@ -121,12 +150,12 @@ def gen():
     cid = 0
     # 标记少数“问题 SKU”做异常预警演示
     problem_skus = set()
-    for ci, cat in enumerate(CATS):
+    for _ci, cat in enumerate(CATS):
         skus = SKU_POOL[cat]
         for si, name in enumerate(skus):
-            sku = f"SKU-{cat[:1]}{si+1:02d}"
+            sku = f"SKU-{cat[:1]}{si + 1:02d}"
             supplier = random.choice(SUP_KEYS)
-            is_problem = (si % 3 == 2)  # 每类第 3、6 个为问题 SKU
+            is_problem = si % 3 == 2  # 每类第 3、6 个为问题 SKU
             if is_problem:
                 problem_skus.add(sku)
                 supplier = random.choice([k for k in SUP_KEYS if SUPPLIERS[k]["quality"] < 0.7])
@@ -143,28 +172,33 @@ def gen():
                 amount = round(random.uniform(39, 320), 2)
                 date = sample_date(is_problem)
                 same = sim >= 0.82
-                cons = ("一致（疑似非质量原因，倾向买家责任）" if (same and defects == ["无明显瑕疵"])
-                        else "存在差异（货不对板 / 运输或质量瑕疵）")
-                cases.append({
-                    "case_id": f"RG-{cid:06d}",
-                    "sku": sku,
-                    "sku_name": name,
-                    "category": cat,
-                    "supplier": supplier,
-                    "supplier_name": SUPPLIERS[supplier]["name"],
-                    "platform": platform,
-                    "language": random.choice(pf["langs"]),
-                    "region": random.choice(pf["regions"]),
-                    "amount": amount,
-                    "date": date.strftime("%Y-%m-%d"),
-                    "similarity": sim,
-                    "same_item": same,
-                    "defect_tags": defects,
-                    "defect_description": "；".join(defects),
-                    "consistency": cons,
-                    "outcome": outcome,
-                    "mode": "synthetic",
-                })
+                cons = (
+                    "一致（疑似非质量原因，倾向买家责任）"
+                    if (same and defects == ["无明显瑕疵"])
+                    else "存在差异（货不对板 / 运输或质量瑕疵）"
+                )
+                cases.append(
+                    {
+                        "case_id": f"RG-{cid:06d}",
+                        "sku": sku,
+                        "sku_name": name,
+                        "category": cat,
+                        "supplier": supplier,
+                        "supplier_name": SUPPLIERS[supplier]["name"],
+                        "platform": platform,
+                        "language": random.choice(pf["langs"]),
+                        "region": random.choice(pf["regions"]),
+                        "amount": amount,
+                        "date": date.strftime("%Y-%m-%d"),
+                        "similarity": sim,
+                        "same_item": same,
+                        "defect_tags": defects,
+                        "defect_description": "；".join(defects),
+                        "consistency": cons,
+                        "outcome": outcome,
+                        "mode": "synthetic",
+                    }
+                )
     return cases
 
 
@@ -175,8 +209,9 @@ if __name__ == "__main__":
     print(f"已生成 {len(data)} 条案件 -> {OUT}")
     # 快速校验分布
     from collections import Counter
+
     print("品类:", dict(Counter(c["category"] for c in data)))
     print("平台:", dict(Counter(c["platform"] for c in data)))
     print("结果:", dict(Counter(c["outcome"] for c in data)))
     wins = sum(1 for c in data if c["outcome"] == "赢")
-    print(f"综合胜诉率: {wins/len(data)*100:.1f}%")
+    print(f"综合胜诉率: {wins / len(data) * 100:.1f}%")
