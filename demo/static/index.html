@@ -62,6 +62,18 @@
   .plat{border:1px solid #334155;border-radius:10px;padding:12px 14px;margin-top:12px}
   .ev{margin:4px 0 0 18px;font-size:12.5px;line-height:1.55}
   .ev.bad li{color:var(--bad)}
+  .ev.dim li{color:#94a3b8;font-size:12px}
+  .ev.cap li b{color:var(--acc)}
+  /* 平台模板键值行（loadPlatforms 使用，此前缺失样式） */
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed #334155}
+  .kv span{color:#94a3b8;flex:none}
+  .kv b{font-weight:600;color:#e2e8f0;text-align:right}
+  /* 宽表横向滚动（移动端不破版） */
+  .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* 卡片微动效 + 顶部筛选栏吸顶 */
+  .card{transition:transform .15s ease,box-shadow .15s ease}
+  .card:hover{transform:translateY(-2px);box-shadow:0 8px 26px rgba(0,0,0,.35)}
+  .bar-top{position:sticky;top:0;z-index:20;background:var(--bg);padding:14px 0 10px;margin-bottom:16px;border-bottom:1px solid #1e293b}
 </style>
 </head>
 <body>
@@ -79,13 +91,14 @@
     <button id="loadIns">刷新看板</button>
     <span id="insModeTag" class="pill"></span>
     <span id="scopeTag" class="pill" style="background:#334155"></span>
+    <span id="insStatus" class="pill" style="background:#334155">就绪</span>
   </div>
 
   <!-- KPI：老板最关心的总账 -->
   <div class="kpis">
     <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">已分析退货</div><div class="h">系统帮你看过多少笔退货纠纷</div></div>
     <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款</div><div class="h">这些退货一共退给买家多少钱</div></div>
-    <div class="kpi"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="92" height="92" viewBox="0 0 92 92"></svg><div class="l">维权胜诉率</div><div class="h">你成功挽回（没白赔）的比例</div></div>
+    <div class="kpi"><div class="l">维权胜诉率</div><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="92" height="92" viewBox="0 0 92 92"></svg><div class="h">你成功挽回（没白赔）的比例</div></div>
     <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">平均退货争议率</div><div class="h">退货里"说不清是不是你的问题"的占比</div></div>
   </div>
 
@@ -142,7 +155,7 @@
   <div class="card">
     <h3>⑩ 平台 × 供应商 维权交叉<span class="badge">帮老板选"在哪个平台卖、找谁供货"</span></h3>
     <p class="desc">同一供应商在不同平台的胜诉率差异，暴露"平台判罚倾向 + 供货质量"双重信号。色块越绿=越能赢，越红=高风险。</p>
-    <div id="matrixHeat" class="chart"></div>
+    <div id="matrixHeat" class="chart scrollx"></div>
   </div>
 
   <!-- ⑦⑧ 报告 + 建议 -->
@@ -165,7 +178,7 @@
     <h3>⑪ 平台适配举证包<span class="badge">复赛交付物 A · 按平台告诉你要交什么证据</span></h3>
     <p class="desc">把各平台（Amazon / AliExpress / Temu / SHEIN）的退货/纠纷举证规则与 ReturnGuard 取证能力对齐；单案举证选平台即自动带出必备材料清单。</p>
     <h4 style="margin:6px 0 4px">核心规则对照表</h4>
-    <div id="platCmp"></div>
+    <div id="platCmp" class="scrollx"></div>
     <h4 style="margin:14px 0 4px">各平台举证模板（必备材料 / 常见失分）</h4>
     <div id="platTmpl"></div>
   </div>
@@ -293,6 +306,8 @@ function renderAnnot(boxes, imgB64){
 }
 
 async function loadInsights(){
+  $('#insStatus').textContent='加载中…';
+  try{
   const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
   const qs=new URLSearchParams({mode});
   if(cat) qs.set('category',cat);
@@ -396,6 +411,8 @@ async function loadInsights(){
   renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#f87171':x.level==='优质'?'#34d399':'#fbbf24'})));
   renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
   renderDonut($('#kWinDonut'), d.win_rate||0);
+  $('#insStatus').textContent='已更新 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){ $('#insStatus').textContent='加载失败'; console.error('loadInsights 出错', e); }
 }
 
 // 平台适配举证包（交付物 A）渲染
@@ -411,6 +428,8 @@ async function loadPlatforms(){
     $('#platCmp').innerHTML=`<table class="cmp">${html}</table>`;
     let tmpl='';
     ps.forEach(p=>{
+      const cap=p.capability_map||{};
+      const capItems=Object.entries(cap).map(([k,v])=>`<li><b>${k}</b>：${v}</li>`).join('');
       tmpl+=`<div class="plat"><h4 style="margin:0 0 6px;color:var(--acc)">${p.label}</h4>`
         +`<div class="kv"><span>退货窗口</span><b>${p.return_window}</b></div>`
         +`<div class="kv"><span>响应时限</span><b>${p.response_window}</b></div>`
@@ -418,6 +437,8 @@ async function loadPlatforms(){
         +`<div class="kv"><span>举证偏向</span><b>${p.burden_bias}</b></div>`
         +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${t}</li>`).join('')}</ul>`
         +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${t}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${t}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
         +`</div>`;
     });
     $('#platTmpl').innerHTML=tmpl;
@@ -464,7 +485,7 @@ async function doAnalyze(e){
   cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#catSel').appendChild(o);});
   plats.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;$('#platSel').appendChild(o);});
   const pr=await fetch('/api/platforms'); const pd=await pr.json();
-  (pd.platforms||[]).forEach(p=>{const o=document.createElement('option');o.value=p.label;o.textContent=p.label;$('#formPlat').appendChild(o);});
+  (pd.platforms||[]).forEach(p=>{const o=document.createElement('option');o.value=p.key||p.label;o.textContent=p.label;$('#formPlat').appendChild(o);});
 })();
 
 $('#f').addEventListener('submit',doAnalyze);
