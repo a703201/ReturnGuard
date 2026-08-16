@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
 from pipeline import analyze_case, build_insights, load_cases, save_case
+from platforms import get_platform_spec, is_valid_platform, list_platforms
 from schemas import AnalyzeResult, InsightsResponse
 
 logger = logging.getLogger("returnguard.api")
@@ -104,6 +105,7 @@ async def analyze(
     listing_text: str = Form(""),
     sku: str = Form("SKU-未知"),
     amount: float = Form(0.0),
+    platform: str = Form(""),
     mode: str = Form("mock"),
 ):
     """阶段A · 个案举证接口。
@@ -111,9 +113,12 @@ async def analyze(
     流程：接收两张图（校验+落盘）→ 调用 pipeline.analyze_case 完成取证
           → 把结果沉淀进案件库（供阶段B洞察）→ 返回给前端展示。
     返回字段见 schemas.AnalyzeResult；defect_boxes 为缺陷示意框（归一化坐标）。
+    platform 为销售平台（可选），用于关联「平台适配举证包」的必备举证清单。
     """
     if mode not in ("mock", "live"):
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
+    if platform and not is_valid_platform(platform):
+        raise HTTPException(status_code=400, detail="platform 不在支持列表")
 
     # 校验 + 读取两张图原始字节（UploadFile 只读一次，先读后写）
     ret_bytes = _validate_image(returned_image)
@@ -133,6 +138,12 @@ async def analyze(
     # 执行取证（功能①②③④⑤）
     result = analyze_case(rp, pp, listing_text, sku, amount, mode)
     result["case_id"] = rid
+    result["platform"] = platform
+    # 关联「平台适配举证包」：把该平台的必备举证材料随单返回，便于前端直接展示清单
+    # （只列客观要求，不做裁决结论，守住「只取证不裁决」）
+    if platform:
+        spec = get_platform_spec(platform)
+        result["platform_evidence"] = spec.get("required_evidence", []) if spec else []
 
     # 关键帧红框标注：把退回图原图 base64 回传前端，叠加缺陷示意框展示
     try:
@@ -148,11 +159,19 @@ async def analyze(
             **result,
             "sku": sku,
             "amount": amount,
+            "platform": platform,
             "returned_image": os.path.basename(rp),
             "product_image": os.path.basename(pp),
         }
     )
     return result
+
+
+@app.get("/api/platforms")
+def platforms():
+    """平台适配举证包（交付物 A 数据源）：返回各大平台退货/纠纷举证规则
+    与 ReturnGuard 取证能力的映射。前端据此渲染「平台举证包」面板与单案清单。"""
+    return {"platforms": list_platforms()}
 
 
 @app.get("/api/insights", response_model=InsightsResponse)

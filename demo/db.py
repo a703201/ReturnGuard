@@ -130,7 +130,7 @@ class Case(Base):
     category = Column(String(64), index=True)  # 3C数码/饰品配件/小家电/服饰鞋包
     supplier = Column(String(32), index=True)  # 供应商编号 S1~S8
     supplier_name = Column(String(128))
-    platform = Column(String(32), index=True)  # AliExpress/Amazon/PayPal/TikTok Shop
+    platform = Column(String(32), index=True)  # Amazon/AliExpress/Temu/SHEIN
     language = Column(String(16))  # 举证语种
     region = Column(String(32))  # 销售地区
     amount = Column(Float, default=0.0)  # 退款/争议金额(¥)

@@ -56,6 +56,12 @@
   #annot{width:100%;max-width:420px;border-radius:8px;display:none;background:#0b1220}
   .annot-note{color:#64748b;font-size:11px;margin-top:4px;line-height:1.5}
   .card h3 .badge{font-size:11px;color:#64748b;font-weight:400;margin-left:6px}
+  .cmp{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:4px}
+  .cmp th,.cmp td{border:1px solid #334155;padding:8px 10px;text-align:left;vertical-align:top}
+  .cmp th{color:#94a3b8;font-weight:600;background:#0b1220;width:110px}
+  .plat{border:1px solid #334155;border-radius:10px;padding:12px 14px;margin-top:12px}
+  .ev{margin:4px 0 0 18px;font-size:12.5px;line-height:1.55}
+  .ev.bad li{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -112,7 +118,7 @@
     <!-- ④ 平台对比 -->
     <div class="card">
       <h3>④ 各平台维权难度</h3>
-      <p class="desc">不同平台判买家赢的倾向不同。买家友好型平台（如 AliExpress/PayPal）普遍更难赢，举证要更硬。</p>
+      <p class="desc">不同平台判买家赢的倾向不同。买家友好型平台（如 AliExpress）普遍更难赢，举证要更硬；详见下方「⑪ 平台适配举证包」。</p>
       <div id="platBars" class="chart"></div>
       <table id="platTbl"><thead><tr><th>平台</th><th>退货笔数</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
     </div>
@@ -154,6 +160,16 @@
   </div>
   <div class="note">数据说明：当前看板用的是一批"模拟退货数据"（演示用），结构和你真实退货流水一致；接上你自己的退货记录后可一键替换，看板无需改动。</div>
 
+  <!-- ⑪ 平台适配举证包（交付物 A） -->
+  <div class="card">
+    <h3>⑪ 平台适配举证包<span class="badge">复赛交付物 A · 按平台告诉你要交什么证据</span></h3>
+    <p class="desc">把各平台（Amazon / AliExpress / Temu / SHEIN）的退货/纠纷举证规则与 ReturnGuard 取证能力对齐；单案举证选平台即自动带出必备材料清单。</p>
+    <h4 style="margin:6px 0 4px">核心规则对照表</h4>
+    <div id="platCmp"></div>
+    <h4 style="margin:14px 0 4px">各平台举证模板（必备材料 / 常见失分）</h4>
+    <div id="platTmpl"></div>
+  </div>
+
   <!-- 单案举证（次级，数据采集入口） -->
   <details style="margin-top:22px">
     <summary>⑨ 一笔退货怎么快速举证（往看板喂数据）· 点击展开</summary>
@@ -169,6 +185,10 @@
         <select name="mode">
           <option value="mock" selected>演示（无需联网，立即可看）</option>
           <option value="live">真实 AI（需联网 Key + 可公网访问的图片）</option>
+        </select>
+        <label>销售平台（关联举证包）</label>
+        <select name="platform" id="formPlat">
+          <option value="">未指定</option>
         </select>
         <button type="submit" id="btn">开始举证</button>
       </form>
@@ -187,6 +207,10 @@
         <div style="margin-top:8px">可直接播放给客服/仲裁方的语音说明：</div>
         <pre id="vtext"></pre>
         <audio id="audio" controls style="margin-top:6px;width:100%"></audio>
+        <div id="platEvWrap" class="hide" style="margin-top:12px">
+          <div style="font-weight:600">平台举证要点（<span id="platName"></span> · 必备材料）</div>
+          <ul id="platEv" class="ev"></ul>
+        </div>
       </div>
     </div>
   </details>
@@ -374,6 +398,32 @@ async function loadInsights(){
   renderDonut($('#kWinDonut'), d.win_rate||0);
 }
 
+// 平台适配举证包（交付物 A）渲染
+async function loadPlatforms(){
+  try{
+    const r=await fetch('/api/platforms'); const d=await r.json();
+    const ps=d.platforms||[];
+    const attrs=[['return_window','退货窗口'],['response_window','响应时限'],['shipping_payer','运费承担'],['burden_bias','举证偏向']];
+    let html='<tr><th>维度</th>'+ps.map(p=>`<th>${p.label}</th>`).join('')+'</tr>';
+    attrs.forEach(([k,name])=>{
+      html+='<tr><th>'+name+'</th>'+ps.map(p=>`<td>${p[k]}</td>`).join('')+'</tr>';
+    });
+    $('#platCmp').innerHTML=`<table class="cmp">${html}</table>`;
+    let tmpl='';
+    ps.forEach(p=>{
+      tmpl+=`<div class="plat"><h4 style="margin:0 0 6px;color:var(--acc)">${p.label}</h4>`
+        +`<div class="kv"><span>退货窗口</span><b>${p.return_window}</b></div>`
+        +`<div class="kv"><span>响应时限</span><b>${p.response_window}</b></div>`
+        +`<div class="kv"><span>运费承担</span><b>${p.shipping_payer}</b></div>`
+        +`<div class="kv"><span>举证偏向</span><b>${p.burden_bias}</b></div>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${t}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${t}</li>`).join('')}</ul>`
+        +`</div>`;
+    });
+    $('#platTmpl').innerHTML=tmpl;
+  }catch(e){ $('#platCmp').innerHTML='<span class="err">举证包加载失败</span>'; }
+}
+
 // 单案举证
 async function doAnalyze(e){
   e.preventDefault();
@@ -396,6 +446,11 @@ async function doAnalyze(e){
     $('#dossier').textContent=d.dossier;
     $('#vtext').textContent=d.voice_text;
     $('#audio').src='data:audio/wav;base64,'+d.voice_audio_b64;
+    if(d.platform && (d.platform_evidence||[]).length){
+      $('#platName').textContent=d.platform;
+      $('#platEv').innerHTML=(d.platform_evidence||[]).map(t=>`<li>${t}</li>`).join('');
+      $('#platEvWrap').classList.remove('hide');
+    } else { $('#platEvWrap').classList.add('hide'); }
     $('#res').classList.remove('hide');
   }catch(err){ $('#err').textContent='错误：'+err.message; }
   finally{ btn.disabled=false; btn.textContent='开始举证'; }
@@ -408,6 +463,8 @@ async function doAnalyze(e){
   const plats=[...new Set((d.platform_view||[]).map(x=>x.platform))];
   cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#catSel').appendChild(o);});
   plats.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;$('#platSel').appendChild(o);});
+  const pr=await fetch('/api/platforms'); const pd=await pr.json();
+  (pd.platforms||[]).forEach(p=>{const o=document.createElement('option');o.value=p.label;o.textContent=p.label;$('#formPlat').appendChild(o);});
 })();
 
 $('#f').addEventListener('submit',doAnalyze);
@@ -415,6 +472,7 @@ $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
 $('#platSel').addEventListener('change',loadInsights);
 loadInsights();
+loadPlatforms();
 </script>
 </body>
 </html>
