@@ -29,6 +29,7 @@ import logging
 import math
 import random
 import struct
+import threading
 import wave
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -41,14 +42,17 @@ logger = logging.getLogger("returnguard.pipeline")
 # 这里做 re-export，保持 main.py 的 import 路径不变。
 from db import get_generation, load_cases, save_case  # noqa: E402, F401
 
-# 洞察聚合缓存：按 (mode, 案件数, 代际) 缓存，save_case 时代际自增即失效。
-# 说明：缓存为进程内、单 worker 场景（demo 默认）；多 worker 部署需 Redis 等共享缓存。
+# 洞察聚合缓存：按 (mode, source, 案件集合指纹, 代际) 缓存，save_case 时代际自增即失效。
+# 说明：缓存为进程内、单 worker 场景（demo 默认）；uvicorn 线程池并发下用 _ins_lock 保证线程安全；
+# 多 worker（多进程）部署仍需 Redis 等共享缓存（跨进程不可共享本进程 dict）。
 _ins_cache: dict = {}
+_ins_lock = threading.Lock()
 
 
 def invalidate_insights_cache() -> None:
     """使洞察聚合缓存失效（由 db.save_case / delete_case 在写库后调用）。"""
-    _ins_cache.clear()
+    with _ins_lock:
+        _ins_cache.clear()
 
 # ---- 缺陷词表/严重程度已迁至 constants.py（见文件头说明），此处仅保留业务映射 ----
 
@@ -640,11 +644,13 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
     # 案件 id 指纹（缺失 id 归一为 "" 以避免 None 不可排序）；唯一标识被聚合批次
     sig = hash(tuple(sorted((c.get("case_id") or "") for c in cases)))
     key = (mode, source, sig, get_generation(source))
-    if key in _ins_cache:
-        return _ins_cache[key]
+    with _ins_lock:
+        if key in _ins_cache:
+            return _ins_cache[key]
     agg = _aggregate(cases)
     if not cases:
-        _ins_cache[key] = agg
+        with _ins_lock:
+            _ins_cache[key] = agg
         return agg
     if mode == "live":
         try:
@@ -660,13 +666,12 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
                     "mode": "live",
                 }
             )
-            _ins_cache[key] = agg
-            return agg
         except Exception as e:  # 失败回退，保证演示不中断
             logger.exception("live 洞察失败，回退 mock: %s", e)
             agg["mode"] = "mock(fallback)"
             agg["error"] = str(e)
     agg = _mock_attribution(agg)
     agg["mode"] = agg.get("mode", "mock")
-    _ins_cache[key] = agg
+    with _ins_lock:
+        _ins_cache[key] = agg
     return agg

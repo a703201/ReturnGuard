@@ -926,7 +926,7 @@ function populateFilters(){
 // 加载「当前数据源」已录入案件列表（数据录入页右侧）
 async function loadEntryList(){
   try{
-    const r=await apiFetch('/api/cases'); const list=await r.json();
+    const r=await apiFetch('/api/cases?slim=1'); const list=await r.json();
     const wrap=$('#entryTableWrap');
     if(!list.length){ wrap.innerHTML='<span class="note">当前数据源暂无案件。</span>'; return; }
     let html='<table><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>金额</th><th>判定</th><th></th></tr></thead><tbody>';
