@@ -35,6 +35,15 @@ from schemas import AnalyzeResult, InsightsResponse
 
 logger = logging.getLogger("returnguard.api")
 
+# ---- 版本（单一来源：仓库根 VERSION 文件；前端顶栏与 /api/config 均从此读取）----
+def _read_app_version() -> str:
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "..", "VERSION"), encoding="utf-8") as _vf:
+            return _vf.read().strip() or "unknown"
+    except FileNotFoundError:
+        return "unknown"
+APP_VERSION = _read_app_version()
+
 # ---- 可观测性（P2-9）：结构化日志 + 基础指标 ----
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
 _metrics = defaultdict(int)
@@ -278,10 +287,10 @@ async def analyze(
 
 @app.get("/api/config")
 def api_config():
-    """前端常量单一来源（P2-4）：返回同款一致性阈值等，避免前端/生成器各写一份 0.82。"""
+    """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本等，避免前端/生成器各写一份。"""
     from constants import SAME_ITEM_THRESHOLD
 
-    return {"same_item_threshold": SAME_ITEM_THRESHOLD}
+    return {"same_item_threshold": SAME_ITEM_THRESHOLD, "version": APP_VERSION}
 
 
 @app.get("/metrics")
