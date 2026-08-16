@@ -198,6 +198,7 @@
       <div class="hrow1">
         <div class="brand">
           <h1>退件法医 · 退货情报站</h1>
+          <span id="appVer" style="display:inline-block;margin-left:10px;padding:2px 9px;border:1px solid #334155;border-radius:999px;font-size:12px;color:#94a3b8;vertical-align:middle;font-weight:600">V…</span>
           <div class="sub">把每一笔退货变成市场情报 · 大屏实时洞察（左：给老板看的洞察看板；右：取证工具）</div>
         </div>
         <div class="kpis">
@@ -759,6 +760,7 @@ async function doAnalyze(e){
   try{
     const cfg=await fetch('/api/config'); const c=await cfg.json();
     if(typeof c.same_item_threshold==='number' && isFinite(c.same_item_threshold)) SAME_ITEM_THRESHOLD=c.same_item_threshold;
+    if(c.version) $('#appVer').textContent='V'+String(c.version).replace(/^v/i,'');
   }catch(e){ /* 网络异常则用默认 0.82 兜底 */ }
 
   // P3-2：先拉一次洞察并渲染看板，同时复用其响应填下拉，避免 init 与 loadInsights 各拉一次
