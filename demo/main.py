@@ -11,6 +11,7 @@
 
 import os
 import uuid
+import base64
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, Form
@@ -73,6 +74,13 @@ async def analyze(
     # 执行取证（功能①②③④⑤）
     result = analyze_case(rp, pp, listing_text, sku, amount, mode)
     result["case_id"] = rid
+
+    # 关键帧红框标注：把退回图原图 base64 回传前端，叠加缺陷示意框展示
+    try:
+        with open(rp, "rb") as f:
+            result["returned_image_b64"] = base64.b64encode(f.read()).decode("ascii")
+    except Exception:
+        result["returned_image_b64"] = ""
 
     # 数据沉淀：把这一单写入案件库，阶段B 洞察才有"米"下锅
     save_case({

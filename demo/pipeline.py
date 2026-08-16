@@ -100,6 +100,19 @@ def _mock(returned_path, product_path, listing_text, sku, amount):
         f"{'为同一件商品' if same else '存在明显差异'}；主要问题为{', '.join(defects)}。"
         f"请核查后公正裁决，谢谢。"
     )
+    # 缺陷区域示意框（mock 确定性占位；live 接通后由视觉模型返回真实 bbox）
+    # 归一化坐标(0~1)，前端按比例绘制红框；演示数据仅作"示意"，不替代真实检测。
+    defect_boxes = []
+    rng = random.Random(_hash_seed(returned_path, "boxes"))
+    for d in defects:
+        if d == "无明显瑕疵":
+            continue
+        bx = round(rng.random() * 0.6, 3)
+        by = round(rng.random() * 0.55, 3)
+        bw = round(0.20 + rng.random() * 0.22, 3)
+        bh = round(0.20 + rng.random() * 0.22, 3)
+        defect_boxes.append({"label": d, "x": bx, "y": by, "w": bw, "h": bh})
+
     return {
         "similarity": sim,
         "same_item": same,
@@ -110,6 +123,7 @@ def _mock(returned_path, product_path, listing_text, sku, amount):
         "voice_text": voice_text,
         "voice_audio_b64": _gen_wav(voice_text),
         "priority_score": priority,
+        "defect_boxes": defect_boxes,
         "mode": "mock",
     }
 
@@ -199,6 +213,8 @@ def _aggregate(cases):
     sup = defaultdict(lambda: {"cases": 0, "refund": 0.0, "defects": Counter(),
                               "won": 0, "name": "未知", "real": 0})
     plat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    # 平台 × 供应商 交叉累加器（供应商维度扩展：跨平台横向对比供货方质量）
+    matrix = defaultdict(lambda: defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0}))
     # SKU 维度（含日期，用于近期异常预警）
     sku = defaultdict(lambda: {"cases": 0, "refund": 0.0, "sim": 0.0,
                                "defects": Counter(), "won": 0, "cat": "未分类",
@@ -258,6 +274,13 @@ def _aggregate(cases):
         if c.get("outcome") == "赢":
             pp["won"] += 1
         sim_sum += sim
+
+        # 平台 × 供应商 交叉
+        mm = matrix[c.get("platform", "未知")][c.get("supplier", "未知")]
+        mm["cases"] += 1
+        mm["refund"] += amt
+        if c.get("outcome") == "赢":
+            mm["won"] += 1
 
     avg_dispute = round(1 - sim_sum / total, 3) if total else 0.0
 
@@ -345,6 +368,18 @@ def _aggregate(cases):
                         r["anomaly"] = True
     sku_ranking.sort(key=lambda x: -x["refund"])
 
+    # —— 平台 × 供应商 交叉视图 ——
+    platform_supplier_matrix = []
+    for p, sup_map in matrix.items():
+        for s, v in sup_map.items():
+            if not s or s == "未知":
+                continue
+            platform_supplier_matrix.append({
+                "platform": p, "supplier": s, "cases": v["cases"],
+                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+                "refund": round(v["refund"], 2),
+            })
+
     return {
         "total_cases": total,
         "total_refund": round(total_refund, 2),
@@ -356,6 +391,7 @@ def _aggregate(cases):
         "category_heatmap": category_heatmap,
         "supplier_scorecard": supplier_scorecard,
         "platform_view": platform_view,
+        "platform_supplier_matrix": platform_supplier_matrix,
         "root_cause_dist": dict(root_all),
         "anomaly_alerts": anomaly_alerts,
         "sourcing_advice": [],

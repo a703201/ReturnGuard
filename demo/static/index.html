@@ -40,6 +40,22 @@
   details{margin-top:8px} summary{cursor:pointer;font-weight:600;color:var(--acc)}
   label{display:block;font-size:13px;margin:10px 0 4px;color:#cbd5e1}
   .hide{display:none}
+  .chart{margin:6px 0 12px}
+  .barh{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12px}
+  .barh .lab{width:120px;flex:none;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .barh .track{flex:1;background:#0b1220;border-radius:6px;height:16px;overflow:hidden}
+  .barh .fill{height:100%;border-radius:6px;transition:width .3s ease}
+  .barh .val{width:78px;flex:none;text-align:right;color:#94a3b8}
+  .donut{display:block;margin:2px auto 0}
+  .kpi{align-items:center}
+  .matrix{border-collapse:collapse;font-size:12px;width:100%;margin-top:4px}
+  .matrix th,.matrix td{padding:6px 8px;border:1px solid #334155;text-align:center}
+  .matrix th{color:#94a3b8;font-weight:600;background:#0b1220}
+  .matrix td.pl{text-align:left;color:#cbd5e1;font-weight:600}
+  .annot-wrap{position:relative;display:inline-block;margin-top:6px}
+  #annot{width:100%;max-width:420px;border-radius:8px;display:none;background:#0b1220}
+  .annot-note{color:#64748b;font-size:11px;margin-top:4px;line-height:1.5}
+  .card h3 .badge{font-size:11px;color:#64748b;font-weight:400;margin-left:6px}
 </style>
 </head>
 <body>
@@ -63,7 +79,7 @@
   <div class="kpis">
     <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">已分析退货</div><div class="h">系统帮你看过多少笔退货纠纷</div></div>
     <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款</div><div class="h">这些退货一共退给买家多少钱</div></div>
-    <div class="kpi"><div class="v" id="kWin">-</div><div class="l">维权胜诉率</div><div class="h">你成功挽回（没白赔）的比例</div></div>
+    <div class="kpi"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="92" height="92" viewBox="0 0 92 92"></svg><div class="l">维权胜诉率</div><div class="h">你成功挽回（没白赔）的比例</div></div>
     <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">平均退货争议率</div><div class="h">退货里"说不清是不是你的问题"的占比</div></div>
   </div>
 
@@ -72,6 +88,7 @@
     <div class="card">
       <h3>① 钱都亏在哪些品类</h3>
       <p class="desc">退货热力图：哪类商品退货最多、最亏钱、最难赢。行越红=越该警惕，一眼看出"钱漏在哪儿"。</p>
+      <div id="catBars" class="chart"></div>
       <table id="catTbl"><thead><tr><th>品类</th><th>退货笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody></tbody></table>
     </div>
 
@@ -87,6 +104,7 @@
     <div class="card">
       <h3>③ 哪些供应商最该换</h3>
       <p class="desc">按退货缺陷率和胜诉率给每个供应商打"质量分"。黑榜=高风险建议换，红榜=靠谱可长期合作。</p>
+      <div id="supBars" class="chart"></div>
       <div id="supBlack"></div>
       <div id="supRed" style="margin-top:8px"></div>
     </div>
@@ -95,6 +113,7 @@
     <div class="card">
       <h3>④ 各平台维权难度</h3>
       <p class="desc">不同平台判买家赢的倾向不同。买家友好型平台（如 AliExpress/PayPal）普遍更难赢，举证要更硬。</p>
+      <div id="platBars" class="chart"></div>
       <table id="platTbl"><thead><tr><th>平台</th><th>退货笔数</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
     </div>
   </div>
@@ -111,6 +130,13 @@
     <h3>⑥ 最烧钱的退货商品排行</h3>
     <p class="desc">按退款金额排的退货商品清单。点开看每个商品的高发问题，决定要不要下架、换供或改描述。</p>
     <table id="skuTbl"><thead><tr><th>商品SKU</th><th>品类</th><th>供应商</th><th>退货笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <!-- ⑩ 平台 × 供应商 维权交叉视图 -->
+  <div class="card">
+    <h3>⑩ 平台 × 供应商 维权交叉<span class="badge">帮老板选"在哪个平台卖、找谁供货"</span></h3>
+    <p class="desc">同一供应商在不同平台的胜诉率差异，暴露"平台判罚倾向 + 供货质量"双重信号。色块越绿=越能赢，越红=高风险。</p>
+    <div id="matrixHeat" class="chart"></div>
   </div>
 
   <!-- ⑦⑧ 报告 + 建议 -->
@@ -152,6 +178,9 @@
         <div class="bar"><i id="simbar"></i></div>
         <div style="margin-top:8px">判断：<span id="same" class="pill"></span> · 和商品页描述是否一致：<span id="cons"></span></div>
         <div style="margin-top:8px">发现的问题：<span id="defects"></span></div>
+        <div style="margin-top:10px">退货图缺陷标注（关键帧红框）：</div>
+        <div class="annot-wrap"><canvas id="annot"></canvas></div>
+        <div class="annot-note">※ 当前为演示示意框（按缺陷类型生成）；接入真实视觉模型后将自动替换为检测坐标，且全程不替代平台裁决。</div>
         <div style="margin-top:8px">优先处理级别：<b id="prio"></b>（越高越该先救这一单）</div>
         <div style="margin-top:10px">自动生成的举证材料：</div>
         <pre id="dossier"></pre>
@@ -166,6 +195,78 @@
 const $ = s => document.querySelector(s);
 const pct = x => (x*100).toFixed(0) + '%';
 const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
+const realColor = w => w>=0.5?'#34d399':w>=0.3?'#fbbf24':'#f87171';
+
+// 胜诉率环形图（KPI 直观化）
+function renderDonut(svg, rate){
+  const r=38, cx=46, cy=46, c=2*Math.PI*r;
+  const v=Math.max(0,Math.min(1,rate||0));
+  const col=realColor(v);
+  svg.innerHTML=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#334155" stroke-width="9"/>`
+    +`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" `
+    +`stroke-dasharray="${(v*c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+}
+
+// 通用横向条形图
+function renderBarh(el, items){
+  el.innerHTML='';
+  if(!items.length){el.innerHTML='<span class="note">暂无数据。</span>';return;}
+  const max=Math.max(1,...items.map(o=>o.v));
+  items.forEach(o=>{
+    const wpct=Math.round(o.v/max*100);
+    const div=document.createElement('div'); div.className='barh';
+    div.innerHTML=`<span class="lab" title="${o.label}">${o.label}</span>`
+      +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}"></span></span>`
+      +`<span class="val">${o.text}</span>`;
+    el.appendChild(div);
+  });
+}
+
+// 平台 × 供应商 交叉热力
+function renderMatrix(el, rows){
+  el.innerHTML='';
+  if(!rows.length){el.innerHTML='<span class="note">暂无交叉数据。</span>';return;}
+  const plats=[...new Set(rows.map(r=>r.platform))];
+  const sups=[...new Set(rows.map(r=>r.supplier))];
+  const map={}; rows.forEach(r=>{map[r.platform+'|'+r.supplier]=r;});
+  let html='<tr><th>平台 ＼ 供应商</th>'+sups.map(s=>`<th>${s}</th>`).join('')+'</tr>';
+  plats.forEach(p=>{
+    html+=`<tr><td class="pl">${p}</td>`;
+    sups.forEach(s=>{
+      const r=map[p+'|'+s];
+      if(!r){html+='<td>-</td>';return;}
+      const rc=realColor(r.win_rate);
+      const rgba=rc==='#34d399'?'52,211,153':rc==='#fbbf24'?'251,191,36':'248,113,113';
+      html+=`<td style="background:rgba(${rgba},.18);color:${rc};font-weight:600">${pct(r.win_rate)}`
+        +`<br><span style="font-size:10px;color:#94a3b8">${r.cases}笔</span></td>`;
+    });
+    html+='</tr>';
+  });
+  el.innerHTML=`<table class="matrix">${html}</table>`;
+}
+
+// 单案举证：退货图叠加缺陷红框（关键帧标注）
+function renderAnnot(boxes, imgB64){
+  const cv=$('#annot');
+  if(!boxes||!boxes.length||!imgB64){cv.style.display='none';return;}
+  const img=new Image();
+  img.onload=()=>{
+    const W=Math.min(420, img.width||420), H=Math.round(img.height*W/(img.width||1));
+    cv.width=W; cv.height=H; cv.style.display='block';
+    const ctx=cv.getContext('2d');
+    ctx.drawImage(img,0,0,W,H);
+    boxes.forEach(b=>{
+      const x=Math.max(0,b.x*W), y=Math.max(0,b.y*H), w=Math.min(W-b.x*W,b.w*W), h=Math.min(H-b.y*H,b.h*H);
+      ctx.strokeStyle='#f87171'; ctx.lineWidth=3; ctx.strokeRect(x,y,w,h);
+      ctx.fillStyle='rgba(248,113,113,.92)'; ctx.font='12px sans-serif';
+      ctx.fillText(b.label, x+3, y>14?y-4:y+h+13);
+    });
+  };
+  // 探测图片 mime（PNG / JPEG）
+  let mime='image/png';
+  try{const h=atob(imgB64).slice(0,2);if(h.charCodeAt(0)===0xff&&h.charCodeAt(1)===0xd8)mime='image/jpeg';}catch(e){}
+  img.src='data:'+mime+';base64,'+imgB64;
+}
 
 async function loadInsights(){
   const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
@@ -264,6 +365,13 @@ async function loadInsights(){
     div.textContent='▸ '+t; adv.appendChild(div);
   });
   if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示数据：'+d.error;
+
+  // 图形化：KPI 直观化 + 供应商维度扩展（平台×供应商交叉）
+  renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#f87171'})));
+  renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})));
+  renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#f87171':x.level==='优质'?'#34d399':'#fbbf24'})));
+  renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
+  renderDonut($('#kWinDonut'), d.win_rate||0);
 }
 
 // 单案举证
@@ -283,6 +391,7 @@ async function doAnalyze(e){
     $('#same').style.background=d.same_item?'var(--ok)':'var(--bad)';
     $('#cons').textContent=d.consistency;
     $('#defects').innerHTML=(d.defect_tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
+    renderAnnot(d.defect_boxes, d.returned_image_b64);
     $('#prio').textContent=d.priority_score;
     $('#dossier').textContent=d.dossier;
     $('#vtext').textContent=d.voice_text;
