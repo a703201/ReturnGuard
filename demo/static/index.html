@@ -217,6 +217,28 @@
   .entry-del{background:transparent;border:1px solid #334155;color:#f87171;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px}
   .entry-del:hover{background:rgba(248,113,113,.12)}
   @media (max-width:900px){ .entry-wrap{grid-template-columns:1fr} }
+
+  /* 手机/小屏：允许整页上下滚动，卡片自然堆叠 */
+  @media (max-width:640px){
+    body{overflow-y:auto}
+    .app{height:auto;min-height:100dvh}
+    .topbar{position:static}
+    .content{flex:none;overflow:visible;height:auto;padding:10px 12px}
+    .tabpane{height:auto}
+    .tabpane.active{height:auto}
+    .board{height:auto;grid-template-columns:1fr;grid-template-rows:none}
+    .card{min-height:auto;height:auto;overflow:visible;margin-bottom:10px}
+    .tabs{flex-wrap:wrap}
+    .tabs button{flex:1 1 auto;font-size:12px;padding:6px 10px}
+    .kpis{gap:8px}
+    .kpi{flex:1 1 calc(50% - 8px);min-width:auto;padding:8px 10px}
+    .kpi-win{flex-direction:row;gap:6px}
+    .hrow1,.hrow2{gap:8px}
+    .bar-top{gap:6px}
+    select,input[type=text],input[type=number],textarea{font-size:14px}
+    .scrollpane,.sup-view{height:auto;overflow:visible}
+    .forensic-wrap{height:auto}
+  }
 </style>
 </head>
 <body>
