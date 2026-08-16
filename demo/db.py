@@ -20,6 +20,30 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+# ---- 兼容性补丁：让 SQLAlchemy 识别 openGauss 版本号 ----
+# openGauss 兼容 PG 协议，但 `SELECT version()` 返回的是
+#   "(openGauss 5.0.0 build a07d57c3) compiled at ..."
+# SQLAlchemy 2.0 的 PG 方言只认 "PostgreSQL XX.X" 格式，会抛
+#   AssertionError: Could not determine version from string '(openGauss 5.0.0 ...'
+# 这里在连接初始化时拦截版本字符串，抽出 openGauss 主版本号返回，即可正常跑。
+# 参考：https://gitee.com/opengauss/opengauss-sqlalchemy（原理相同，但本补丁无额外依赖）
+import re
+from sqlalchemy.dialects.postgresql.base import PGDialect
+
+_original_get_server_version_info = PGDialect._get_server_version_info
+
+
+def _get_server_version_info_for_opengauss(self, connection):
+    raw = connection.exec_driver_sql("SELECT version()").scalar()
+    if raw and "openGauss" in raw:
+        match = re.search(r"openGauss\s+(\d+)\.(\d+)(?:\.(\d+))?", raw)
+        if match:
+            return tuple(int(g) for g in match.groups() if g is not None)
+    return _original_get_server_version_info(self, connection)
+
+
+PGDialect._get_server_version_info = _get_server_version_info_for_opengauss
+
 # ---- 连接配置：默认 SQLite，部署期改环境变量即可切 openGauss ----
 BASE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(BASE, "cases.db")
