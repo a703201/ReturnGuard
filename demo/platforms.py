@@ -185,8 +185,19 @@ def get_platform_spec(key: str) -> dict[str, Any] | None:
 
 
 def list_platforms() -> list[dict[str, Any]]:
-    """返回全部平台规格（列表，按 PLATFORM_KEYS 顺序）。"""
-    return [EVIDENCE_SPECS[k] for k in PLATFORM_KEYS if k in EVIDENCE_SPECS]
+    """返回全部平台规格（列表，按 PLATFORM_KEYS 顺序）。
+
+    返回的是 EVIDENCE_SPECS 的浅拷贝并补 `key` 字段（原标识），
+    便于前端/文档用稳定 key 关联（避免依赖 label==key 的脆弱耦合），
+    且不污染源常量 EVIDENCE_SPECS。
+    """
+    out = []
+    for k in PLATFORM_KEYS:
+        if k in EVIDENCE_SPECS:
+            spec = dict(EVIDENCE_SPECS[k])  # 浅拷贝，避免改到模块级常量
+            spec["key"] = k
+            out.append(spec)
+    return out
 
 
 def is_valid_platform(key: str) -> bool:

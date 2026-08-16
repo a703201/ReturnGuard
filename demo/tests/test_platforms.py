@@ -42,6 +42,7 @@ def test_api_platforms_endpoint():
         ps = r.json()["platforms"]
         assert len(ps) == 4
         assert ps[0]["label"] in PLATFORM_KEYS
+        assert all("key" in p for p in ps), "每个平台规格都应带稳定 key 字段"
 
 
 def test_analyze_attaches_platform_evidence():
