@@ -10,6 +10,12 @@
       openGauss 是华为开源的国产关系型数据库（兼容 PostgreSQL 协议）；其向量能力还可
       进一步把「图向量比对」做成真实落库的相似度检索，替代当前 mock 相似度。
 
+数据来源双库隔离（演示 / 实际）：
+    - demo 源：来自种子 cases.json（cases.db），用于复赛演示，绝不混入真实业务数据。
+    - real 源：初始为空（cases_real.db），由网页「数据录入」添加实际退货案件。
+    - 两源各自独立库文件/实例，物理隔离；通过 ?source=demo|real 或前端顶栏开关切换，
+      切换零代码。所有仓储函数均带 source 参数（默认 demo），向后兼容。
+
 工程化（大厂对标）：
     - 引擎**懒初始化**（get_engine），去除 import 期副作用，便于测试注入内存库；
     - 日志走 logging 而非 print，便于容器采集与分级；
@@ -58,77 +64,96 @@ def _get_server_version_info_for_opengauss(self, connection):
     return _original_get_server_version_info(self, connection)
 
 
-def _patch_opengauss_dialect() -> None:
+def _patch_opengauss_dialect(url: str) -> None:
     """仅在连接 openGauss / PostgreSQL 时改写方言版本探测，避免 import 期全局副作用。"""
-    if "opengauss" in DATABASE_URL or DATABASE_URL.startswith("postgresql"):
+    if "opengauss" in url or url.startswith("postgresql"):
         PGDialect._get_server_version_info = _get_server_version_info_for_opengauss
         logger.info("已挂接 openGauss 版本探测补丁")
 
-# ---- 连接配置：默认 SQLite，部署期改环境变量即可切 openGauss ----
+# ---- 连接配置：默认 SQLite 双源隔离；部署期改环境变量即可切 openGauss ----
+# 演示数据（demo）：来自种子 cases.json；实际数据（real）：用户在网页「数据录入」添加，初始为空。
+# 两源各自独立库文件，物理隔离，互不污染；切换零代码（env 或前端 source 参数）。
 BASE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(BASE, "cases.db")
+REAL_SQLITE = "sqlite:///" + os.path.join(BASE, "cases_real.db")
+# 兼容旧部署：若设置了 DATABASE_URL 则作为 demo 源（保持原有行为）
+DEMO_DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE)
+REAL_DATABASE_URL = os.environ.get("REAL_DATABASE_URL", REAL_SQLITE)
+SOURCES = {"demo": DEMO_DATABASE_URL, "real": REAL_DATABASE_URL}
+DEFAULT_SOURCE = "demo"
+VALID_SOURCES = ("demo", "real")
+
+
+def _normalize_source(source) -> str:
+    """把请求/调用里的 source 归一化为合法值，非法或缺失一律回退 demo。"""
+    if source in VALID_SOURCES:
+        return source
+    return DEFAULT_SOURCE
+
+
 # 切换 openGauss 示例（部署期设置环境变量，无需改代码）：
 #   DATABASE_URL=postgresql+psycopg2://gaussdb:你的密码@数据库主机:5432/returnguard
-# 进阶：想用 openGauss 官方方言（识别 openGauss 特有类型/索引）时改为：
-#   DATABASE_URL=opengauss+psycopg2://gaussdb:你的密码@数据库主机:5432/returnguard
-#   （需 pip install opengauss-sqlalchemy）
-DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE)
+#   REAL_DATABASE_URL=postgresql+psycopg2://gaussdb:你的密码@数据库主机:5432/returnguard_real
+# 进阶：想用 openGauss 官方方言时改为 opengauss+psycopg2://...（需 pip install opengauss-sqlalchemy）
 
-# SQLite 需允许多线程复用连接（FastAPI 事件循环会并发访问）；openGauss 不需要
-_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-# ---- 懒初始化：引擎与 session 工厂在首次使用时才创建，去除 import 期副作用 ----
-_engine = None
-_SessionLocal = None
+# ---- 懒初始化：每个 source 独立引擎与 session 工厂（首次使用时创建，去除 import 期副作用）----
+_engines: dict = {}
+_sessions: dict = {}
 
 
-def get_engine():
-    """返回（必要时创建）数据库引擎。便于测试时替换 DATABASE_URL 后重新获取。"""
-    global _engine
-    if _engine is None:
-        _patch_opengauss_dialect()
+def get_engine(source: str = DEFAULT_SOURCE):
+    """返回（必要时创建）指定 source 的数据库引擎。便于测试时替换 DATABASE_URL 后重新获取。"""
+    source = _normalize_source(source)
+    global _engines
+    if source not in _engines:
+        url = SOURCES[source]
+        _patch_opengauss_dialect(url)
         logger.info(
-            "初始化数据库引擎: %s",
-            DATABASE_URL.split("@")[-1] if "://" in DATABASE_URL else DATABASE_URL,
+            "初始化数据库引擎[%s]: %s",
+            source,
+            url.split("@")[-1] if "://" in url else url,
         )
-        _engine = create_engine(
-            DATABASE_URL,
-            connect_args=_connect_args,
+        connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+        _engines[source] = create_engine(
+            url,
+            connect_args=connect_args,
             future=True,
             pool_pre_ping=True,
         )
-    return _engine
+    return _engines[source]
 
 
-def get_session():
+def get_session(source: str = DEFAULT_SOURCE):
     """返回一个短生命周期 Session（用 with 管理）。"""
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=get_engine(), expire_on_commit=False)
-    return _SessionLocal()
+    source = _normalize_source(source)
+    global _sessions
+    if source not in _sessions:
+        _sessions[source] = sessionmaker(bind=get_engine(source), expire_on_commit=False)
+    return _sessions[source]()
 
 
 Base = declarative_base()
 
-# ---- 结果缓存：load_cases 全表扫描较重，加缓存；写入时失效 ----
-_cache: dict[str, list[dict] | None] = {"cases": None}
+# ---- 结果缓存：load_cases 全表扫描较重，按 source 缓存；写入时失效 ----
+_cache: dict = {"demo": None, "real": None}
 
-# 洞察聚合缓存失效用的「代际」计数器：每次写库自增；pipeline.build_insights 据此判断缓存是否过期
-_generation: int = 0
-
-
-def _invalidate_cache() -> None:
-    _cache["cases"] = None
+# 洞察聚合缓存失效用的「代际」计数器（按 source 独立）：每次写库自增；pipeline.build_insights 据此判断缓存是否过期
+_generations: dict = {"demo": 0, "real": 0}
 
 
-def bump_generation() -> None:
+def _invalidate_cache(source: str = DEFAULT_SOURCE) -> None:
+    source = _normalize_source(source)
+    _cache[source] = None
+
+
+def bump_generation(source: str = DEFAULT_SOURCE) -> None:
     """写库后自增代际，使依赖聚合结果的缓存失效。"""
-    global _generation
-    _generation += 1
+    source = _normalize_source(source)
+    _generations[source] += 1
 
 
-def get_generation() -> int:
-    return _generation
+def get_generation(source: str = DEFAULT_SOURCE) -> int:
+    return _generations[_normalize_source(source)]
 
 
 class Case(Base):
@@ -210,48 +235,58 @@ def _dict_to_row(d: dict) -> Case:
     return Case(**data)
 
 
-def init_db(seed_json: str | None = None, force: bool = False) -> None:
-    """建表；若库为空（或 force=True）且存在种子 JSON，则导入，保证克隆/部署后演示数据一致。
+def init_db(source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: bool = False) -> None:
+    """建表；若库为空（或 force=True）且为 demo 源，则导入种子 JSON，保证克隆/部署后演示数据一致。
 
     force=True 会先 drop 全部表再重建并重新导入——用于本地重新生成了 cases.json 后刷新库
     （解决「seed-only-when-empty」：旧库已存在时改了 schema/数据不会自动刷新）。
+    real 源不播种，初始为空，待用户在网页「数据录入」添加实际退货案件。
     """
+    source = _normalize_source(source)
+    engine = get_engine(source)
     if force:
-        logger.info("force=True：重置案件库（drop_all + 重建 + 重新导入）")
-        Base.metadata.drop_all(get_engine())
-    Base.metadata.create_all(get_engine())
-    if seed_json is None:
-        seed_json = os.path.join(BASE, "cases.json")
-    with get_session() as s:
-        count = s.query(Case).count()
-        if (force or count == 0) and os.path.exists(seed_json):
-            with open(seed_json, encoding="utf-8") as f:
-                rows = json.load(f)
-            for c in rows:
-                s.add(_dict_to_row(c))
-            s.commit()
-            logger.info("已从 %s 导入 %d 条案件", seed_json, len(rows))
-        else:
-            logger.info("案件库已存在 %d 条，跳过种子导入", count)
+        logger.info("[%s] force=True：重置案件库（drop_all + 重建 + 重新导入）", source)
+        Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    if source == "demo":
+        if seed_json is None:
+            seed_json = os.path.join(BASE, "cases.json")
+        with get_session(source) as s:
+            count = s.query(Case).count()
+            if (force or count == 0) and os.path.exists(seed_json):
+                with open(seed_json, encoding="utf-8") as f:
+                    rows = json.load(f)
+                for c in rows:
+                    s.add(_dict_to_row(c))
+                s.commit()
+                logger.info("[%s] 已从 %s 导入 %d 条案件", source, seed_json, len(rows))
+            else:
+                logger.info("[%s] 案件库已存在 %d 条，跳过种子导入", source, count)
+    else:
+        logger.info("[%s] 实际数据库就绪（空库，待录入）", source)
 
 
-def load_cases() -> list[dict]:
-    """读取全部案件（替代原 load_cases(path)），返回 list[dict]。带结果缓存。"""
-    if _cache["cases"] is not None:
-        return _cache["cases"]
-    with get_session() as s:
+def load_cases(source: str = DEFAULT_SOURCE) -> list[dict]:
+    """读取指定 source 的全部案件，返回 list[dict]。带按 source 的结果缓存。"""
+    source = _normalize_source(source)
+    if _cache[source] is not None:
+        return _cache[source]
+    with get_session(source) as s:
         data = [_row_to_dict(r) for r in s.query(Case).all()]
-    _cache["cases"] = data
+    _cache[source] = data
     return data
 
 
-def save_case(case: dict) -> None:
-    """追加一条案件（替代原 save_case(path, case)），并失效缓存。"""
-    with get_session() as s:
+def save_case(source: str = DEFAULT_SOURCE, case: dict | None = None) -> None:
+    """追加一条案件到指定 source（替代原 save_case(path, case)），并失效对应缓存。"""
+    source = _normalize_source(source)
+    if case is None:
+        return
+    with get_session(source) as s:
         s.add(_dict_to_row(case))
         s.commit()
-    _invalidate_cache()
-    bump_generation()
+    _invalidate_cache(source)
+    bump_generation(source)
     # 聚合洞察结果可能已变，失效 pipeline 层缓存（懒导入避免循环依赖）
     try:
         from pipeline import invalidate_insights_cache
@@ -261,20 +296,22 @@ def save_case(case: dict) -> None:
         logger.warning("洞察缓存失效失败（可忽略）", exc_info=True)
 
 
-def get_case(case_id: str) -> dict | None:
-    """按 case_id 查单条案件。"""
-    with get_session() as s:
+def get_case(source: str = DEFAULT_SOURCE, case_id: str = "") -> dict | None:
+    """按 case_id 查指定 source 的单条案件。"""
+    source = _normalize_source(source)
+    with get_session(source) as s:
         r = s.query(Case).filter_by(case_id=case_id).first()
         return _row_to_dict(r) if r else None
 
 
-def delete_case(case_id: str) -> int:
-    """按 case_id 删除一条案件，返回删除条数，并失效缓存。"""
-    with get_session() as s:
+def delete_case(source: str = DEFAULT_SOURCE, case_id: str = "") -> int:
+    """按 case_id 删除指定 source 的一条案件，返回删除条数，并失效对应缓存。"""
+    source = _normalize_source(source)
+    with get_session(source) as s:
         n = s.query(Case).filter_by(case_id=case_id).delete()
         s.commit()
-    _invalidate_cache()
-    bump_generation()
+    _invalidate_cache(source)
+    bump_generation(source)
     try:
         from pipeline import invalidate_insights_cache
 
