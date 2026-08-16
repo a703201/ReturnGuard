@@ -41,13 +41,11 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 logger = logging.getLogger("returnguard.db")
 
-# ---- 兼容性补丁：让 SQLAlchemy 识别 openGauss 版本号 ----
-# openGauss 兼容 PG 协议，但 `SELECT version()` 返回的是
-#   "(openGauss 5.0.0 build a07d57c3) compiled at ..."
-# SQLAlchemy 2.0 的 PG 方言只认 "PostgreSQL XX.X" 格式，会抛
-#   AssertionError: Could not determine version from string '(openGauss 5.0.0 ...'
-# 这里在连接初始化时拦截版本字符串，抽出 openGauss 主版本号返回，即可正常跑。
-# 参考：https://gitee.com/opengauss/opengauss-sqlalchemy（原理相同，但本补丁无额外依赖）
+# ---- 兼容性补丁：让 SQLAlchemy 识别 openGauss 版本号（懒挂接，去除 import 期副作用）----
+# openGauss 兼容 PG 协议，但其 `SELECT version()` 返回 "(openGauss 5.0.0 ...)"，导致 SQLAlchemy
+# 的 PG 方言抛 AssertionError。这里在连接初始化时拦截版本字符串抽出主版本号。
+# 原实现会在 import 期无条件改写 PGDialect（即便用 SQLite 也执行，属全局副作用、对库内部实现脆弱）；
+# 现改为仅当 DATABASE_URL 指向 openGauss / PostgreSQL 时才挂接（见 get_engine）。
 _original_get_server_version_info = PGDialect._get_server_version_info
 
 
@@ -60,7 +58,11 @@ def _get_server_version_info_for_opengauss(self, connection):
     return _original_get_server_version_info(self, connection)
 
 
-PGDialect._get_server_version_info = _get_server_version_info_for_opengauss
+def _patch_opengauss_dialect() -> None:
+    """仅在连接 openGauss / PostgreSQL 时改写方言版本探测，避免 import 期全局副作用。"""
+    if "opengauss" in DATABASE_URL or DATABASE_URL.startswith("postgresql"):
+        PGDialect._get_server_version_info = _get_server_version_info_for_opengauss
+        logger.info("已挂接 openGauss 版本探测补丁")
 
 # ---- 连接配置：默认 SQLite，部署期改环境变量即可切 openGauss ----
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -84,6 +86,7 @@ def get_engine():
     """返回（必要时创建）数据库引擎。便于测试时替换 DATABASE_URL 后重新获取。"""
     global _engine
     if _engine is None:
+        _patch_opengauss_dialect()
         logger.info(
             "初始化数据库引擎: %s",
             DATABASE_URL.split("@")[-1] if "://" in DATABASE_URL else DATABASE_URL,
@@ -110,9 +113,22 @@ Base = declarative_base()
 # ---- 结果缓存：load_cases 全表扫描较重，加缓存；写入时失效 ----
 _cache: dict[str, list[dict] | None] = {"cases": None}
 
+# 洞察聚合缓存失效用的「代际」计数器：每次写库自增；pipeline.build_insights 据此判断缓存是否过期
+_generation: int = 0
+
 
 def _invalidate_cache() -> None:
     _cache["cases"] = None
+
+
+def bump_generation() -> None:
+    """写库后自增代际，使依赖聚合结果的缓存失效。"""
+    global _generation
+    _generation += 1
+
+
+def get_generation() -> int:
+    return _generation
 
 
 class Case(Base):
@@ -147,6 +163,11 @@ class Case(Base):
     priority_score = Column(Float)
     returned_image = Column(String(256))
     product_image = Column(String(256))
+    # 单案取证完整留存（便于案件复盘 / 红框回放；规模部署建议音频/大图改对象存储 URL）
+    dossier = Column(Text)                       # 举证报告正文
+    voice_text = Column(Text)                    # 母语语音陈述文本
+    voice_audio_b64 = Column(Text)               # 语音 base64（演示用）
+    defect_boxes = Column(JSON)                  # 关键帧缺陷示意框（归一化坐标 0~1）
 
 
 _COLUMNS = {c.name for c in Case.__table__.columns}
@@ -189,14 +210,21 @@ def _dict_to_row(d: dict) -> Case:
     return Case(**data)
 
 
-def init_db(seed_json: str | None = None) -> None:
-    """建表；若库为空且存在种子 JSON，则导入，保证克隆/部署后演示数据一致。"""
+def init_db(seed_json: str | None = None, force: bool = False) -> None:
+    """建表；若库为空（或 force=True）且存在种子 JSON，则导入，保证克隆/部署后演示数据一致。
+
+    force=True 会先 drop 全部表再重建并重新导入——用于本地重新生成了 cases.json 后刷新库
+    （解决「seed-only-when-empty」：旧库已存在时改了 schema/数据不会自动刷新）。
+    """
+    if force:
+        logger.info("force=True：重置案件库（drop_all + 重建 + 重新导入）")
+        Base.metadata.drop_all(get_engine())
     Base.metadata.create_all(get_engine())
     if seed_json is None:
         seed_json = os.path.join(BASE, "cases.json")
     with get_session() as s:
         count = s.query(Case).count()
-        if count == 0 and os.path.exists(seed_json):
+        if (force or count == 0) and os.path.exists(seed_json):
             with open(seed_json, encoding="utf-8") as f:
                 rows = json.load(f)
             for c in rows:
@@ -223,6 +251,14 @@ def save_case(case: dict) -> None:
         s.add(_dict_to_row(case))
         s.commit()
     _invalidate_cache()
+    bump_generation()
+    # 聚合洞察结果可能已变，失效 pipeline 层缓存（懒导入避免循环依赖）
+    try:
+        from pipeline import invalidate_insights_cache
+
+        invalidate_insights_cache()
+    except Exception:  # 缓存失效失败不应影响主流程
+        logger.warning("洞察缓存失效失败（可忽略）", exc_info=True)
 
 
 def get_case(case_id: str) -> dict | None:
@@ -238,4 +274,11 @@ def delete_case(case_id: str) -> int:
         n = s.query(Case).filter_by(case_id=case_id).delete()
         s.commit()
     _invalidate_cache()
+    bump_generation()
+    try:
+        from pipeline import invalidate_insights_cache
+
+        invalidate_insights_cache()
+    except Exception:
+        logger.warning("洞察缓存失效失败（可忽略）", exc_info=True)
     return n

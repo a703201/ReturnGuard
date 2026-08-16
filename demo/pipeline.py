@@ -39,7 +39,16 @@ logger = logging.getLogger("returnguard.pipeline")
 
 # 案件持久化已迁移到 db.py（SQLAlchemy 仓储层，SQLite / openGauss 双轨）。
 # 这里做 re-export，保持 main.py 的 import 路径不变。
-from db import load_cases, save_case  # noqa: E402, F401
+from db import get_generation, load_cases, save_case  # noqa: E402, F401
+
+# 洞察聚合缓存：按 (mode, 案件数, 代际) 缓存，save_case 时代际自增即失效。
+# 说明：缓存为进程内、单 worker 场景（demo 默认）；多 worker 部署需 Redis 等共享缓存。
+_ins_cache: dict = {}
+
+
+def invalidate_insights_cache() -> None:
+    """使洞察聚合缓存失效（由 db.save_case / delete_case 在写库后调用）。"""
+    _ins_cache.clear()
 
 # ---- 缺陷词表/严重程度已迁至 constants.py（见文件头说明），此处仅保留业务映射 ----
 
@@ -374,9 +383,15 @@ def _aggregate(cases: list[dict]) -> dict:
 
     total = len(cases)
     total_refund = sum(float(c.get("amount", 0) or 0) for c in cases)
-    outcome_dist = Counter((c.get("outcome") or "未知") for c in cases)
+    # outcome 分布：已判定案件按真实结果，未判定（单案上传、无法判定输赢）单独归入「待分析」，
+    # 不混入「未知」噪声桶；胜诉率只按已判定案件计算，避免上传单案稀释 KPI。
+    outcome_dist = Counter()
+    for c in cases:
+        oc = c.get("outcome")
+        outcome_dist[oc if oc in ("赢", "部分退款", "输") else "待分析"] += 1
     wins = outcome_dist.get("赢", 0)
-    win_rate = round(wins / total, 3)
+    decided = total - outcome_dist.get("待分析", 0)
+    win_rate = round(wins / decided, 3) if decided else 0.0
 
     # 三个维度的累加器：品类 / 供应商 / 平台
     cat = defaultdict(
@@ -437,45 +452,54 @@ def _aggregate(cases: list[dict]) -> dict:
         if c.get("date"):
             d["dates"].append(c["date"])
 
-        # 品类维度
-        cc = cat[c.get("category", "未分类")]
-        cc["cases"] += 1
-        cc["refund"] += amt
-        cc["sim"] += sim
-        for t in dt:
-            cc["defects"][t] += 1
-        if c.get("outcome") == "赢":
-            cc["won"] += 1
+        # 品类维度：缺失品类的单案（如上传时未选）不计入「未分类」噪声桶
+        cat_val = c.get("category")
+        if cat_val:
+            cc = cat[cat_val]
+            cc["cases"] += 1
+            cc["refund"] += amt
+            cc["sim"] += sim
+            for t in dt:
+                cc["defects"][t] += 1
+            if c.get("outcome") == "赢":
+                cc["won"] += 1
 
-        # 供应商维度（real=含真实缺陷的案件数，用于缺陷率）
-        ss = sup[c.get("supplier", "未知")]
-        ss["cases"] += 1
-        ss["refund"] += amt
-        ss["name"] = c.get("supplier_name", ss["name"])
-        ss["skus"].add(c.get("sku", "未知"))
-        ss["platforms"].add(c.get("platform", "未知"))
-        ss["sim"] += sim
-        for t in dt:
-            ss["defects"][t] += 1
-        if any(t != "无明显瑕疵" for t in dt):
-            ss["real"] += 1
-        if c.get("outcome") == "赢":
-            ss["won"] += 1
+        # 供应商维度（real=含真实缺陷的案件数，用于缺陷率）：缺失/未知供应商不污染红黑榜
+        sup_val = c.get("supplier")
+        if sup_val and sup_val != "未知":
+            ss = sup[sup_val]
+            ss["cases"] += 1
+            ss["refund"] += amt
+            ss["name"] = c.get("supplier_name", ss["name"])
+            ss["skus"].add(c.get("sku", "未知"))
+            ss["platforms"].add(c.get("platform", "未知"))
+            ss["sim"] += sim
+            for t in dt:
+                ss["defects"][t] += 1
+            if any(t != "无明显瑕疵" for t in dt):
+                ss["real"] += 1
+            if c.get("outcome") == "赢":
+                ss["won"] += 1
 
-        # 平台维度
-        pp = plat[c.get("platform", "未知")]
-        pp["cases"] += 1
-        pp["refund"] += amt
-        if c.get("outcome") == "赢":
-            pp["won"] += 1
-        sim_sum += sim
+        # 平台维度：缺失/未知平台不污染平台对比
+        plat_val = c.get("platform")
+        if plat_val and plat_val != "未知":
+            pp = plat[plat_val]
+            pp["cases"] += 1
+            pp["refund"] += amt
+            if c.get("outcome") == "赢":
+                pp["won"] += 1
+            sim_sum += sim
 
-        # 平台 × 供应商 交叉
-        mm = matrix[c.get("platform", "未知")][c.get("supplier", "未知")]
-        mm["cases"] += 1
-        mm["refund"] += amt
-        if c.get("outcome") == "赢":
-            mm["won"] += 1
+        # 平台 × 供应商 交叉：两端都需有效才入交叉矩阵
+        p_val = c.get("platform")
+        s_val = c.get("supplier")
+        if p_val and p_val != "未知" and s_val and s_val != "未知":
+            mm = matrix[p_val][s_val]
+            mm["cases"] += 1
+            mm["refund"] += amt
+            if c.get("outcome") == "赢":
+                mm["won"] += 1
 
     # 代理指标（非平台真实争议笔数）：以"退货图与本店主图的相似度"推得。
     # avg_dispute = 1 - 平均相似度，越接近 1 表示"货不对板/调包"嫌疑越强。
@@ -590,7 +614,10 @@ def _mock_attribution(agg: dict) -> dict:
 
     agg["root_cause"] = root_cause
     agg["sourcing_advice"] = advice
-    agg["recommendations"] = advice
+    # 避免空数据下 recommendations 被覆盖成空列表（回归保护）：有建议才覆盖，否则保留默认提示
+    agg["recommendations"] = (
+        advice if advice else agg.get("recommendations", ["暂无足够案件数据生成洞察建议。"])
+    )
     agg["sku_insights"] = sku_insights
     agg["report"] = report
     return agg
@@ -600,8 +627,17 @@ def build_insights(cases: list[dict], mode: str = "mock") -> dict:
     """阶段B 统一入口：群体洞察（功能⑥）。
     - mock：确定性规则归因，结果可复现，适合录屏演示。
     - live：调用 models_router.build_insights_live 做 LLM 聚类/归因/建议；失败回退 mock。
-    兼容键：total_cases / sku_ranking / defect_distribution 始终保留，前端无需分支。"""
+
+    缓存：按 (mode, 案件数, 代际) 缓存聚合结果，save_case 时代际自增即失效，
+    避免每次 /api/insights 都全量重算（P2-5）。空数据提前返回，避免 recommendations 回归（P3-1）。
+    """
+    key = (mode, len(cases), get_generation())
+    if key in _ins_cache:
+        return _ins_cache[key]
     agg = _aggregate(cases)
+    if not cases:
+        _ins_cache[key] = agg
+        return agg
     if mode == "live":
         try:
             from models_router import build_insights_live
@@ -616,6 +652,7 @@ def build_insights(cases: list[dict], mode: str = "mock") -> dict:
                     "mode": "live",
                 }
             )
+            _ins_cache[key] = agg
             return agg
         except Exception as e:  # 失败回退，保证演示不中断
             logger.exception("live 洞察失败，回退 mock: %s", e)
@@ -623,4 +660,5 @@ def build_insights(cases: list[dict], mode: str = "mock") -> dict:
             agg["error"] = str(e)
     agg = _mock_attribution(agg)
     agg["mode"] = agg.get("mode", "mock")
+    _ins_cache[key] = agg
     return agg

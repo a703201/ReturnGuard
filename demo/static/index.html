@@ -339,6 +339,10 @@
               </select>
               <label>销售平台（关联举证包）</label>
               <select name="platform" id="formPlat"><option value="">未指定</option></select>
+              <label>品类（补全维度，便于进洞察）</label>
+              <select name="category" id="formCat"><option value="">未指定</option></select>
+              <label>供应商（补全维度，便于进洞察）</label>
+              <select name="supplier" id="formSup"><option value="">未指定</option></select>
               <button type="submit" id="btn">开始举证</button>
             </form>
             <div id="err" class="err"></div>
@@ -385,6 +389,14 @@ const pct = x => (x*100).toFixed(0) + '%';
 const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
 const realColor = w => w>=0.5?'#34d399':w>=0.3?'#fbbf24':'#f87171';
 let _ins = null;  // 最近一次 insights 响应，供供应商下钻本地计算
+
+// HTML 转义（P1-3）：所有动态文本拼进 innerHTML 前统一转义，杜绝 live 模型自由文本引发的 XSS
+function esc(s){
+  return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// 同款一致性阈值（P2-4）：默认兜底 0.82，初始化时从 /api/config 拉取单一来源值
+let SAME_ITEM_THRESHOLD = 0.82;
 
 // 标签页切换（组件切换，不整页滑动，带动画）
 function switchTab(name){
@@ -440,9 +452,9 @@ function renderBarh(el, items){
   items.forEach(o=>{
     const wpct=Math.round(o.v/max*100);
     const div=document.createElement('div'); div.className='barh';
-    div.innerHTML=`<span class="lab" title="${o.label}">${o.label}</span>`
+    div.innerHTML=`<span class="lab" title="${esc(o.label)}">${esc(o.label)}</span>`
       +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}"></span></span>`
-      +`<span class="val">${o.text}</span>`;
+      +`<span class="val">${esc(o.text)}</span>`;
     el.appendChild(div);
   });
 }
@@ -454,9 +466,9 @@ function renderMatrix(el, rows){
   const plats=[...new Set(rows.map(r=>r.platform))];
   const sups=[...new Set(rows.map(r=>r.supplier))];
   const map={}; rows.forEach(r=>{map[r.platform+'|'+r.supplier]=r;});
-  let html='<tr><th>平台 ＼ 供应商</th>'+sups.map(s=>`<th>${s}</th>`).join('')+'</tr>';
+  let html='<tr><th>平台 ＼ 供应商</th>'+sups.map(s=>`<th>${esc(s)}</th>`).join('')+'</tr>';
   plats.forEach(p=>{
-    html+=`<tr><td class="pl">${p}</td>`;
+    html+=`<tr><td class="pl">${esc(p)}</td>`;
     sups.forEach(s=>{
       const r=map[p+'|'+s];
       if(!r){html+='<td>-</td>';return;}
@@ -486,7 +498,7 @@ function renderSuppliers(d){
       return `<span style="width:${Math.round(v/total*100)}%;background:${c}" title="${k}: ${v}"></span>`;
     }).join('');
     const div=document.createElement('div'); div.className='sup-card'; div.style.borderLeftColor=col;
-    div.innerHTML=`<div class="sup-head"><div><b style="font-size:15px">${s.supplier}</b> <span class="note">${s.name}</span></div>`
+    div.innerHTML=`<div class="sup-head"><div><b style="font-size:15px">${esc(s.supplier)}</b> <span class="note">${esc(s.name)}</span></div>`
       +`<span class="pill" style="background:${col}">${s.level} · 质量分 ${s.quality_score}</span></div>`
       +`<div class="sup-metrics">`
       +`<div><span class="note">案件</span><b>${s.cases}</b></div>`
@@ -509,11 +521,11 @@ function openSupplier(name){
   const sc=(d.supplier_scorecard||[]).find(s=>s.supplier===name)||{};
   const skus=(d.sku_ranking||[]).filter(r=>r.supplier===name).sort((a,b)=>b.refund-a.refund).slice(0,30);
   const plats=(d.platform_supplier_matrix||[]).filter(r=>r.supplier===name).sort((a,b)=>b.cases-a.cases);
-  const platsHtml=plats.map(p=>`<tr><td>${p.platform}</td><td>${p.cases}</td><td style="color:${wrColor(p.win_rate)};font-weight:600">${pct(p.win_rate)}</td><td>¥${p.refund}</td></tr>`).join('');
-  const skuRows=skus.map(r=>`<tr><td>${r.sku}</td><td>${r.category}</td><td>${r.cases}</td><td>¥${r.refund}</td><td style="color:${wrColor(r.win_rate)}">${pct(r.win_rate)}</td><td>${r.top_defect}</td></tr>`).join('');
+  const platsHtml=plats.map(p=>`<tr><td>${esc(p.platform)}</td><td>${p.cases}</td><td style="color:${wrColor(p.win_rate)};font-weight:600">${pct(p.win_rate)}</td><td>¥${p.refund}</td></tr>`).join('');
+  const skuRows=skus.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.category)}</td><td>${r.cases}</td><td>¥${r.refund}</td><td style="color:${wrColor(r.win_rate)}">${pct(r.win_rate)}</td><td>${esc(r.top_defect)}</td></tr>`).join('');
   const dd=sc.defect_dist||{};
   const dmax=Math.max(1,...Object.values(dd));
-  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barh"><span class="lab">${k}</span><span class="track"><span class="fill" style="width:${Math.round(v/dmax*100)}%;background:var(--warn)"></span></span><span class="val">${v}</span></div>`).join('');
+  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barh"><span class="lab">${esc(k)}</span><span class="track"><span class="fill" style="width:${Math.round(v/dmax*100)}%;background:var(--warn)"></span></span><span class="val">${v}</span></div>`).join('');
   $('#ovTitle').textContent='供应商透视 · '+name;
   $('#ovBody').innerHTML=`<div class="sup-metrics" style="margin-bottom:10px">`
     +`<div><span class="note">质量分</span><b>${sc.quality_score??'-'}</b></div>`
@@ -536,10 +548,10 @@ function openSupplier(name){
 }
 function closeOverlay(){$('#overlay').classList.remove('show');}
 
-// 单案举证：退货图叠加缺陷红框
-function renderAnnot(boxes, imgB64){
+// 单案举证：退货图叠加缺陷红框（P3-5：改为加载 /uploads 返回的 URL，而非内联 base64）
+function renderAnnot(boxes, imgUrl){
   const cv=$('#annot');
-  if(!boxes||!boxes.length||!imgB64){cv.style.display='none';return;}
+  if(!boxes||!boxes.length||!imgUrl){cv.style.display='none';return;}
   const img=new Image();
   img.onload=()=>{
     const W=Math.min(420, img.width||420), H=Math.round(img.height*W/(img.width||1));
@@ -550,12 +562,12 @@ function renderAnnot(boxes, imgB64){
       const x=Math.max(0,b.x*W), y=Math.max(0,b.y*H), w=Math.min(W-b.x*W,b.w*W), h=Math.min(H-b.y*H,b.h*H);
       ctx.strokeStyle='#f87171'; ctx.lineWidth=3; ctx.strokeRect(x,y,w,h);
       ctx.fillStyle='rgba(248,113,113,.92)'; ctx.font='12px sans-serif';
-      ctx.fillText(b.label, x+3, y>14?y-4:y+h+13);
+      // 红框标签也走 esc 转义，杜绝 live 模型自由文本引发的 XSS（P1-3）
+      ctx.fillText(esc(b.label), x+3, y>14?y-4:y+h+13);
     });
   };
-  let mime='image/png';
-  try{const h=atob(imgB64).slice(0,2);if(h.charCodeAt(0)===0xff&&h.charCodeAt(1)===0xd8)mime='image/jpeg';}catch(e){}
-  img.src='data:'+mime+';base64,'+imgB64;
+  img.onerror=()=>{cv.style.display='none';};  // URL 加载失败则静默隐藏，不阻断结果展示
+  img.src=imgUrl;
 }
 
 async function loadInsights(){
@@ -591,8 +603,8 @@ async function loadInsights(){
     const a=Math.min(0.5,(x.dispute_rate||0)*0.7);
     const tr=document.createElement('tr');
     tr.style.background=`rgba(248,113,113,${a.toFixed(2)})`;
-    tr.innerHTML=`<td>${x.category}</td><td>${x.cases}</td><td>${x.refund}</td>`
-      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td><td>${x.top_defect}</td>`;
+    tr.innerHTML=`<td>${esc(x.category)}</td><td>${x.cases}</td><td>${x.refund}</td>`
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td><td>${esc(x.top_defect)}</td>`;
     ct.appendChild(tr);
   });
 
@@ -682,23 +694,23 @@ async function loadPlatforms(){
     const r=await fetch('/api/platforms'); const d=await r.json();
     const ps=d.platforms||[];
     const attrs=[['return_window','退货窗口'],['response_window','响应时限'],['shipping_payer','运费承担'],['burden_bias','举证偏向']];
-    let html='<tr><th>维度</th>'+ps.map(p=>`<th>${p.label}</th>`).join('')+'</tr>';
+    let html='<tr><th>维度</th>'+ps.map(p=>`<th>${esc(p.label)}</th>`).join('')+'</tr>';
     attrs.forEach(([k,name])=>{
-      html+='<tr><th>'+name+'</th>'+ps.map(p=>`<td>${p[k]}</td>`).join('')+'</tr>';
+      html+='<tr><th>'+name+'</th>'+ps.map(p=>`<td>${esc(p[k])}</td>`).join('')+'</tr>';
     });
     $('#platCmp').innerHTML=`<table class="cmp">${html}</table>`;
     let tmpl='';
     ps.forEach(p=>{
       const cap=p.capability_map||{};
-      const capItems=Object.entries(cap).map(([k,v])=>`<li><b>${k}</b>：${v}</li>`).join('');
-      tmpl+=`<div class="plat"><h4 style="margin:0 0 6px;color:var(--acc)">${p.label}</h4>`
-        +`<div class="kv"><span>退货窗口</span><b>${p.return_window}</b></div>`
-        +`<div class="kv"><span>响应时限</span><b>${p.response_window}</b></div>`
-        +`<div class="kv"><span>运费承担</span><b>${p.shipping_payer}</b></div>`
-        +`<div class="kv"><span>举证偏向</span><b>${p.burden_bias}</b></div>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${t}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${t}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${t}</li>`).join('')}</ul>`
+      const capItems=Object.entries(cap).map(([k,v])=>`<li><b>${esc(k)}</b>：${esc(v)}</li>`).join('');
+      tmpl+=`<div class="plat"><h4 style="margin:0 0 6px;color:var(--acc)">${esc(p.label)}</h4>`
+        +`<div class="kv"><span>退货窗口</span><b>${esc(p.return_window)}</b></div>`
+        +`<div class="kv"><span>响应时限</span><b>${esc(p.response_window)}</b></div>`
+        +`<div class="kv"><span>运费承担</span><b>${esc(p.shipping_payer)}</b></div>`
+        +`<div class="kv"><span>举证偏向</span><b>${esc(p.burden_bias)}</b></div>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
         +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
         +`</div>`;
     });
@@ -718,12 +730,15 @@ async function doAnalyze(e){
     if(!r.ok) throw new Error(d.detail||'请求失败');
     $('#sim').textContent=Math.round(d.similarity*100)+'%';
     $('#simbar').style.width=Math.round(d.similarity*100)+'%';
-    $('#simbar').style.background=d.similarity>=0.82?'var(--ok)':'var(--bad)';
+    // P2-4 前端：阈值统一取自 /api/config（SAME_ITEM_THRESHOLD），不再硬编码 0.82
+    $('#simbar').style.background=d.similarity>=SAME_ITEM_THRESHOLD?'var(--ok)':'var(--bad)';
     $('#same').textContent=d.same_item?'是同一件':'疑似调包/非同款';
     $('#same').style.background=d.same_item?'var(--ok)':'var(--bad)';
     $('#cons').textContent=d.consistency;
-    $('#defects').innerHTML=(d.defect_tags||[]).map(t=>`<span class="tag">${t}</span>`).join('');
-    renderAnnot(d.defect_boxes, d.returned_image_b64);
+    // P1-3：缺陷标签拼进 innerHTML 前转义，杜绝 live 模型自由文本 XSS
+    $('#defects').innerHTML=(d.defect_tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('');
+    // P3-5：红框图从 /uploads 返回的 URL 加载（后端已不返回内联 base64）
+    renderAnnot(d.defect_boxes, d.returned_image_url);
     $('#prio').textContent=d.priority_score;
     $('#dossier').textContent=d.dossier;
     $('#vtext').textContent=d.voice_text;
@@ -738,15 +753,24 @@ async function doAnalyze(e){
   finally{ btn.disabled=false; btn.textContent='开始举证'; }
 }
 
-// 初始化筛选下拉 + 加载看板/举证包
+// 初始化：拉取后端常量（P2-4 单一来源）→ 复用一次洞察填充下拉（P3-2 合并两次 fetch）→ 加载举证包
 (async function init(){
-  const r=await fetch('/api/insights?mode=mock'); const d=await r.json();
+  // P2-4 前端：同款阈值等常量从 /api/config 拉取，覆盖前端兜底值
+  try{
+    const cfg=await fetch('/api/config'); const c=await cfg.json();
+    if(typeof c.same_item_threshold==='number' && isFinite(c.same_item_threshold)) SAME_ITEM_THRESHOLD=c.same_item_threshold;
+  }catch(e){ /* 网络异常则用默认 0.82 兜底 */ }
+
+  // P3-2：先拉一次洞察并渲染看板，同时复用其响应填下拉，避免 init 与 loadInsights 各拉一次
+  await loadInsights();
+  const d=_ins||{};
   const cats=[...new Set((d.category_heatmap||[]).map(x=>x.category))];
   const plats=[...new Set((d.platform_view||[]).map(x=>x.platform))];
-  cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#catSel').appendChild(o);});
+  const sups=[...new Set((d.supplier_scorecard||[]).map(s=>s.supplier))];
+  cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#catSel').appendChild(o);$('#formCat').appendChild(o.cloneNode(true));});
   plats.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;$('#platSel').appendChild(o);});
-  const pr=await fetch('/api/platforms'); const pd=await pr.json();
-  (pd.platforms||[]).forEach(p=>{const o=document.createElement('option');o.value=p.key||p.label;o.textContent=p.label;$('#formPlat').appendChild(o);});
+  sups.forEach(s=>{if(s){const o=document.createElement('option');o.value=s;o.textContent=s;$('#formSup').appendChild(o);}});
+  await loadPlatforms();
 })();
 
 $('#f').addEventListener('submit',doAnalyze);
@@ -756,8 +780,6 @@ $('#platSel').addEventListener('change',loadInsights);
 $('#ovClose').addEventListener('click',closeOverlay);
 $('#overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeOverlay();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlay();});
-loadInsights();
-loadPlatforms();
 </script>
 </body>
 </html>

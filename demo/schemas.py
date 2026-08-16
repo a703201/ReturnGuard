@@ -39,7 +39,9 @@ class AnalyzeResult(BaseModel):
     voice_audio_b64: str | None = None
     priority_score: float
     defect_boxes: list[DefectBox] = []
-    returned_image_b64: str = ""
+    # 退回图访问地址（/uploads/<文件名>），前端据此加载做红框标注；
+    # 用 URL 替代整图 base64，避免 10MB 图塞进 JSON 撑大响应（P3-5）。
+    returned_image_url: str = ""
     case_id: str = ""
     platform: str = ""
     platform_evidence: list[str] = []
@@ -50,9 +52,8 @@ class AnalyzeResult(BaseModel):
 class InsightsResponse(BaseModel):
     """GET /api/insights 的响应（群体洞察看板）。
 
-    显式声明核心标量字段以保证类型；其余聚合字段（category_heatmap /
-    supplier_scorecard / platform_view / platform_supplier_matrix / sku_ranking /
-    anomaly_alerts / recommendations 等）通过 extra="allow" 透传，兼容现有前端。
+    显式声明全部核心聚合字段（类型化契约，便于 OpenAPI 文档与前端的强类型消费）；
+    另保留 extra="allow" 作为受控逃生口，兼容未来新增的派生字段，避免破环前端。
     """
 
     model_config = ConfigDict(extra="allow")
@@ -65,3 +66,18 @@ class InsightsResponse(BaseModel):
     # 并非平台标记的争议笔数。前端须据实呈现，避免误导为真实争议率。
     dispute_rate_note: str = ""
     outcome_dist: dict[str, int] = {}
+    # —— 以下聚合维度显式声明，构成稳定契约 ——
+    category_heatmap: list[dict] = []
+    supplier_scorecard: list[dict] = []
+    platform_view: list[dict] = []
+    platform_supplier_matrix: list[dict] = []
+    sku_ranking: list[dict] = []
+    anomaly_alerts: list[dict] = []
+    root_cause_dist: dict[str, int] = {}
+    root_cause: str = ""
+    sourcing_advice: list[str] = []
+    recommendations: list[str] = []
+    report: str = ""
+    sku_insights: list[dict] = []
+    mode: str = "mock"
+    error: str | None = None
