@@ -209,3 +209,88 @@
 
 **验证**：ruff 全绿；pytest **18 passed**（原 16 + 新增 S1/S2 各 1）；TestClient 冒烟：`/api/insights` 非法 platform→400、合法 SHEIN→200(165 案)、`dispute_rate_note` 存在、前端大屏结构标记齐全、analyze 关联 Temu 举证 5 条。提交 `见下方提交记录`。
 - **P3-17（部署期）**：live 模式图片公网可达仍未落地，复赛公网部署前必须补。
+
+---
+
+# 六、大厂标准代码审查（2026-08-16）
+
+> 审查基准：截至 `c2f78d6`（供应商维度扩展 C 已合）。本轮按大厂 Code Review 标准对 `demo/` 全量代码做横向审查，
+> 覆盖：安全、健壮性/容错、架构/分层、性能/规模化、数据一致性、测试、可观测性、配置/依赖、前端质量、CI/CD。
+> 方法：静态通读 + 关键点**动态复现**（用 TestClient 复现数据污染；并核实 git 跟踪 / CI / Docker 的真实状态，避免误判）。
+
+## 6.1 总体评分（按维度）
+
+| 维度 | 评级 | 说明 |
+|---|---|---|
+| 安全（上传 / 注入） | **B** | 上传链路（魔数+大小+文件名清洗+路径越界断言）规范；但存在 XSS 面、且 `/uploads` 世界可读待修 |
+| 健壮性 / 容错 | **C** | `analyze` 无原子性、失败不清理；`load_cases` 缓存跨进程不安全 |
+| 架构 / 分层 | **B+** | 分层清晰、`constants`/`platforms` 单一来源好；但 `extra="allow"` 削弱契约、import 期 monkeypatch 全局类 |
+| 性能 / 规模化 | **B** | `_aggregate` 单遍累加好；但每请求全量重算、缓存仅进程内 |
+| **数据一致性** | **C** | **P1-1 上传单案缺维度污染聚合，实锤 bug** |
+| 测试覆盖 | **B** | happy-path 扎实（19 passed）；缺负向 / 数据一致性 / 集成测试 |
+| 可观测性 | **C** | 缺结构化日志与指标端点 |
+| 配置 / 依赖 | **C** | 依赖未锁版；异常经 `error` 字段回传前端 |
+| 前端质量 | **B** | 大屏化 / 动效 / 可访问性好；但 `innerHTML` 渲染未转义模型输出 |
+| CI/CD & 容器 | **A-** | `ci.yml` 跑 `ruff format/check + pytest`；Docker 非 root + 等待 DB + 幂等 `init_db`，规范 |
+| **综合** | **B-** | 工程化基础扎实，存在 1 个 P1 数据 bug 与若干 P2 待修 |
+
+## 6.2 实锤问题（P1 · 建议复赛前修复）
+
+### P1-1 上传单案缺维度，静默污染聚合看板 ⚠️ 实锤
+- **现象**：`/api/analyze` 落库的 `Case` 缺少 `category / supplier / outcome`（实测 INSERT 参数：`category=None, supplier=None, outcome=None`），保存后进入洞察会被算作 `category='未分类'`、`outcome='未知'`、`supplier='未知'`。
+- **证据**：
+  - `pipeline._mock` / `live_analyze` 返回结构**不含** `category/supplier/outcome`（`pipeline.py:128-140`、`models_router.py:240-251`）；
+  - `main.analyze` 的 `save_case` 字典仅补了 `sku/amount/platform/returned_image/product_image`（`main.py:158-166`）；
+  - 动态复现：上传 1 单后 `build_insights` 的 `total_cases` 由 672→**673**，且 `outcome_dist` 出现 `'未知'` 桶。
+- **影响**：每上传一单都稀释「维权胜诉率 / 累计退款」KPI，并在品类、平台、供应商、根因各维度注入噪声桶，复赛演示时看板数字会"越用越假"。
+- **整改**：① 表单增加 `category / supplier` 选择（或从 listing 文本/平台规则推断）；② 或给单案打 `outcome='待分析'` 标记，`_aggregate` 对未分析单案**不计入 KPI 分母**、单独分组，避免污染图表；③ 至少不要让 `outcome/category` 退化为 `'未知'/'未分类'` 混入统计图。
+
+### P1-2 `analyze` 缺乏原子性与失败清理（R-1/R-2）
+- **位置**：`main.py:123-166`。先 `open(rp,'wb').write(...)` 落盘，再 `analyze_case`，最后 `save_case`，**全部不在 `try/finally` 中**：
+  - 任一环节抛异常 → `UPLOAD_DIR` 残留孤立图片（无清理）；
+  - `save_case` 若失败（DB 抖动）→ 直接 500，且已完成的取证结果丢失（本应先返回结果、沉淀尽力而为）。
+- **整改**：用 `tempfile`/try-finally 删除临时图；`save_case` 包 `try/except` 记日志，仍优先 `return result`（取证结果 > 数据沉淀）。
+
+### P1-3 未转义渲染模型输出 → 存储型/反射型 XSS 面（F-1）
+- **位置**：`index.html` 在表格里用 `innerHTML` 直接拼 `defect_tags / supplier / sku / top_defect`（如 `:594 :634 :651`）。mock 模式下这些来自固定词表（安全），但 **`mode=live` 时 `defect_tags` 取自视觉模型自由文本**，未做任何转义即 `innerHTML`，可注入 `<img onerror>` 等。
+- **影响**：当前为单用户自 XSS，但一旦多租户/对外即高危；安全评审一律按 P1 计。
+- **整改**：对 LLM/用户来源字段统一用 `textContent`，或加 `escapeHtml()` 工具函数；`renderBarh/renderMatrix` 的 `title`/`label` 同理。
+
+## 6.3 重要问题（P2）
+
+- **P2-1 `/uploads` 静态暴露（S-2）**：`main.py:85` 把上传目录挂成公网可读；`rid` 仅 8 位十六进制（可枚举），且**无过期清理** → 客户退货照片（PII）泄露 + 磁盘无限增长。整改：上传图仅服务 live 回源、不长期静态托管；或加签名 URL + 定期清理。
+- **P2-2 `response_model` 用 `extra="allow"` 削弱契约（A-3）**：`schemas.py:30,58` 与 `main.py:12` 一边号称"强契约"一边 `extra="allow"`，未声明的字段（如 `platform_supplier_matrix`）绕过校验直通前端。整改：显式声明全部字段，或收敛为受控 `extra` 子模型。
+- **P2-3 import 期 monkeypatch SQLAlchemy（A-6）**：`db.py:51-63` 在模块导入时**无条件**改写 `PGDialect._get_server_version_info`（即便用 SQLite 也执行），属全局副作用、对库内部实现脆弱。整改：包成函数、仅当 `DATABASE_URL` 含 openGauss 时挂接，或迁移到官方方言。
+- **P2-4 阈值 `0.82` 硬编码漂移（F-6）**：`main.py:721`、``generate_dataset.py:176`` 直接写 `0.82`，而 `pipeline` 用的是 `constants.SAME_ITEM_THRESHOLD`（`constants.py:9`）。三处不同步 → 判定口径漂移。整改：前端/生成器统一从接口或常量取值。
+- **P2-5 聚合每请求重算 + 缓存跨进程不安全（A-2/P-1/R-5）**：`/api/insights` 每次都对全量案件 `_aggregate`（O(n)）；`load_cases` 缓存是模块级变量（`db.py:111`），**仅单进程有效**，多 worker（uvicorn `--workers>1`）下各进程各持缓存、保存后其他进程读不到更新。整改：聚合结果按 `(mode,category,platform)` 缓存并在 save 时失效；或上 Redis；多 worker 部署需明确缓存一致性方案。
+- **P2-6 `save_case` 静默丢弃字段（D-2）**：`db._dict_to_row` 只取 `_COLUMNS`，`analyze_case` 产出的 `dossier / voice_text / voice_audio_b64 / defect_boxes / priority_score` 全部不入表。属"取证结果不可回放"。整改：至少落 `defect_boxes`（红框坐标）、`priority_score`、`dossier` 等，便于案件复盘。
+- **P2-7 依赖未锁版（C-1）**：`requirements.txt` 中 `fastapi / uvicorn / requests` 未固定版本，`SQLAlchemy` 仅下限。整改：补 `requirements.txt` 精确版本 + 引入 lock（uv/pip-tools），保障复赛复现。
+- **P2-8 写接口无鉴权/限流（S-3）**：`/api/analyze` 为公网可写、接收上传并落库，无认证与限流 → 可被刷盘/刷库。整改：演示环境加演示态开关；对外需鉴权 + 速率限制。
+- **P2-9 可观测性缺失（O-1）**：`analyze/insights` 无耗时与结构化日志，`/health` 仅静态；无指标端点。整改：加 request latency 日志 + `/metrics`（或接入已有监控）。
+
+## 6.4 优化项（P3）
+
+- **P3-1 空结果 `recommendations` 回归（L-1）**：`build_insights` 对 0 案件会先给 `_empty_aggregate()["recommendations"]=["暂无案件数据…"]`，但 `_mock_attribution` 又把它**整体覆盖**为可能为空列表 → 空筛选下前端建议区变空。整改：空数据分支提前 `return`。
+- **P3-2 初始化重复 fetch（F-7）**：`index.html:743` 先拉一次 `/api/insights` 仅为了填充筛选下拉，`:759` 又 `loadInsights()` 再拉一次（逻辑重复）。整改：一次拉取，复用 `d`。
+- **P3-3 缺负向 / 数据一致性测试（T-1）**：尚无用例断言"上传单案能干净进入洞察"（此类测试会直接撞出 P1-1）；也无 live 回退、供应商下钻、openGauss 路径测试。整改：补 `test_analyze_case_persists_dimensions`（锁 P1-1 修复）。
+- **P3-4 `seed-only-when-empty` 本地开发坑（A-7-local）**：`init_db` 仅在 `count==0` 时导入 `cases.json`；本地若已生成 `cases.db`，重新跑 `generate_dataset` 不会刷新。整改：提供 `init_db(force=True)` 或 `make reset-db`。
+- **P3-5 整图 base64 入响应（R-3）**：`main.py:151` 把原始退货图（最大 10MB → base64 ≈13MB）塞进 JSON 响应并前端 canvas 渲染。整改：落盘后返回 `/uploads/<id>` 缩略图 URL，而非内联全图。
+
+## 6.5 已做对的地方（正面，保留）
+
+- ✅ **CI 真实存在且规范**：`.github/workflows/ci.yml` 在 push/PR 跑 `ruff format --check` + `ruff check` + `pytest`，门禁到位。
+- ✅ **容器加固到位**：`docker/Dockerfile` 非 root（`USER appuser`）、`entrypoint.sh` 等待 DB 就绪 + 幂等 `init_db` + `set -euo pipefail`。
+- ✅ **上传安全基线扎实**：魔数校验、10MB 上限、`_safe_name` 文件名白名单、`os.path.basename` + 路径越界 `assert`（`main.py:52-132`），防穿越有效。
+- ✅ **分层与单一来源**：`constants.py`（阈值/词表）、`platforms.py`（举证包唯一事实来源）设计清晰，`generate_platform_doc.py` 同源生成文档，杜绝漂移。
+- ✅ **强类型入口 + 优雅降级**：端点挂 `response_model` + OpenAPI；live 失败统一回退 mock 并标注 `mode=mock(fallback)`。
+- ✅ **前端工程化**：大屏单页不滚动、组件切换、多比例适配、`role="dialog"`+Esc 关闭、动效与细滚动条，体验完整。
+
+## 6.6 修复优先级路线图
+
+| 阶段 | 项 | 估时 |
+|---|---|---|
+| **复赛演示前（必做）** | P1-1 上传维度补全 / P1-2 原子性清理 / P1-3 XSS 转义 | 0.5–1 天 |
+| **复赛公网部署前** | P2-1 uploads 鉴权过期 / P2-2 收紧契约 / P2-7 锁依赖 / P2-8 鉴权限流（若对外） | 0.5–1 天 |
+| **持续打磨** | P2-3/4/5/6/9、P3-1~5 | 1–2 天 |
+
+> 结论：代码已达"可演示、架构清晰、工程化到位"水平；**阻断性风险集中在 P1-1（数据污染）**，复赛路演前务必先修。其余 P2 多为生产化加固，可按部署节奏推进。
