@@ -245,8 +245,12 @@ async def analyze(
     rid = uuid.uuid4().hex[:8]
     rp = os.path.join(UPLOAD_DIR, f"{rid}_ret_{_safe_name(returned_image.filename)}")
     pp = os.path.join(UPLOAD_DIR, f"{rid}_prod_{_safe_name(product_image.filename)}")
-    assert os.path.dirname(os.path.abspath(rp)) == UPLOAD_DIR, "上传路径越界"
-    assert os.path.dirname(os.path.abspath(pp)) == UPLOAD_DIR, "上传路径越界"
+    # 断言最终路径仍在 UPLOAD_DIR 内（防穿越）。用显式 raise 而非 assert：
+    # python -O 会剥离 assert，导致兜底检查静默失效。
+    if os.path.dirname(os.path.abspath(rp)) != UPLOAD_DIR:
+        raise HTTPException(status_code=400, detail="上传路径越界")
+    if os.path.dirname(os.path.abspath(pp)) != UPLOAD_DIR:
+        raise HTTPException(status_code=400, detail="上传路径越界")
 
     # P1-2 原子性：落盘→取证→存库 全程在 try 中；任一环节异常即清理孤立图片，且不丢取证结果
     try:
@@ -368,6 +372,7 @@ def insights(request: Request, mode: str = "mock", category: str = "", platform:
     if platform:
         cases = [c for c in cases if c.get("platform") == platform]
     agg = build_insights(cases, mode, source)
+    agg = dict(agg)  # 浅拷贝，避免就地修改 build_insights 的共享缓存对象
     agg["source"] = source  # 让前端知道当前看板基于哪个数据源
     return agg
 
