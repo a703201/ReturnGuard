@@ -11,6 +11,8 @@ import os
 import random
 from datetime import datetime, timedelta
 
+from constants import SAME_ITEM_THRESHOLD  # 同款阈值单一来源（与 pipeline/mock 一致）
+
 random.seed(42)
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BASE, "cases.json")
@@ -129,7 +131,7 @@ def sample_outcome(defects, similarity, platform):
         wp -= 0.06
     if similarity >= 0.90:
         wp += 0.08
-    if similarity < 0.82:
+    if similarity < SAME_ITEM_THRESHOLD:
         wp -= 0.05
     wp = max(0.05, min(0.95, wp))
     r = random.random()
@@ -173,7 +175,7 @@ def gen():
                 outcome = sample_outcome(defects, sim, platform)
                 amount = round(random.uniform(39, 320), 2)
                 date = sample_date(is_problem)
-                same = sim >= 0.82
+                same = sim >= SAME_ITEM_THRESHOLD
                 cons = (
                     "一致（疑似非质量原因，倾向买家责任）"
                     if (same and defects == ["无明显瑕疵"])

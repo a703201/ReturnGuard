@@ -1,10 +1,14 @@
-fastapi
-uvicorn[standard]
-python-multipart
-requests
+# ReturnGuard 运行依赖（已锁定主版本下的次版本，保障复赛复现；可用 pip-tools/uv 生成完整 lock）
+# 安装：pip install -r requirements.txt
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+python-multipart==0.0.32
+requests==2.34.2
+pydantic==2.13.4
+SQLAlchemy==2.0.52
 
 # ---- 双轨存储层依赖（开发 SQLite / 部署 openGauss） ----
-SQLAlchemy>=2.0          # ORM 核心，SQLite 与 openGauss 同构
-psycopg2-binary>=2.9     # PostgreSQL/openGauss 协议驱动（部署期连接 openGauss 用）
+# openGauss 兼容 PG 协议；部署期连接 openGauss 才需要，开发期可不装
+psycopg2-binary==2.9.10
 # 可选：openGauss 官方方言 opengauss+psycopg2://，仅当你要用 openGauss 特有类型/索引时安装
 # opengauss-sqlalchemy>=0.1.0

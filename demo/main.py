@@ -15,15 +15,16 @@
 
 from __future__ import annotations
 
-import base64
 import logging
 import os
 import re
+import time
 import uuid
+from collections import defaultdict
 from contextlib import asynccontextmanager
 
 from db import init_db  # 数据持久层（SQLite / openGauss 双轨）
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -33,6 +34,21 @@ from platforms import get_platform_spec, is_valid_platform, list_platforms
 from schemas import AnalyzeResult, InsightsResponse
 
 logger = logging.getLogger("returnguard.api")
+
+# ---- 可观测性（P2-9）：结构化日志 + 基础指标 ----
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+_metrics = defaultdict(int)
+_metrics["start_time"] = int(time.time())
+
+# ---- 写接口限流（P2-8）：演示态默认开启；环境 ANALYZE_RATE_LIMIT=0 关闭 ----
+_RATE_LIMIT = int(os.environ.get("ANALYZE_RATE_LIMIT", "60"))  # 每客户端每分钟上限
+_rate_window: dict[str, list[float]] = {}
+
+# 演示态可选鉴权：设置 ANALYZE_API_KEY 后，/api/analyze 须带 X-API-Key 头或 ?key=
+_API_KEY = os.environ.get("ANALYZE_API_KEY", "")
+
+# 上传图访问前缀（P3-5）：返回 /uploads/<文件名> 而非内联整图 base64
+UPLOAD_URL_PREFIX = "/uploads/"
 
 # ---- 路径配置 ----
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -70,10 +86,50 @@ def _validate_image(upload: UploadFile) -> bytes:
     return data
 
 
+def _cleanup_old_uploads(max_age_hours: float = 24) -> None:
+    """P2-1：清理上传目录中超过阈值的孤立图片，避免退货照片（PII）无限堆积。
+
+    说明：/uploads 当前为演示态静态托管；复赛若对外，应改为签名 URL + 短期过期，
+    而非长期静态可读。此处先消除磁盘无限增长风险。
+    """
+    try:
+        cutoff = time.time() - max_age_hours * 3600
+        removed = 0
+        for fn in os.listdir(UPLOAD_DIR):
+            fp = os.path.join(UPLOAD_DIR, fn)
+            try:
+                if os.path.isfile(fp) and os.path.getmtime(fp) < cutoff:
+                    os.remove(fp)
+                    removed += 1
+            except OSError:
+                pass
+        logger.info("已清理上传目录中 %d 个过期文件（>%.0f 小时）", removed, max_age_hours)
+    except Exception:
+        logger.warning("上传图清理失败（可忽略）", exc_info=True)
+
+
+def _check_rate_limit(client_ip: str) -> bool:
+    """P2-8：固定窗口限流（每客户端每分钟 _RATE_LIMIT 次）。返回 True=放行。"""
+    if _RATE_LIMIT <= 0:
+        return True
+    now = time.time()
+    hits = [t for t in _rate_window.get(client_ip, []) if now - t < 60]
+    if len(hits) >= _RATE_LIMIT:
+        _rate_window[client_ip] = hits
+        return False
+    hits.append(now)
+    _rate_window[client_ip] = hits
+    return True
+
+
 @asynccontextmanager
 async def lifespan(app):
-    """服务启动时初始化数据库（建表 + 首次从 cases.json 导入种子数据）。"""
-    init_db()
+    """服务启动时：初始化数据库（支持 FORCE_RESEED 重置）+ 清理过期上传图。"""
+    if os.environ.get("FORCE_RESEED") == "1":
+        init_db(force=True)
+    else:
+        init_db()
+    _cleanup_old_uploads(max_age_hours=float(os.environ.get("UPLOAD_MAX_AGE_HOURS", "24")))
     yield
 
 
@@ -83,6 +139,25 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="
 # 上传目录静态挂载：便于 live 模式下由 PUBLIC_IMAGE_BASE 指向本服务的 /uploads 提供图片
 # （注意：live 仍需图片可被 Model Router 服务端公网回源，纯内网部署需配对象存储）
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+
+@app.middleware("http")
+async def observe_middleware(request: Request, call_next):
+    """P2-9：请求耗时日志 + 基础指标计数（便于容器采集与排障）。"""
+    start = time.time()
+    response = await call_next(request)
+    dur_ms = (time.time() - start) * 1000
+    _metrics["requests"] += 1
+    _metrics["latency_ms_sum"] += dur_ms
+    if response.status_code >= 500:
+        _metrics["errors"] += 1
+    path = request.url.path
+    if path == "/api/analyze":
+        _metrics["analyze_count"] += 1
+    elif path == "/api/insights":
+        _metrics["insights_count"] += 1
+    logger.info("%s %s -> %d (%.1fms)", request.method, path, response.status_code, dur_ms)
+    return response
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -100,11 +175,14 @@ def health():
 
 @app.post("/api/analyze", response_model=AnalyzeResult)
 async def analyze(
+    request: Request,
     returned_image: UploadFile = File(..., description="退回商品图"),
     product_image: UploadFile = File(..., description="本店主图/详情图"),
     listing_text: str = Form(""),
     sku: str = Form("SKU-未知"),
     amount: float = Form(0.0),
+    category: str = Form(""),
+    supplier: str = Form(""),
     platform: str = Form(""),
     mode: str = Form("mock"),
 ):
@@ -114,7 +192,18 @@ async def analyze(
           → 把结果沉淀进案件库（供阶段B洞察）→ 返回给前端展示。
     返回字段见 schemas.AnalyzeResult；defect_boxes 为缺陷示意框（归一化坐标）。
     platform 为销售平台（可选），用于关联「平台适配举证包」的必备举证清单。
+    category/supplier 为选填维度，补全后该单可干净进入洞察聚合（P1-1 防污染）。
     """
+    # P2-8 演示态可选鉴权：设置 ANALYZE_API_KEY 后必须携带
+    if _API_KEY:
+        provided = request.headers.get("X-API-Key", "") or request.query_params.get("key", "")
+        if provided != _API_KEY:
+            raise HTTPException(status_code=401, detail="需要有效的 API Key")
+    # P2-8 限流：按客户端 IP 固定窗口
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
+
     if mode not in ("mock", "live"):
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
     if platform and not is_valid_platform(platform):
@@ -130,41 +219,84 @@ async def analyze(
     pp = os.path.join(UPLOAD_DIR, f"{rid}_prod_{_safe_name(product_image.filename)}")
     assert os.path.dirname(os.path.abspath(rp)) == UPLOAD_DIR, "上传路径越界"
     assert os.path.dirname(os.path.abspath(pp)) == UPLOAD_DIR, "上传路径越界"
-    with open(rp, "wb") as f:
-        f.write(ret_bytes)
-    with open(pp, "wb") as f:
-        f.write(prod_bytes)
 
-    # 执行取证（功能①②③④⑤）
-    result = analyze_case(rp, pp, listing_text, sku, amount, mode)
-    result["case_id"] = rid
-    result["platform"] = platform
-    # 关联「平台适配举证包」：把该平台的必备举证材料随单返回，便于前端直接展示清单
-    # （只列客观要求，不做裁决结论，守住「只取证不裁决」）
-    if platform:
-        spec = get_platform_spec(platform)
-        result["platform_evidence"] = spec.get("required_evidence", []) if spec else []
-
-    # 关键帧红框标注：把退回图原图 base64 回传前端，叠加缺陷示意框展示
+    # P1-2 原子性：落盘→取证→存库 全程在 try 中；任一环节异常即清理孤立图片，且不丢取证结果
     try:
-        with open(rp, "rb") as f:
-            result["returned_image_b64"] = base64.b64encode(f.read()).decode("ascii")
-    except Exception:
-        logger.warning("退回图读取失败，红框预览不可用: %s", rp)
-        result["returned_image_b64"] = ""
+        with open(rp, "wb") as f:
+            f.write(ret_bytes)
+        with open(pp, "wb") as f:
+            f.write(prod_bytes)
 
-    # 数据沉淀：把这一单写入案件库，阶段B 洞察才有"米"下锅
-    # 注意：result 已含 platform（上方 line 141 设置），此处不再重复写，避免重复键
-    save_case(
-        {
-            **result,
-            "sku": sku,
-            "amount": amount,
-            "returned_image": os.path.basename(rp),
-            "product_image": os.path.basename(pp),
-        }
-    )
-    return result
+        # 执行取证（功能①②③④⑤）
+        result = analyze_case(rp, pp, listing_text, sku, amount, mode)
+        result["case_id"] = rid
+        result["platform"] = platform
+        # P1-1 单案无法判定输赢，标记「待分析」：不稀释胜诉率 KPI、在分布中单独分组
+        result["outcome"] = "待分析"
+        result["category"] = category
+        result["supplier"] = supplier
+        result["supplier_name"] = supplier  # 单案上传只能拿到供应商编号，名称暂同号
+        # 关联「平台适配举证包」：把该平台的必备举证材料随单返回（只列客观要求，不裁决）
+        if platform:
+            spec = get_platform_spec(platform)
+            result["platform_evidence"] = spec.get("required_evidence", []) if spec else []
+
+        # P3-5 退回图用 URL 访问（/uploads/<文件名>），不再内联整图 base64 撑大响应
+        result["returned_image_url"] = UPLOAD_URL_PREFIX + os.path.basename(rp)
+
+        # 数据沉淀：取证结果 > 数据沉淀。save 失败只记日志，仍优先返回 result
+        try:
+            save_case(
+                {
+                    **result,
+                    "sku": sku,
+                    "amount": amount,
+                    "category": category,
+                    "supplier": supplier,
+                    "supplier_name": supplier,
+                    "outcome": "待分析",
+                    "returned_image": os.path.basename(rp),
+                    "product_image": os.path.basename(pp),
+                }
+            )
+        except Exception as e:
+            logger.exception("案件沉淀失败（不影响本次取证结果返回）: %s", e)
+        return result
+    except HTTPException:
+        raise
+    except Exception:
+        # 清理可能已落盘的孤立图片，避免 UPLOAD_DIR 残留
+        for p in (rp, pp):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+        logger.exception("单案取证异常")
+        # from None：有意把底层异常替换为干净的 500，原链已由 logger.exception 记录
+        raise HTTPException(status_code=500, detail="取证处理失败，请重试") from None
+
+
+@app.get("/api/config")
+def api_config():
+    """前端常量单一来源（P2-4）：返回同款一致性阈值等，避免前端/生成器各写一份 0.82。"""
+    from constants import SAME_ITEM_THRESHOLD
+
+    return {"same_item_threshold": SAME_ITEM_THRESHOLD}
+
+
+@app.get("/metrics")
+def metrics():
+    """P2-9：基础运行指标（请求量 / 平均耗时 / 错误数 / 取证·洞察调用量）。"""
+    uptime = int(time.time()) - int(_metrics["start_time"])
+    avg = (_metrics["latency_ms_sum"] / _metrics["requests"]) if _metrics["requests"] else 0
+    return {
+        "uptime_seconds": uptime,
+        "requests": _metrics["requests"],
+        "avg_latency_ms": round(avg, 2),
+        "errors_5xx": _metrics["errors"],
+        "analyze_count": _metrics["analyze_count"],
+        "insights_count": _metrics["insights_count"],
+    }
 
 
 @app.get("/api/platforms")
