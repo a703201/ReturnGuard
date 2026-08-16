@@ -196,7 +196,6 @@
   .src-btn{background:transparent;color:#94a3b8;border:0;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600;transition:all .2s ease}
   .src-btn:hover{color:#e2e8f0}
   .src-btn.active{background:var(--acc);color:#04121f}
-  .src-hint{font-size:11px;color:#64748b;margin-right:8px;white-space:nowrap}
   .src-banner{display:none;margin:0 0 10px;padding:8px 12px;border-radius:10px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#bae6fd;font-size:12px}
   .src-banner.show{display:block}
 
@@ -242,7 +241,6 @@
             <button type="button" class="src-btn active" data-src="demo">演示数据</button>
             <button type="button" class="src-btn" data-src="real">实际数据</button>
           </div>
-          <span class="src-hint" id="srcHint">当前：演示数据</span>
           <select id="catSel"><option value="">全部品类</option></select>
           <select id="platSel"><option value="">全部平台</option></select>
           <select id="insMode">
@@ -493,7 +491,6 @@ function setSource(s){
   CURRENT_SOURCE = (s==='real') ? 'real' : 'demo';
   localStorage.setItem('rg_source', CURRENT_SOURCE);
   document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
-  $('#srcHint').textContent = '当前：' + (CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   $('#entryTarget').textContent = '将写入：' + (CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   const banner = $('#entryBanner');
   if(CURRENT_SOURCE==='real'){
@@ -954,7 +951,6 @@ async function submitEntry(e){
 
   // 设定初始数据源 UI（不在此处触发重载，避免与下方 loadInsights 重复）
   document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
-  $('#srcHint').textContent='当前：'+(CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   $('#entryTarget').textContent='将写入：'+(CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   const banner=$('#entryBanner');
   if(CURRENT_SOURCE==='real'){ banner.textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。'; banner.classList.add('show'); }
