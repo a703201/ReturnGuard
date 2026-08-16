@@ -156,6 +156,40 @@
   .forensic-wrap{display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:12px;height:100%}
   @media(max-width:900px){.forensic-wrap{grid-template-columns:1fr;grid-template-rows:auto 1fr}}
   .forensic-wrap .card{overflow:auto;scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.14) transparent}
+
+  /* 供应商透视 tab */
+  .sup-view{height:100%;overflow:auto;scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.14) transparent}
+  .sup-view::-webkit-scrollbar{width:5px}
+  .sup-view::-webkit-scrollbar-thumb{background:rgba(148,163,184,.14);border-radius:10px}
+  .sup-view::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,.35)}
+  .sup-card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px;border-left:4px solid #334155;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;animation:fadeInUp .4s ease both}
+  .sup-card:nth-child(2){animation-delay:40ms}
+  .sup-card:nth-child(3){animation-delay:80ms}
+  .sup-card:nth-child(4){animation-delay:120ms}
+  .sup-card:nth-child(5){animation-delay:160ms}
+  .sup-card:nth-child(6){animation-delay:200ms}
+  .sup-card:nth-child(7){animation-delay:240ms}
+  .sup-card:nth-child(8){animation-delay:280ms}
+  .sup-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3);border-color:rgba(56,189,248,.3)}
+  .sup-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .sup-metrics{display:flex;flex-wrap:wrap;gap:14px;margin-top:8px}
+  .sup-metrics>div{display:flex;flex-direction:column}
+  .sup-metrics .note{font-size:10px}
+  .sup-metrics b{font-size:14px}
+  .defbar{display:flex;height:10px;border-radius:6px;overflow:hidden;margin-top:8px;background:#0b1220}
+  .defbar span{height:100%}
+  .ov-legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+  .ov-legend span{font-size:11px;color:#94a3b8;display:inline-flex;align-items:center;gap:4px}
+  .ov-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+  /* 下钻弹层 */
+  .overlay{position:fixed;inset:0;background:rgba(2,6,23,.72);display:none;align-items:center;justify-content:center;z-index:60;padding:20px;backdrop-filter:blur(2px)}
+  .overlay.show{display:flex;animation:fadeIn .2s ease}
+  .overlay .panel{background:var(--card);border-radius:14px;width:min(780px,94vw);max-height:86vh;overflow:auto;padding:16px 18px;box-shadow:0 20px 60px rgba(0,0,0,.5);animation:fadeInUp .25s ease both;scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.14) transparent}
+  .overlay .panel::-webkit-scrollbar{width:5px}
+  .overlay .panel::-webkit-scrollbar-thumb{background:rgba(148,163,184,.18);border-radius:10px}
+  .ov-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .ov-close{background:transparent;color:#94a3b8;font-size:18px;padding:4px 10px}
+  .ov-close:hover{background:rgba(255,255,255,.08);color:#fff;box-shadow:none}
 </style>
 </head>
 <body>
@@ -189,6 +223,7 @@
         <nav class="tabs">
           <button data-tab="dash" class="active">市场洞察</button>
           <button data-tab="plat">平台举证包</button>
+          <button data-tab="supplier">供应商透视</button>
           <button data-tab="forensic">单案取证</button>
         </nav>
       </div>
@@ -274,6 +309,17 @@
         </div>
       </section>
 
+      <!-- 标签页：供应商透视（扩展 C，整页滚动明细 + 点击下钻） -->
+      <section id="tab-supplier" class="tabpane">
+        <div class="sup-view">
+          <div class="card" style="margin-bottom:12px">
+            <h3>供应商质量总览<span class="badge">扩展 C · 红黑榜增强 + 点击下钻</span></h3>
+            <p class="desc">按质量分排序（低→高，黑榜在前）。每家属「缺陷率 / 胜诉率 / 平均退款 / SKU 数 / 平台覆盖」多维标签，下方色条为该供应商缺陷构成。点击任一卡片下钻看 SKU 清单、平台分布与缺陷明细。受顶部品类/平台筛选联动。</p>
+            <div id="supList"></div>
+          </div>
+        </div>
+      </section>
+
       <!-- 标签页 3：单案取证（数据采集入口） -->
       <section id="tab-forensic" class="tabpane">
         <div class="forensic-wrap">
@@ -323,6 +369,14 @@
         </div>
       </section>
     </main>
+
+    <!-- 供应商下钻弹层（组件内滚动，不整页滚动） -->
+    <div id="overlay" class="overlay">
+      <div class="panel" role="dialog" aria-modal="true">
+        <div class="ov-head"><h3 id="ovTitle" style="margin:0">供应商透视</h3><button id="ovClose" class="ov-close" aria-label="关闭">✕</button></div>
+        <div id="ovBody"></div>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -330,6 +384,7 @@ const $ = s => document.querySelector(s);
 const pct = x => (x*100).toFixed(0) + '%';
 const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
 const realColor = w => w>=0.5?'#34d399':w>=0.3?'#fbbf24':'#f87171';
+let _ins = null;  // 最近一次 insights 响应，供供应商下钻本地计算
 
 // 标签页切换（组件切换，不整页滑动，带动画）
 function switchTab(name){
@@ -340,6 +395,7 @@ function switchTab(name){
     target.classList.add('active');
     const board=target.querySelector('.board');
     if(board){board.classList.remove('animated'); void board.offsetWidth; board.classList.add('animated');}
+    if(name==='supplier' && _ins){renderSuppliers(_ins);}
   }
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
@@ -414,6 +470,72 @@ function renderMatrix(el, rows){
   el.innerHTML=`<table class="matrix">${html}</table>`;
 }
 
+// 供应商透视：增强评分榜渲染（扩展 C）
+const SUP_PALETTE=['#f87171','#fbbf24','#38bdf8','#a78bfa','#34d399','#fb923c','#e879f9','#22d3ee'];
+function renderSuppliers(d){
+  const el=$('#supList'); el.innerHTML='';
+  const sc=d.supplier_scorecard||[];
+  if(!sc.length){el.innerHTML='<span class="note">暂无供应商数据。</span>';return;}
+  sc.forEach(s=>{
+    const col=s.level==='高风险'?'var(--bad)':s.level==='待改进'?'var(--warn)':s.level==='合格'?'var(--acc)':'var(--ok)';
+    const dd=s.defect_dist||{};
+    const total=Object.values(dd).reduce((a,b)=>a+b,0)||1;
+    let i=0;
+    const segs=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
+      const c=SUP_PALETTE[i++%SUP_PALETTE.length];
+      return `<span style="width:${Math.round(v/total*100)}%;background:${c}" title="${k}: ${v}"></span>`;
+    }).join('');
+    const div=document.createElement('div'); div.className='sup-card'; div.style.borderLeftColor=col;
+    div.innerHTML=`<div class="sup-head"><div><b style="font-size:15px">${s.supplier}</b> <span class="note">${s.name}</span></div>`
+      +`<span class="pill" style="background:${col}">${s.level} · 质量分 ${s.quality_score}</span></div>`
+      +`<div class="sup-metrics">`
+      +`<div><span class="note">案件</span><b>${s.cases}</b></div>`
+      +`<div><span class="note">胜诉率</span><b style="color:${wrColor(s.win_rate)}">${pct(s.win_rate)}</b></div>`
+      +`<div><span class="note">缺陷率</span><b style="color:var(--bad)">${pct(s.defect_rate)}</b></div>`
+      +`<div><span class="note">平均退款</span><b>¥${s.avg_refund}</b></div>`
+      +`<div><span class="note">SKU 数</span><b>${s.sku_count}</b></div>`
+      +`<div><span class="note">平台覆盖</span><b>${s.platform_count}</b></div>`
+      +`</div>`
+      +`<div class="defbar">${segs}</div>`
+      +`<div class="note" style="margin-top:5px">点击查看 SKU 清单 / 平台分布 / 缺陷明细</div>`;
+    div.addEventListener('click',()=>openSupplier(s.supplier));
+    el.appendChild(div);
+  });
+}
+
+// 供应商下钻：从已加载洞察本地计算（无额外接口）
+function openSupplier(name){
+  const d=_ins; if(!d) return;
+  const sc=(d.supplier_scorecard||[]).find(s=>s.supplier===name)||{};
+  const skus=(d.sku_ranking||[]).filter(r=>r.supplier===name).sort((a,b)=>b.refund-a.refund).slice(0,30);
+  const plats=(d.platform_supplier_matrix||[]).filter(r=>r.supplier===name).sort((a,b)=>b.cases-a.cases);
+  const platsHtml=plats.map(p=>`<tr><td>${p.platform}</td><td>${p.cases}</td><td style="color:${wrColor(p.win_rate)};font-weight:600">${pct(p.win_rate)}</td><td>¥${p.refund}</td></tr>`).join('');
+  const skuRows=skus.map(r=>`<tr><td>${r.sku}</td><td>${r.category}</td><td>${r.cases}</td><td>¥${r.refund}</td><td style="color:${wrColor(r.win_rate)}">${pct(r.win_rate)}</td><td>${r.top_defect}</td></tr>`).join('');
+  const dd=sc.defect_dist||{};
+  const dmax=Math.max(1,...Object.values(dd));
+  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barh"><span class="lab">${k}</span><span class="track"><span class="fill" style="width:${Math.round(v/dmax*100)}%;background:var(--warn)"></span></span><span class="val">${v}</span></div>`).join('');
+  $('#ovTitle').textContent='供应商透视 · '+name;
+  $('#ovBody').innerHTML=`<div class="sup-metrics" style="margin-bottom:10px">`
+    +`<div><span class="note">质量分</span><b>${sc.quality_score??'-'}</b></div>`
+    +`<div><span class="note">等级</span><b>${sc.level??'-'}</b></div>`
+    +`<div><span class="note">案件</span><b>${sc.cases??'-'}</b></div>`
+    +`<div><span class="note">胜诉率</span><b style="color:${wrColor(sc.win_rate||0)}">${pct(sc.win_rate||0)}</b></div>`
+    +`<div><span class="note">缺陷率</span><b style="color:var(--bad)">${pct(sc.defect_rate||0)}</b></div>`
+    +`<div><span class="note">平均退款</span><b>¥${sc.avg_refund??'-'}</b></div>`
+    +`<div><span class="note">SKU 数</span><b>${sc.sku_count??'-'}</b></div>`
+    +`<div><span class="note">平台覆盖</span><b>${sc.platform_count??'-'}</b></div>`
+    +`</div>`
+    +`<h4 style="margin:10px 0 4px;font-size:13px;color:#cbd5e1">平台分布（胜诉率）</h4>`
+    +`<table><thead><tr><th>平台</th><th>案件</th><th>胜诉率</th><th>退款</th></tr></thead><tbody>${platsHtml||'<tr><td colspan="4">无</td></tr>'}</tbody></table>`
+    +`<h4 style="margin:12px 0 4px;font-size:13px;color:#cbd5e1">缺陷构成</h4>`
+    +`${defectsHtml||'<span class="note">无明显缺陷</span>'}`
+    +`<h4 style="margin:12px 0 4px;font-size:13px;color:#cbd5e1">SKU 清单（按退款排序，最多 30）</h4>`
+    +`<div class="scrollx"><table><thead><tr><th>SKU</th><th>品类</th><th>案件</th><th>退款</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody>${skuRows||'<tr><td colspan="6">无</td></tr>'}</tbody></table></div>`
+    +`<div class="annot-note" style="margin-top:10px">※ 仅基于已沉淀退货数据的客观统计，不构成对供应商的最终裁决结论。</div>`;
+  $('#overlay').classList.add('show');
+}
+function closeOverlay(){$('#overlay').classList.remove('show');}
+
 // 单案举证：退货图叠加缺陷红框
 function renderAnnot(boxes, imgB64){
   const cv=$('#annot');
@@ -447,6 +569,7 @@ async function loadInsights(){
   if(plat) qs.set('platform',plat);
   const r=await fetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error('洞察接口 '+r.status);
   const d=await r.json();
+  _ins = d;  // 供供应商下钻本地计算
   $('#insModeTag').textContent=d.mode||mode;
   $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
   $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台');
@@ -546,6 +669,7 @@ async function loadInsights(){
   renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})));
   renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#f87171':x.level==='优质'?'#34d399':'#fbbf24'})));
   renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
+  renderSuppliers(d);
   renderDonut($('#kWinDonut'), d.win_rate||0);
   status.textContent='已更新 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   status.classList.remove('loading');
@@ -629,6 +753,9 @@ $('#f').addEventListener('submit',doAnalyze);
 $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
 $('#platSel').addEventListener('change',loadInsights);
+$('#ovClose').addEventListener('click',closeOverlay);
+$('#overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeOverlay();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlay();});
 loadInsights();
 loadPlatforms();
 </script>

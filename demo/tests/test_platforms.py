@@ -101,3 +101,17 @@ def test_insights_dispute_rate_is_proxy():
         d = r.json()
         assert "dispute_rate_note" in d and d["dispute_rate_note"]
         assert 0 <= d["avg_dispute_rate"] <= 1
+
+
+def test_supplier_scorecard_enriched():
+    # 扩展 C：供应商红黑榜须含增强字段（平均退款/平台覆盖/SKU数/缺陷构成）
+    with TestClient(app) as c:
+        r = c.get("/api/insights", params={"mode": "mock"})
+        assert r.status_code == 200
+        sc = r.json()["supplier_scorecard"]
+        assert sc, "应有供应商评分"
+        for must in ("avg_refund", "sku_count", "platform_count", "defect_dist", "avg_similarity"):
+            assert must in sc[0], f"供应商评分缺字段: {must}"
+        assert sc[0]["sku_count"] > 0
+        assert sc[0]["platform_count"] > 0
+        assert isinstance(sc[0]["defect_dist"], dict)

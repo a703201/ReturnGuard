@@ -237,6 +237,10 @@ def _build_supplier_scorecard(sup: dict) -> list[dict]:
         level = (
             "高风险" if score < 20 else "待改进" if score < 30 else "合格" if score < 38 else "优质"
         )
+        # 缺陷构成：剔除"无明显瑕疵"占位，保留真实缺陷分布（前端画构成条）
+        defect_dist = {
+            dk: dv for dk, dv in v["defects"].items() if dk != "无明显瑕疵"
+        }
         out.append(
             {
                 "supplier": k,
@@ -245,6 +249,11 @@ def _build_supplier_scorecard(sup: dict) -> list[dict]:
                 "defect_rate": defect_rate,
                 "win_rate": wr,
                 "refund": round(v["refund"], 2),
+                "avg_refund": round(v["refund"] / v["cases"], 2) if v["cases"] else 0,
+                "sku_count": len(v["skus"]),
+                "platform_count": len(v["platforms"]),
+                "avg_similarity": round(v["sim"] / v["cases"], 3) if v["cases"] else 0,
+                "defect_dist": defect_dist,
                 "quality_score": score,
                 "level": level,
             }
@@ -381,6 +390,9 @@ def _aggregate(cases: list[dict]) -> dict:
             "won": 0,
             "name": "未知",
             "real": 0,
+            "skus": set(),
+            "platforms": set(),
+            "sim": 0.0,
         }
     )
     plat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
@@ -440,6 +452,9 @@ def _aggregate(cases: list[dict]) -> dict:
         ss["cases"] += 1
         ss["refund"] += amt
         ss["name"] = c.get("supplier_name", ss["name"])
+        ss["skus"].add(c.get("sku", "未知"))
+        ss["platforms"].add(c.get("platform", "未知"))
+        ss["sim"] += sim
         for t in dt:
             ss["defects"][t] += 1
         if any(t != "无明显瑕疵" for t in dt):
