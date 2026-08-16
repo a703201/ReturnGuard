@@ -84,3 +84,20 @@ def test_insights_platform_filter():
         pv = r.json()["platform_view"]
         assert pv and all(x["platform"] == "Amazon" for x in pv)
         assert pv[0]["cases"] > 0
+
+
+def test_insights_invalid_platform_400():
+    # S1：非法 platform 应 400，而非静默返回空看板
+    with TestClient(app) as c:
+        r = c.get("/api/insights", params={"mode": "mock", "platform": "不存在的平台"})
+        assert r.status_code == 400
+
+
+def test_insights_dispute_rate_is_proxy():
+    # S2：avg_dispute_rate 须带代理指标说明，避免被误读为平台真实争议率
+    with TestClient(app) as c:
+        r = c.get("/api/insights", params={"mode": "mock"})
+        assert r.status_code == 200
+        d = r.json()
+        assert "dispute_rate_note" in d and d["dispute_rate_note"]
+        assert 0 <= d["avg_dispute_rate"] <= 1

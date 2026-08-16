@@ -154,12 +154,12 @@ async def analyze(
         result["returned_image_b64"] = ""
 
     # 数据沉淀：把这一单写入案件库，阶段B 洞察才有"米"下锅
+    # 注意：result 已含 platform（上方 line 141 设置），此处不再重复写，避免重复键
     save_case(
         {
             **result,
             "sku": sku,
             "amount": amount,
-            "platform": platform,
             "returned_image": os.path.basename(rp),
             "product_image": os.path.basename(pp),
         }
@@ -186,6 +186,14 @@ def insights(mode: str = "mock", category: str = "", platform: str = ""):
     """
     if mode not in ("mock", "live"):
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
+    if category:
+        # 品类为自由文本，仅做非空校验（空值视为不过滤）
+        if not isinstance(category, str) or not category.strip():
+            raise HTTPException(status_code=400, detail="category 非法")
+    if platform:
+        # 平台必须是举证包支持列表中的合法值，避免静默返回空看板
+        if not is_valid_platform(platform):
+            raise HTTPException(status_code=400, detail="platform 不在支持列表")
     cases = load_cases()
     if category:
         cases = [c for c in cases if c.get("category") == category]

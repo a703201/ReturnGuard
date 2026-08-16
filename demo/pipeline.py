@@ -462,7 +462,14 @@ def _aggregate(cases: list[dict]) -> dict:
         if c.get("outcome") == "赢":
             mm["won"] += 1
 
+    # 代理指标（非平台真实争议笔数）：以"退货图与本店主图的相似度"推得。
+    # avg_dispute = 1 - 平均相似度，越接近 1 表示"货不对板/调包"嫌疑越强。
+    # 前端务必标注为代理指标，不可当作平台标记的争议率。
     avg_dispute = round(1 - sim_sum / total, 3) if total else 0.0
+    dispute_rate_note = (
+        "代理指标：由退货图与本店主图的平均相似度（1−相似度）推算，"
+        "反映'货不对板/调包'嫌疑强度，并非平台标记的争议笔数。"
+    )
 
     # 最近日期（用于 SKU 近期异常预警）
     max_date = None
@@ -482,6 +489,7 @@ def _aggregate(cases: list[dict]) -> dict:
         "total_refund": round(total_refund, 2),
         "win_rate": win_rate,
         "avg_dispute_rate": avg_dispute,
+        "dispute_rate_note": dispute_rate_note,
         "outcome_dist": dict(outcome_dist),
         "sku_ranking": sku_ranking,
         "defect_distribution": dict(defect_all),
