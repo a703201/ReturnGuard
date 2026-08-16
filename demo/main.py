@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 import uuid
 from collections import defaultdict
@@ -28,6 +29,7 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     VALID_SOURCES,
     delete_case,
     init_db,
+    list_cases,
     load_cases,
     save_case,
 )
@@ -59,6 +61,8 @@ _metrics["start_time"] = int(time.time())
 # ---- 写接口限流（P2-8）：演示态默认开启；环境 ANALYZE_RATE_LIMIT=0 关闭 ----
 _RATE_LIMIT = int(os.environ.get("ANALYZE_RATE_LIMIT", "60"))  # 每客户端每分钟上限
 _rate_window: dict[str, list[float]] = {}
+# 线程安全锁（P3-⑧）：uvicorn 默认线程池跑同步端点，_metrics / _rate_window 为进程内共享可变结构
+_state_lock = threading.Lock()
 
 # 演示态可选鉴权：设置 ANALYZE_API_KEY 后，/api/analyze 须带 X-API-Key 头或 ?key=
 _API_KEY = os.environ.get("ANALYZE_API_KEY", "")
@@ -129,12 +133,13 @@ def _check_rate_limit(client_ip: str) -> bool:
     if _RATE_LIMIT <= 0:
         return True
     now = time.time()
-    hits = [t for t in _rate_window.get(client_ip, []) if now - t < 60]
-    if len(hits) >= _RATE_LIMIT:
+    with _state_lock:
+        hits = [t for t in _rate_window.get(client_ip, []) if now - t < 60]
+        if len(hits) >= _RATE_LIMIT:
+            _rate_window[client_ip] = hits
+            return False
+        hits.append(now)
         _rate_window[client_ip] = hits
-        return False
-    hits.append(now)
-    _rate_window[client_ip] = hits
     return True
 
 
@@ -173,15 +178,16 @@ async def observe_middleware(request: Request, call_next):
     start = time.time()
     response = await call_next(request)
     dur_ms = (time.time() - start) * 1000
-    _metrics["requests"] += 1
-    _metrics["latency_ms_sum"] += dur_ms
-    if response.status_code >= 500:
-        _metrics["errors"] += 1
-    path = request.url.path
-    if path == "/api/analyze":
-        _metrics["analyze_count"] += 1
-    elif path == "/api/insights":
-        _metrics["insights_count"] += 1
+    with _state_lock:
+        _metrics["requests"] += 1
+        _metrics["latency_ms_sum"] += dur_ms
+        if response.status_code >= 500:
+            _metrics["errors"] += 1
+        path = request.url.path
+        if path == "/api/analyze":
+            _metrics["analyze_count"] += 1
+        elif path == "/api/insights":
+            _metrics["insights_count"] += 1
     logger.info("%s %s -> %d (%.1fms)", request.method, path, response.status_code, dur_ms)
     return response
 
@@ -378,10 +384,15 @@ def insights(request: Request, mode: str = "mock", category: str = "", platform:
 
 
 @app.get("/api/cases")
-def cases(request: Request):
-    """查看指定 source 的案件库（调试/演示/实际数据录入查看用）。"""
+def cases(request: Request, slim: bool = False):
+    """查看指定 source 的案件库。
+
+    - 默认返回全字段（调试/演示用，含 voice_audio_b64 等大字段）。
+    - slim=1 时只返回录入列表所需关键字段（P3-①），用于数据录入页列表展示与删除，
+      从源头避免整库大响应体（demo 库约 25MB 级）。
+    """
     source = _resolve_source(request)
-    return load_cases(source)
+    return list_cases(source) if slim else load_cases(source)
 
 
 @app.post("/api/cases")

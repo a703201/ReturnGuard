@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import date, datetime
 
 from sqlalchemy import (
@@ -99,13 +100,17 @@ def _normalize_source(source) -> str:
 # ---- 懒初始化：每个 source 独立引擎与 session 工厂（首次使用时创建，去除 import 期副作用）----
 _engines: dict = {}
 _sessions: dict = {}
+# 线程安全锁（P3-⑧）：uvicorn 默认以线程池跑同步端点，多并发读写这些模块级可变结构需加锁，
+# 避免 dict 并发读写竞态（同一进程内线程安全；多 worker 跨进程仍需 Redis 共享缓存）。
+_engine_lock = threading.Lock()
 
 
 def get_engine(source: str = DEFAULT_SOURCE):
     """返回（必要时创建）指定 source 的数据库引擎。便于测试时替换 DATABASE_URL 后重新获取。"""
     source = _normalize_source(source)
-    global _engines
-    if source not in _engines:
+    with _engine_lock:
+        if source in _engines:
+            return _engines[source]
         url = SOURCES[source]
         _patch_opengauss_dialect(url)
         logger.info(
@@ -120,16 +125,17 @@ def get_engine(source: str = DEFAULT_SOURCE):
             future=True,
             pool_pre_ping=True,
         )
-    return _engines[source]
+        return _engines[source]
 
 
 def get_session(source: str = DEFAULT_SOURCE):
     """返回一个短生命周期 Session（用 with 管理）。"""
     source = _normalize_source(source)
-    global _sessions
-    if source not in _sessions:
-        _sessions[source] = sessionmaker(bind=get_engine(source), expire_on_commit=False)
-    return _sessions[source]()
+    engine = get_engine(source)  # 内部已加锁并返回
+    with _engine_lock:
+        if source not in _sessions:
+            _sessions[source] = sessionmaker(bind=engine, expire_on_commit=False)
+        return _sessions[source]()
 
 
 Base = declarative_base()
@@ -139,21 +145,26 @@ _cache: dict = {"demo": None, "real": None}
 
 # 洞察聚合缓存失效用的「代际」计数器（按 source 独立）：每次写库自增；pipeline.build_insights 据此判断缓存是否过期
 _generations: dict = {"demo": 0, "real": 0}
+# 缓存/代际的线程安全锁（P3-⑧）
+_cache_lock = threading.Lock()
 
 
 def _invalidate_cache(source: str = DEFAULT_SOURCE) -> None:
     source = _normalize_source(source)
-    _cache[source] = None
+    with _cache_lock:
+        _cache[source] = None
 
 
 def bump_generation(source: str = DEFAULT_SOURCE) -> None:
     """写库后自增代际，使依赖聚合结果的缓存失效。"""
     source = _normalize_source(source)
-    _generations[source] += 1
+    with _cache_lock:
+        _generations[source] += 1
 
 
 def get_generation(source: str = DEFAULT_SOURCE) -> int:
-    return _generations[_normalize_source(source)]
+    with _cache_lock:
+        return _generations[_normalize_source(source)]
 
 
 class Case(Base):
@@ -235,6 +246,35 @@ def _dict_to_row(d: dict) -> Case:
     return Case(**data)
 
 
+# 录入列表所需的轻量字段投影：避免把每条案件的 base64 语音 / 举证长文一并拉回前端。
+# demo 库 674 条若含 voice_audio_b64，整库响应体可达约 25MB；列表接口只投影看板与删除
+# 所需字段，从源头消除大响应体（P3-①）。
+_LIST_FIELDS = (
+    Case.case_id, Case.sku, Case.sku_name, Case.category, Case.supplier,
+    Case.supplier_name, Case.amount, Case.outcome, Case.date, Case.platform,
+)
+
+
+def _row_to_slim_dict(r) -> dict:
+    """仅取列表展示字段，date 转 ISO 字符串。"""
+    d = dict(r._mapping)
+    if isinstance(d.get("date"), (datetime, date)):
+        d["date"] = d["date"].isoformat()
+    return d
+
+
+def list_cases(source: str = DEFAULT_SOURCE) -> list[dict]:
+    """读取指定 source 的案件「列表投影」（仅关键字段），用于数据录入页列表展示与删除。
+
+    与 load_cases 的区别：用 ORM 列投影只取列表所需字段，不返回 voice_audio_b64 /
+    dossier / listing_text 等大字段，从源头避免整库 25MB 级响应体（P3-①）。
+    """
+    source = _normalize_source(source)
+    with get_session(source) as s:
+        rows = s.query(*_LIST_FIELDS).all()
+    return [_row_to_slim_dict(r) for r in rows]
+
+
 def init_db(source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: bool = False) -> None:
     """建表；若库为空（或 force=True）且为 demo 源，则导入种子 JSON，保证克隆/部署后演示数据一致。
 
@@ -269,11 +309,13 @@ def init_db(source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: b
 def load_cases(source: str = DEFAULT_SOURCE) -> list[dict]:
     """读取指定 source 的全部案件，返回 list[dict]。带按 source 的结果缓存。"""
     source = _normalize_source(source)
-    if _cache[source] is not None:
-        return _cache[source]
+    with _cache_lock:
+        if _cache[source] is not None:
+            return _cache[source]
     with get_session(source) as s:
         data = [_row_to_dict(r) for r in s.query(Case).all()]
-    _cache[source] = data
+    with _cache_lock:
+        _cache[source] = data
     return data
 
 
