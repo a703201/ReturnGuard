@@ -61,4 +61,7 @@ class InsightsResponse(BaseModel):
     total_refund: float = 0.0
     win_rate: float = 0.0
     avg_dispute_rate: float = 0.0
+    # 代理指标说明：avg_dispute_rate 实为由"退货图与本店主图相似度"推算的代理值，
+    # 并非平台标记的争议笔数。前端须据实呈现，避免误导为真实争议率。
+    dispute_rate_note: str = ""
     outcome_dist: dict[str, int] = {}

@@ -182,4 +182,30 @@
 - **S2（文案）**：`avg_dispute_rate` 实为 `1 − 平均相似度` 的**代理指标**，并非平台真实争议率；前端卡片称「平均退货争议率」易致评委误解。建议在卡面 hint 或 API 文档注明这是「以同款一致性反推的争议代理指标」。
 - **S3（清理）**：`main.py` 的 `save_case({**result, ..., "platform": platform})` 中 `platform` 键重复（`result` 已含），值相同无害，建议删去冗余键。
 - **S4（扩展期）**：前端 `loadPlatforms()` 的 `attrs` 硬编码 4 项；若后续为 `platforms.py` 增加属性维度，需同步此处（与 `generate_platform_doc.py` 的 `ATTRIBUTES` 一并维护）。
+
+### 5.5 复审建议 S1/S2/S3 落地 + 前端大屏化（2026-08-16 第二轮）
+
+> 复审基准：截至 `4acd329`。本轮把 5.4 的 S1/S2/S3 全部落地，并据「大屏全屏展示、不整页滚动」诉求对前端做单页化重构。
+
+**S1（建议）→ 已修（`main.py /api/insights`）**
+- 新增 `if platform and not is_valid_platform(platform): raise HTTPException(400, ...)`，与 `/api/analyze` 行为一致；非法平台不再静默返回空看板。
+- 同步加 `category` 非空兜底校验。
+- 测试锁住：`test_insights_invalid_platform_400`（期望 400）。
+
+**S2（文案）→ 已修（`schemas.py` + `pipeline.py` + 前端）**
+- `InsightsResponse` 增 `dispute_rate_note: str = ""`；`pipeline._aggregate` 计算处补注释并注入说明：`avg_dispute_rate` 是由「退货图与本店主图相似度」推算的**代理指标**（`1 − 平均相似度`），反映货不对板/调包嫌疑强度，**并非平台标记的争议笔数**。
+- 前端 KPI 标签由「平均退货争议率」改为「货不对板嫌疑率」，并加 `代理指标 ⓘ` 提示（hover 显示完整说明），消除评委误解。
+- 测试锁住：`test_insights_dispute_rate_is_proxy`。
+
+**S3（清理）→ 已修（`main.py /api/analyze`）**
+- `save_case({**result, ..., "platform": platform})` 中 `platform` 与 `result` 已含的 `platform` 重复，删除冗余键，仅保留 `result` 展开值（语义不变，去除脆弱重复）。
+
+**前端大屏化（单页全屏、不整页滚动、多比例适配）**
+- 结构重构：`body{overflow:hidden}` + `.app` flex 列（`100vh/100dvh`）。顶部固定（标题 + 4 KPI 紧凑条 + 筛选栏 + 分段切换），主区 `flex:1;min-height:0;overflow:hidden`。
+- **组件切换而非整页滑动**：三个标签页 `市场洞察 / 平台举证包 / 单案取证`（`switchTab`），各页 `height:100%` 仅内部滚动，整页绝不上下滑动。
+- **看板占满一屏**：`.board` 用 `grid-template-rows:repeat(3,1fr)`（3×3 平铺 9 张洞察卡），每张卡 `overflow:auto` 只卡内滚动。响应式降级：`≤1100px` 转 2 列×5 行，`≤640px` 转 1 列×9 行——任何比例都靠 `1fr` 行高占满、不溢出整页。
+- **多显示比例适配**：字号用 `clamp()` 随视口缩放；`≥2200px`（电视/超宽）放大字号与留白；`≤900px` 取证页表单与结果改为上下堆叠。电脑(16:9/4:3)、平板、电视均自适应。
+- 守住「只取证不裁决」：举证结果区仍标注「演示示意框、不替代平台裁决」。
+
+**验证**：ruff 全绿；pytest **18 passed**（原 16 + 新增 S1/S2 各 1）；TestClient 冒烟：`/api/insights` 非法 platform→400、合法 SHEIN→200(165 案)、`dispute_rate_note` 存在、前端大屏结构标记齐全、analyze 关联 Temu 举证 5 条。提交 `见下方提交记录`。
 - **P3-17（部署期）**：live 模式图片公网可达仍未落地，复赛公网部署前必须补。
