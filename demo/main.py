@@ -23,15 +23,22 @@ import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
-from db import init_db  # 数据持久层（SQLite / openGauss 双轨）
+from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
+    DEFAULT_SOURCE,
+    VALID_SOURCES,
+    delete_case,
+    init_db,
+    load_cases,
+    save_case,
+)
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
-from pipeline import analyze_case, build_insights, load_cases, save_case
+from pipeline import analyze_case, build_insights
 from platforms import get_platform_spec, is_valid_platform, list_platforms
-from schemas import AnalyzeResult, InsightsResponse
+from schemas import AnalyzeResult, InsightsResponse, ManualCase
 
 logger = logging.getLogger("returnguard.api")
 
@@ -131,13 +138,23 @@ def _check_rate_limit(client_ip: str) -> bool:
     return True
 
 
+def _resolve_source(request: Request) -> str:
+    """从请求 query 参数解析数据来源（demo/real），非法或缺失一律回退 demo。"""
+    src = request.query_params.get("source", DEFAULT_SOURCE)
+    return src if src in VALID_SOURCES else DEFAULT_SOURCE
+
+
 @asynccontextmanager
 async def lifespan(app):
-    """服务启动时：初始化数据库（支持 FORCE_RESEED 重置）+ 清理过期上传图。"""
+    """服务启动时：初始化双源数据库（demo 播种 / real 空库）+ 清理过期上传图。
+
+    支持 FORCE_RESEED=1 仅重置 demo 种子库（real 实际库始终保留，避免误清真实数据）。
+    """
     if os.environ.get("FORCE_RESEED") == "1":
-        init_db(force=True)
+        init_db("demo", force=True)
     else:
-        init_db()
+        init_db("demo")
+    init_db("real")  # 实际数据库：确保表存在，初始空库待录入
     _cleanup_old_uploads(max_age_hours=float(os.environ.get("UPLOAD_MAX_AGE_HOURS", "24")))
     yield
 
@@ -202,7 +219,9 @@ async def analyze(
     返回字段见 schemas.AnalyzeResult；defect_boxes 为缺陷示意框（归一化坐标）。
     platform 为销售平台（可选），用于关联「平台适配举证包」的必备举证清单。
     category/supplier 为选填维度，补全后该单可干净进入洞察聚合（P1-1 防污染）。
+    source(=demo|real)：取证结果沉淀到对应数据库（默认 demo）。
     """
+    source = _resolve_source(request)
     # P2-8 演示态可选鉴权：设置 ANALYZE_API_KEY 后必须携带
     if _API_KEY:
         provided = request.headers.get("X-API-Key", "") or request.query_params.get("key", "")
@@ -256,6 +275,7 @@ async def analyze(
         # 数据沉淀：取证结果 > 数据沉淀。save 失败只记日志，仍优先返回 result
         try:
             save_case(
+                source,
                 {
                     **result,
                     "sku": sku,
@@ -266,7 +286,7 @@ async def analyze(
                     "outcome": "待分析",
                     "returned_image": os.path.basename(rp),
                     "product_image": os.path.basename(pp),
-                }
+                },
             )
         except Exception as e:
             logger.exception("案件沉淀失败（不影响本次取证结果返回）: %s", e)
@@ -287,10 +307,15 @@ async def analyze(
 
 @app.get("/api/config")
 def api_config():
-    """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本等，避免前端/生成器各写一份。"""
+    """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源等。"""
     from constants import SAME_ITEM_THRESHOLD
 
-    return {"same_item_threshold": SAME_ITEM_THRESHOLD, "version": APP_VERSION}
+    return {
+        "same_item_threshold": SAME_ITEM_THRESHOLD,
+        "version": APP_VERSION,
+        "sources": list(VALID_SOURCES),
+        "default_source": DEFAULT_SOURCE,
+    }
 
 
 @app.get("/metrics")
@@ -316,15 +341,17 @@ def platforms():
 
 
 @app.get("/api/insights", response_model=InsightsResponse)
-def insights(mode: str = "mock", category: str = "", platform: str = ""):
+def insights(request: Request, mode: str = "mock", category: str = "", platform: str = ""):
     """阶段B · 群体洞察接口（AI 市场洞察核心交付物）。
 
     参数：
+        source   demo（演示数据）/ real（实际数据），决定读取哪个数据库
         mode     mock（规则归因，可复现）/ live（LLM 归因，需 Key）
         category 按品类下钻（可选）
         platform 按平台下钻（可选）
     返回：KPI、品类热力、根因归因、供应商红黑榜、平台对比、异常预警、SKU明细、洞察报告、选品建议。
     """
+    source = _resolve_source(request)
     if mode not in ("mock", "live"):
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
     if category:
@@ -335,18 +362,44 @@ def insights(mode: str = "mock", category: str = "", platform: str = ""):
         # 平台必须是举证包支持列表中的合法值，避免静默返回空看板
         if not is_valid_platform(platform):
             raise HTTPException(status_code=400, detail="platform 不在支持列表")
-    cases = load_cases()
+    cases = load_cases(source)
     if category:
         cases = [c for c in cases if c.get("category") == category]
     if platform:
         cases = [c for c in cases if c.get("platform") == platform]
-    return build_insights(cases, mode)
+    agg = build_insights(cases, mode, source)
+    agg["source"] = source  # 让前端知道当前看板基于哪个数据源
+    return agg
 
 
 @app.get("/api/cases")
-def cases():
-    """查看已沉淀的案件库（调试/演示用）。"""
-    return load_cases()
+def cases(request: Request):
+    """查看指定 source 的案件库（调试/演示/实际数据录入查看用）。"""
+    source = _resolve_source(request)
+    return load_cases(source)
+
+
+@app.post("/api/cases")
+def add_case(c: ManualCase, request: Request):
+    """网页「数据录入」：手动添加一条实际退货案件到指定 source（默认 real 由前端开关控制）。
+
+    不强制传图，填字段即可录入；落库后对应 source 的洞察看板实时刷新。
+    """
+    source = _resolve_source(request)
+    data = c.model_dump()
+    data["case_id"] = "RG-" + uuid.uuid4().hex[:8].upper()
+    if not data.get("defect_tags"):
+        data["defect_tags"] = ["无明显瑕疵"]
+    save_case(source, data)
+    return {"ok": True, "source": source, "case_id": data["case_id"]}
+
+
+@app.delete("/api/cases/{case_id}")
+def delete_case_api(case_id: str, request: Request):
+    """删除指定 source 下的一条案件（实际数据管理用）。"""
+    source = _resolve_source(request)
+    n = delete_case(source, case_id)
+    return {"ok": True, "source": source, "deleted": n}
 
 
 if __name__ == "__main__":

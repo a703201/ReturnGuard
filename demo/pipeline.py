@@ -623,15 +623,16 @@ def _mock_attribution(agg: dict) -> dict:
     return agg
 
 
-def build_insights(cases: list[dict], mode: str = "mock") -> dict:
+def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") -> dict:
     """阶段B 统一入口：群体洞察（功能⑥）。
     - mock：确定性规则归因，结果可复现，适合录屏演示。
     - live：调用 models_router.build_insights_live 做 LLM 聚类/归因/建议；失败回退 mock。
 
-    缓存：按 (mode, 案件数, 代际) 缓存聚合结果，save_case 时代际自增即失效，
-    避免每次 /api/insights 都全量重算（P2-5）。空数据提前返回，避免 recommendations 回归（P3-1）。
+    缓存：按 (mode, 案件数, 代际[按 source]) 缓存聚合结果，save_case 时对应 source 代际
+    自增即失效，避免每次 /api/insights 都全量重算（P2-5）。空数据提前返回，避免
+    recommendations 回归（P3-1）。source 用于隔离 demo/real 两源的缓存，互不串扰。
     """
-    key = (mode, len(cases), get_generation())
+    key = (mode, len(cases), get_generation(source))
     if key in _ins_cache:
         return _ins_cache[key]
     agg = _aggregate(cases)

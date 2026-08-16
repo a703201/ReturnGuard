@@ -190,6 +190,34 @@
   .ov-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
   .ov-close{background:transparent;color:#94a3b8;font-size:18px;padding:4px 10px}
   .ov-close:hover{background:rgba(255,255,255,.08);color:#fff;box-shadow:none}
+
+  /* 数据源开关（演示数据 / 实际数据）*/
+  .src-toggle{display:inline-flex;border:1px solid #334155;border-radius:999px;overflow:hidden;margin-right:10px;flex:none}
+  .src-btn{background:transparent;color:#94a3b8;border:0;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600;transition:all .2s ease}
+  .src-btn:hover{color:#e2e8f0}
+  .src-btn.active{background:var(--acc);color:#04121f}
+  .src-hint{font-size:11px;color:#64748b;margin-right:8px;white-space:nowrap}
+  .src-banner{display:none;margin:0 0 10px;padding:8px 12px;border-radius:10px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#bae6fd;font-size:12px}
+  .src-banner.show{display:block}
+
+  /* 数据录入表单（实际数据添加接口）*/
+  .entry-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;height:100%;overflow:auto}
+  .entry-form label{display:block;font-size:12px;color:#94a3b8;margin:10px 0 4px}
+  .entry-form input, .entry-form select, .entry-form textarea{
+    width:100%;background:#0b1220;border:1px solid #334155;border-radius:8px;color:#e2e8f0;
+    padding:8px 10px;font-size:13px;box-sizing:border-box;font-family:inherit}
+  .entry-form .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .entry-form .full{grid-column:1 / -1}
+  .entry-actions{display:flex;gap:10px;align-items:center;margin-top:14px}
+  .entry-msg{font-size:12px;margin-top:10px}
+  .entry-msg.ok{color:var(--ok)} .entry-msg.err{color:var(--bad)}
+  .entry-list{max-height:100%;overflow:auto}
+  .entry-list table{width:100%;border-collapse:collapse;font-size:12px}
+  .entry-list th,.entry-list td{border-bottom:1px solid #1e293b;padding:6px 8px;text-align:left;color:#cbd5e1}
+  .entry-list th{color:#94a3b8;position:sticky;top:0;background:var(--card)}
+  .entry-del{background:transparent;border:1px solid #334155;color:#f87171;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px}
+  .entry-del:hover{background:rgba(248,113,113,.12)}
+  @media (max-width:900px){ .entry-wrap{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -210,6 +238,11 @@
       </div>
       <div class="hrow2">
         <div class="bar-top">
+          <div class="src-toggle" id="srcToggle" title="切换使用演示数据还是实际数据">
+            <button type="button" class="src-btn active" data-src="demo">演示数据</button>
+            <button type="button" class="src-btn" data-src="real">实际数据</button>
+          </div>
+          <span class="src-hint" id="srcHint">当前：演示数据</span>
           <select id="catSel"><option value="">全部品类</option></select>
           <select id="platSel"><option value="">全部平台</option></select>
           <select id="insMode">
@@ -226,6 +259,7 @@
           <button data-tab="plat">平台举证包</button>
           <button data-tab="supplier">供应商透视</button>
           <button data-tab="forensic">单案取证</button>
+          <button data-tab="entry">数据录入</button>
         </nav>
       </div>
     </header>
@@ -373,6 +407,67 @@
           </div>
         </div>
       </section>
+
+      <!-- 标签页：数据录入（实际数据添加接口）-->
+      <section id="tab-entry" class="tabpane">
+        <div class="src-banner" id="entryBanner"></div>
+        <div class="entry-wrap">
+          <div class="card entry-form">
+            <h3>⑫ 添加实际退货案件</h3>
+            <p class="desc">手动录入一条真实退货案件，落入「当前数据源」（顶部开关切换）。不强制传图，填字段即可。提交后对应看板实时刷新。</p>
+            <form id="entryForm">
+              <div class="row2">
+                <div><label>商品编号 SKU *</label><input name="sku" required placeholder="如 SKU-3C01"></div>
+                <div><label>SKU 名称</label><input name="sku_name" placeholder="如 无线耳机 Pro"></div>
+              </div>
+              <div class="row2">
+                <div><label>品类</label><input name="category" placeholder="如 3C数码"></div>
+                <div><label>供应商</label><input name="supplier" placeholder="如 S1"></div>
+              </div>
+              <div class="row2">
+                <div><label>销售平台</label>
+                  <select name="platform">
+                    <option value="">未指定</option>
+                    <option>Amazon</option><option>AliExpress</option><option>Temu</option><option>SHEIN</option>
+                  </select>
+                </div>
+                <div><label>订单金额 (¥)</label><input name="amount" type="number" step="0.01" value="0"></div>
+              </div>
+              <div class="row2">
+                <div><label>案件日期</label><input name="date" type="date"></div>
+                <div><label>判定结果</label>
+                  <select name="outcome">
+                    <option value="">未判定</option>
+                    <option>赢</option><option>部分退款</option><option>输</option><option>待分析</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row2">
+                <div><label>同款相似度 (0~1)</label><input name="similarity" type="number" step="0.001" min="0" max="1" value="0.9"></div>
+                <div><label>是否同一件</label>
+                  <select name="same_item"><option value="true">是</option><option value="false">否（疑似调包）</option></select>
+                </div>
+              </div>
+              <label>缺陷标签（逗号分隔）</label>
+              <input name="defect_tags" placeholder="如 外包装破损,功能故障">
+              <label>与 listing 承诺一致性</label>
+              <input name="consistency" placeholder="如 存在差异（货不对板）">
+              <label>商品页承诺（可选）</label>
+              <textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
+              <div class="entry-actions">
+                <button type="submit" id="entryBtn">添加到当前数据源</button>
+                <span class="note" id="entryTarget"></span>
+              </div>
+              <div class="entry-msg" id="entryMsg"></div>
+            </form>
+          </div>
+          <div class="card entry-list">
+            <h3>当前数据源案件列表</h3>
+            <p class="desc">显示「当前数据源」已录入的案件，可删除。切换顶部数据源会同步刷新。</p>
+            <div id="entryTableWrap"><span class="note">切换到「数据录入」页后自动加载…</span></div>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- 供应商下钻弹层（组件内滚动，不整页滚动） -->
@@ -390,6 +485,35 @@ const pct = x => (x*100).toFixed(0) + '%';
 const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
 const realColor = w => w>=0.5?'#34d399':w>=0.3?'#fbbf24':'#f87171';
 let _ins = null;  // 最近一次 insights 响应，供供应商下钻本地计算
+
+// ---- 数据源开关（演示数据 / 实际数据）----
+// 当前数据源，持久化到 localStorage，刷新页面不丢失；所有数据接口经 apiFetch 附带 ?source=
+let CURRENT_SOURCE = (localStorage.getItem('rg_source') || 'demo');
+function setSource(s){
+  CURRENT_SOURCE = (s==='real') ? 'real' : 'demo';
+  localStorage.setItem('rg_source', CURRENT_SOURCE);
+  document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
+  $('#srcHint').textContent = '当前：' + (CURRENT_SOURCE==='real'?'实际数据':'演示数据');
+  $('#entryTarget').textContent = '将写入：' + (CURRENT_SOURCE==='real'?'实际数据':'演示数据');
+  const banner = $('#entryBanner');
+  if(CURRENT_SOURCE==='real'){
+    banner.textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。';
+    banner.classList.add('show');
+  } else {
+    banner.classList.remove('show');
+  }
+  // 切换数据源：看板与筛选下拉同步刷新
+  loadInsights();
+  if(typeof populateFilters==='function') populateFilters();
+  loadEntryList();
+}
+// 统一给接口地址附加当前数据源（?source=）
+function apiUrl(path){
+  const u = new URL(path, location.href);
+  u.searchParams.set('source', CURRENT_SOURCE);
+  return u.pathname + u.search;
+}
+function apiFetch(path, opts){ return fetch(apiUrl(path), opts); }
 
 // HTML 转义（P1-3）：所有动态文本拼进 innerHTML 前统一转义，杜绝 live 模型自由文本引发的 XSS
 function esc(s){
@@ -580,9 +704,15 @@ async function loadInsights(){
   const qs=new URLSearchParams({mode});
   if(cat) qs.set('category',cat);
   if(plat) qs.set('platform',plat);
-  const r=await fetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error('洞察接口 '+r.status);
+  const r=await fetch(apiUrl('/api/insights?'+qs.toString())); if(!r.ok) throw new Error('洞察接口 '+r.status);
   const d=await r.json();
   _ins = d;  // 供供应商下钻本地计算
+  // 实际数据为空时给出引导（演示数据默认有种子，不会空）
+  const emptyHint=$('#scopeTag');
+  if(d.source==='real' && d.total_cases===0){
+    emptyHint.textContent='实际数据为空 · 去「数据录入」添加';
+    emptyHint.style.background='var(--warn)';
+  }
   $('#insModeTag').textContent=d.mode||mode;
   $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
   $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台');
@@ -726,7 +856,7 @@ async function doAnalyze(e){
   const btn=$('#btn'); btn.disabled=true; btn.textContent='举证中…';
   try{
     const fd=new FormData($('#f'));
-    const r=await fetch('/api/analyze',{method:'POST',body:fd});
+    const r=await apiFetch('/api/analyze',{method:'POST',body:fd});
     const d=await r.json();
     if(!r.ok) throw new Error(d.detail||'请求失败');
     $('#sim').textContent=Math.round(d.similarity*100)+'%';
@@ -754,34 +884,107 @@ async function doAnalyze(e){
   finally{ btn.disabled=false; btn.textContent='开始举证'; }
 }
 
-// 初始化：拉取后端常量（P2-4 单一来源）→ 复用一次洞察填充下拉（P3-2 合并两次 fetch）→ 加载举证包
+// 用洞察响应填充顶部品类/平台/供应商筛选下拉（P3-2 复用一次响应）
+function populateFilters(){
+  const d=_ins||{};
+  $('#catSel').innerHTML='<option value="">全部品类</option>';
+  $('#formCat').innerHTML='<option value="">未指定</option>';
+  $('#platSel').innerHTML='<option value="">全部平台</option>';
+  $('#formSup').innerHTML='<option value="">未指定</option>';
+  [...new Set((d.category_heatmap||[]).map(x=>x.category))].forEach(c=>{
+    const o=document.createElement('option'); o.value=c; o.textContent=c;
+    $('#catSel').appendChild(o); $('#formCat').appendChild(o.cloneNode(true));
+  });
+  [...new Set((d.platform_view||[]).map(x=>x.platform))].forEach(p=>{
+    const o=document.createElement('option'); o.value=p; o.textContent=p;
+    $('#platSel').appendChild(o);
+  });
+  [...new Set((d.supplier_scorecard||[]).map(s=>s.supplier))].forEach(s=>{
+    if(s){ const o=document.createElement('option'); o.value=s; o.textContent=s; $('#formSup').appendChild(o); }
+  });
+}
+
+// 加载「当前数据源」已录入案件列表（数据录入页右侧）
+async function loadEntryList(){
+  try{
+    const r=await apiFetch('/api/cases'); const list=await r.json();
+    const wrap=$('#entryTableWrap');
+    if(!list.length){ wrap.innerHTML='<span class="note">当前数据源暂无案件。</span>'; return; }
+    let html='<table><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>金额</th><th>判定</th><th></th></tr></thead><tbody>';
+    list.slice().reverse().forEach(x=>{
+      html+=`<tr><td>${esc(x.sku)}</td><td>${esc(x.category)}</td><td>${esc(x.supplier)}</td>`
+        +`<td>¥${Number(x.amount||0).toFixed(0)}</td><td>${esc(x.outcome||'待分析')}</td>`
+        +`<td><button class="entry-del" data-id="${esc(x.case_id)}">删除</button></td></tr>`;
+    });
+    html+='</tbody></table>';
+    wrap.innerHTML=html;
+  }catch(e){ $('#entryTableWrap').innerHTML='<span class="err">列表加载失败</span>'; }
+}
+
+// 提交一条手动录入案件到当前数据源
+async function submitEntry(e){
+  e.preventDefault();
+  const btn=$('#entryBtn'); btn.disabled=true; btn.textContent='提交中…';
+  $('#entryMsg').textContent=''; $('#entryMsg').className='entry-msg';
+  try{
+    const fd=new FormData($('#entryForm'));
+    const payload={}; fd.forEach((v,k)=>{ payload[k]=v; });
+    payload.amount=parseFloat(payload.amount||0)||0;
+    payload.similarity=parseFloat(payload.similarity||0)||0;
+    payload.same_item=(payload.same_item==='true');
+    payload.defect_tags=(payload.defect_tags||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const r=await apiFetch('/api/cases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.detail||'提交失败');
+    $('#entryMsg').textContent='✓ 已添加到「'+(CURRENT_SOURCE==='real'?'实际数据':'演示数据')+'」：'+d.case_id;
+    $('#entryMsg').className='entry-msg ok';
+    $('#entryForm').reset();
+    loadEntryList(); loadInsights();  // 同步刷新列表与看板
+  }catch(err){ $('#entryMsg').textContent='错误：'+err.message; $('#entryMsg').className='entry-msg err'; }
+  finally{ btn.disabled=false; btn.textContent='添加到当前数据源'; }
+}
+
+// 初始化：拉取后端常量（P2-4）→ 设定数据源 UI → 加载看板/筛选/举证包
 (async function init(){
-  // P2-4 前端：同款阈值等常量从 /api/config 拉取，覆盖前端兜底值
   try{
     const cfg=await fetch('/api/config'); const c=await cfg.json();
     if(typeof c.same_item_threshold==='number' && isFinite(c.same_item_threshold)) SAME_ITEM_THRESHOLD=c.same_item_threshold;
     if(c.version) $('#appVer').textContent='V'+String(c.version).replace(/^v/i,'');
   }catch(e){ /* 网络异常则用默认 0.82 兜底 */ }
 
-  // P3-2：先拉一次洞察并渲染看板，同时复用其响应填下拉，避免 init 与 loadInsights 各拉一次
+  // 设定初始数据源 UI（不在此处触发重载，避免与下方 loadInsights 重复）
+  document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
+  $('#srcHint').textContent='当前：'+(CURRENT_SOURCE==='real'?'实际数据':'演示数据');
+  $('#entryTarget').textContent='将写入：'+(CURRENT_SOURCE==='real'?'实际数据':'演示数据');
+  const banner=$('#entryBanner');
+  if(CURRENT_SOURCE==='real'){ banner.textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。'; banner.classList.add('show'); }
+
   await loadInsights();
-  const d=_ins||{};
-  const cats=[...new Set((d.category_heatmap||[]).map(x=>x.category))];
-  const plats=[...new Set((d.platform_view||[]).map(x=>x.platform))];
-  const sups=[...new Set((d.supplier_scorecard||[]).map(s=>s.supplier))];
-  cats.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;$('#catSel').appendChild(o);$('#formCat').appendChild(o.cloneNode(true));});
-  plats.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;$('#platSel').appendChild(o);});
-  sups.forEach(s=>{if(s){const o=document.createElement('option');o.value=s;o.textContent=s;$('#formSup').appendChild(o);}});
+  populateFilters();
   await loadPlatforms();
+  if(CURRENT_SOURCE==='real') await loadEntryList();
 })();
 
+// 事件绑定
+document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.addEventListener('click',()=>setSource(b.dataset.src)));
 $('#f').addEventListener('submit',doAnalyze);
+$('#entryForm').addEventListener('submit',submitEntry);
 $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
 $('#platSel').addEventListener('change',loadInsights);
 $('#ovClose').addEventListener('click',closeOverlay);
 $('#overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeOverlay();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlay();});
+// 切换到「数据录入」页时加载列表
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{ if(b.dataset.tab==='entry') loadEntryList(); }));
+// 列表内删除（事件委托）
+$('#entryTableWrap').addEventListener('click',async e=>{
+  const btn=e.target.closest('.entry-del'); if(!btn) return;
+  const id=btn.dataset.id;
+  if(!confirm('确认删除案件 '+id+'？')) return;
+  const r=await apiFetch('/api/cases/'+encodeURIComponent(id),{method:'DELETE'});
+  if(r.ok){ loadEntryList(); loadInsights(); }
+});
 </script>
 </body>
 </html>

@@ -81,3 +81,33 @@ class InsightsResponse(BaseModel):
     sku_insights: list[dict] = []
     mode: str = "mock"
     error: str | None = None
+
+
+class ManualCase(BaseModel):
+    """POST /api/cases 的请求体（网页「数据录入」手动添加的实际退货案件）。
+
+    字段与 Case 表对齐；均带默认值，未填字段落库为缺省值（聚合时按 P1-1 规则跳过噪声桶）。
+    缺陷标签以字符串数组传入；缺省给「无明显瑕疵」占位，避免聚合索引报错。
+    """
+
+    sku: str
+    sku_name: str = ""
+    category: str = ""
+    supplier: str = ""
+    supplier_name: str = ""
+    platform: str = ""
+    language: str = "zh"
+    region: str = ""
+    amount: float = 0.0
+    date: str = ""
+    similarity: float = 0.0
+    same_item: bool = True
+    defect_tags: list[str] = []
+    defect_description: str = ""
+    consistency: str = ""
+    outcome: str = ""
+    mode: str = "manual"
+    listing_text: str = ""
+    priority_score: float = 0.0
+    returned_image: str = ""
+    product_image: str = ""

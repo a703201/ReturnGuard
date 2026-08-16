@@ -1,5 +1,7 @@
 """API 层单测：用 FastAPI TestClient 打健康路径（不依赖外部模型 Key）。"""
 
+import uuid
+
 from fastapi.testclient import TestClient
 from main import app
 
@@ -91,3 +93,49 @@ def test_metrics_endpoint():
         for k in ("uptime_seconds", "requests", "avg_latency_ms", "errors_5xx",
                   "analyze_count", "insights_count"):
             assert k in d, f"metrics 缺少字段 {k}"
+
+
+def test_real_source_isolated_and_empty():
+    """库级隔离：real 源初始为空且与 demo 种子物理隔离。"""
+    with TestClient(app) as c:
+        # real 源洞察应为空聚合，且 source 字段回传正确
+        r = c.get("/api/insights", params={"mode": "mock", "source": "real"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["source"] == "real"
+        assert d["total_cases"] == 0, "实际数据初始应为空"
+        # demo 源仍是种子数据，不受影响
+        d2 = c.get("/api/insights", params={"mode": "mock", "source": "demo"}).json()
+        assert d2["source"] == "demo" and d2["total_cases"] > 0
+
+
+def test_manual_add_routes_to_source():
+    """手动录入落到指定 source，且 demo/real 互不污染（库级隔离实锤）。"""
+    with TestClient(app) as c:
+        sku = "SKU-ISOLATE-" + uuid.uuid4().hex[:6]
+        payload = {
+            "sku": sku, "category": "3C数码", "supplier": "S9",
+            "platform": "Amazon", "amount": 199, "outcome": "赢",
+            "similarity": 0.95, "same_item": True,
+            "defect_tags": ["无明显瑕疵"],
+        }
+        # 写入 real 源
+        r = c.post("/api/cases?source=real", json=payload)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] and body["source"] == "real"
+        cid = body["case_id"]
+
+        # real 源能查到该单
+        real_cases = c.get("/api/cases", params={"source": "real"}).json()
+        assert any(x.get("sku") == sku for x in real_cases), "real 源应含刚录入案件"
+
+        # demo 源不应被污染
+        demo_cases = c.get("/api/cases", params={"source": "demo"}).json()
+        assert not any(x.get("sku") == sku for x in demo_cases), "demo 源不应出现 real 录入"
+
+        # 清理：删除 real 源该单
+        del_r = c.delete(f"/api/cases/{cid}", params={"source": "real"})
+        assert del_r.status_code == 200 and del_r.json()["deleted"] == 1
+        after = c.get("/api/cases", params={"source": "real"}).json()
+        assert not any(x.get("sku") == sku for x in after), "删除后应不存在"
