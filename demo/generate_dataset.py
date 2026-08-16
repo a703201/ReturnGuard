@@ -62,15 +62,17 @@ SUPPLIERS = {
     "S8": {"quality": 0.68, "bias": "商品缺件", "name": "万通杂货"},
 }
 
+# 与「平台适配举证包」对齐：覆盖 Amazon / AliExpress / Temu / SHEIN 四大主流跨境平台。
+# win 为该平台整体维权胜诉基准（偏向买家的平台普遍更低，需更硬举证）。
 PLATFORMS = {
+    "Amazon": {"win": 0.42, "langs": ["en", "de", "fr"], "regions": ["US", "UK", "DE", "FR"]},
     "AliExpress": {
         "win": 0.28,
         "langs": ["ru", "es", "pt", "en"],
         "regions": ["RU", "ES", "BR", "US"],
     },
-    "Amazon": {"win": 0.42, "langs": ["en", "de", "fr"], "regions": ["US", "UK", "DE", "FR"]},
-    "PayPal": {"win": 0.30, "langs": ["en", "es"], "regions": ["US", "ES", "MX"]},
-    "TikTok Shop": {"win": 0.38, "langs": ["en", "pt"], "regions": ["US", "BR", "UK"]},
+    "Temu": {"win": 0.40, "langs": ["en", "es", "fr"], "regions": ["US", "UK", "DE", "FR"]},
+    "SHEIN": {"win": 0.35, "langs": ["en", "fr", "de"], "regions": ["US", "UK", "DE", "FR"]},
 }
 
 SKU_POOL = {

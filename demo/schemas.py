@@ -41,6 +41,8 @@ class AnalyzeResult(BaseModel):
     defect_boxes: list[DefectBox] = []
     returned_image_b64: str = ""
     case_id: str = ""
+    platform: str = ""
+    platform_evidence: list[str] = []
     mode: str = "mock"
     error: str | None = None
 
