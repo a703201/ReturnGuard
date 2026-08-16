@@ -1,0 +1,26 @@
+# ============================================================
+# ReturnGuard 根 .gitignore
+# 覆盖运行期产物与密钥，避免误提交（尤其 docker/.env 含数据库密码）
+# ============================================================
+
+# 密钥 / 环境变量（含密码，绝不能入库）
+.env
+.env.*
+!.env.example
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 本地数据库（运行时由 init_db 从 cases.json 重建）
+*.db
+*.sqlite3
+
+# 本地调试产物（注意：运行期上传目录 uploads/ 由 demo/.gitignore 管理，保留 .gitkeep）
+test_*.png
+resp.json
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store

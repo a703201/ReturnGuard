@@ -32,6 +32,11 @@ COPY demo/ .
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN mkdir -p uploads && chmod +x /app/entrypoint.sh
 
+# ---- 非 root 运行（大厂容器加固基线）----
+RUN useradd -m -u 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
 
 # 启动前会等待 openGauss 就绪并初始化数据（见 entrypoint.sh）
