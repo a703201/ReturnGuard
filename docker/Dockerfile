@@ -1,11 +1,12 @@
 # ============================================================
 # ReturnGuard · 应用镜像
 # ------------------------------------------------------------
+# 部署配置与源码解耦：本文件位于仓库 docker/ 目录，
+# build context 为仓库根（docker-compose.yml 中 build.context: ..），
+# 业务源码在 demo/，由下方 COPY demo/ 引入，二者互不混杂。
 # 基础镜像用 Debian slim（体积小、pip 生态全，构建稳定）；
-# 注意：「Linux 用 openEuler」指的是【部署宿主机】操作系统（见《ReturnGuard_部署方案.md》），
-# 应用镜像运行在 openEuler 主机的 Docker 之上，二者解耦、互不影响。
 # 若需 100% 信创基底，可把 FROM 换成 openeuler/openeuler:24.03-lts-sp4，
-# 并改用 dnf 安装 python3 与 pip（详见部署方案文档「进阶 · 全 openEuler 基底」）。
+# 并改用 dnf 安装 python3 与 pip（详见《ReturnGuard_部署方案.md》）。
 # ============================================================
 FROM python:3.11-slim
 
@@ -21,13 +22,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # 先装依赖（利用 Docker 层缓存，代码改动不触发重装）
-COPY requirements.txt .
+COPY demo/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 再拷代码
-COPY . .
+# 再拷业务源码（demo/ 完整目录 → /app）
+COPY demo/ .
 
-RUN mkdir -p uploads && chmod +x entrypoint.sh
+# 拷入启动脚本（位于 docker/，与 compose 同目录），置于 /app 并赋可执行权限
+COPY docker/entrypoint.sh /app/entrypoint.sh
+RUN mkdir -p uploads && chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
 

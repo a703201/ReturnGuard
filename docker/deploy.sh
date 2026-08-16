@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ReturnGuard 一键部署（在 openEuler 主机的 demo/ 目录下执行）
+# ReturnGuard 一键部署（在 openEuler 主机的 docker/ 目录下执行）
 # 前置：已安装 docker + docker compose plugin
 set -euo pipefail
 cd "$(dirname "$0")"
