@@ -15,13 +15,18 @@ from pydantic import BaseModel, ConfigDict
 
 
 class DefectBox(BaseModel):
-    """单张退货图上的缺陷示意框（归一化坐标 0~1，前端按比例绘制）。"""
+    """单张退货图上的缺陷示意框（归一化坐标 0~1，前端按比例绘制）。
+
+    confidence 为示意置信度（mock 由确定性哈希生成，live 接通视觉模型后为真实分数），
+    用于让「关键帧红框」更接近真实检测呈现；无论真假都标注为「演示示意」，不替代平台裁决。
+    """
 
     label: str
     x: float
     y: float
     w: float
     h: float
+    confidence: float = 0.0
 
 
 class AnalyzeResult(BaseModel):
@@ -79,6 +84,12 @@ class InsightsResponse(BaseModel):
     recommendations: list[str] = []
     report: str = ""
     sku_insights: list[dict] = []
+    # —— 维度扩展（方向2）：地区 / 季节交叉 + 退货成本估算 + 供应商黑名单自动生成 ——
+    region_view: list[dict] = []
+    season_view: list[dict] = []
+    supplier_blacklist: list[dict] = []
+    logistics_cost: float = 0.0
+    total_return_cost: float = 0.0
     mode: str = "mock"
     error: str | None = None
 

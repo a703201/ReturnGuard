@@ -38,7 +38,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
-from pipeline import analyze_case, build_insights
+from pipeline import analyze_case, build_insights, _season_of
 from platforms import get_platform_spec, is_valid_platform, list_platforms
 from schemas import AnalyzeResult, InsightsResponse, ManualCase
 
@@ -362,7 +362,7 @@ def platforms():
 
 
 @app.get("/api/insights", response_model=InsightsResponse)
-def insights(request: Request, mode: str = "mock", category: str = "", platform: str = ""):
+def insights(request: Request, mode: str = "mock", category: str = "", platform: str = "", region: str = "", season: str = ""):
     """阶段B · 群体洞察接口（AI 市场洞察核心交付物）。
 
     参数：
@@ -370,7 +370,10 @@ def insights(request: Request, mode: str = "mock", category: str = "", platform:
         mode     mock（规则归因，可复现）/ live（LLM 归因，需 Key）
         category 按品类下钻（可选）
         platform 按平台下钻（可选）
-    返回：KPI、品类热力、根因归因、供应商红黑榜、平台对比、异常预警、SKU明细、洞察报告、选品建议。
+        region   按销售地区下钻（可选，方向2 维度扩展）
+        season   按季节下钻：春/夏/秋/冬（可选，方向2 维度扩展）
+    返回：KPI、品类热力、根因归因、供应商红黑榜、平台对比、异常预警、SKU明细、洞察报告、选品建议，
+         以及维度扩展字段（region_view / season_view / supplier_blacklist / 退货成本估算）。
     """
     source = _resolve_source(request)
     if mode not in ("mock", "live"):
@@ -383,11 +386,17 @@ def insights(request: Request, mode: str = "mock", category: str = "", platform:
         # 平台必须是举证包支持列表中的合法值，避免静默返回空看板
         if not is_valid_platform(platform):
             raise HTTPException(status_code=400, detail="platform 不在支持列表")
+    if season and season not in ("春", "夏", "秋", "冬"):
+        raise HTTPException(status_code=400, detail="season 仅支持 春/夏/秋/冬")
     cases = load_cases(source)
     if category:
         cases = [c for c in cases if c.get("category") == category]
     if platform:
         cases = [c for c in cases if c.get("platform") == platform]
+    if region:
+        cases = [c for c in cases if c.get("region") == region]
+    if season:
+        cases = [c for c in cases if _season_of(c.get("date")) == season]
     agg = build_insights(cases, mode, source)
     agg = dict(agg)  # 浅拷贝，避免就地修改 build_insights 的共享缓存对象
     agg["source"] = source  # 让前端知道当前看板基于哪个数据源

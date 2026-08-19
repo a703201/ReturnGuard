@@ -69,7 +69,7 @@
   /* 看板网格：占满高度、每卡内部滚动，绝不整页滚动 */
   .tabpane{display:none;height:100%;opacity:0;transform:translateY(10px);transition:opacity .28s ease,transform .28s ease;will-change:opacity,transform}
   .tabpane.active{display:block;opacity:1;transform:translateY(0)}
-  .board{display:grid;gap:12px;height:100%;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)}
+  .board{display:grid;gap:12px;height:100%;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(4,1fr)}
   .board.animated .card{animation:fadeInUp .35s ease both}
   .board.animated .card:nth-child(1){animation-delay:0ms}
   .board.animated .card:nth-child(2){animation-delay:40ms}
@@ -80,8 +80,11 @@
   .board.animated .card:nth-child(7){animation-delay:240ms}
   .board.animated .card:nth-child(8){animation-delay:280ms}
   .board.animated .card:nth-child(9){animation-delay:320ms}
-  @media (max-width:1100px){.board{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(5,1fr)}}
-  @media (max-width:640px){.board{grid-template-columns:1fr;grid-template-rows:repeat(9,1fr)}}
+  .board.animated .card:nth-child(10){animation-delay:360ms}
+  .board.animated .card:nth-child(11){animation-delay:400ms}
+  .board.animated .card:nth-child(12){animation-delay:440ms}
+  @media (max-width:1100px){.board{grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(6,1fr)}}
+  @media (max-width:640px){.board{grid-template-columns:1fr;grid-template-rows:repeat(12,1fr)}}
   /* 电视 / 超宽大屏：放大字号、留白更舒展（仍 3 列占满） */
   @media (min-width:2200px){.card h3{font-size:20px}.kpi .v{font-size:32px}.desc{font-size:14px}.note{font-size:12px}}
 
@@ -410,6 +413,27 @@
             <p class="desc">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
             <div id="matrixHeat" class="chart scrollx"></div>
           </div>
+          <!-- ⑬ 地区分布（方向2 维度扩展） -->
+          <div class="card">
+            <h3>⑬ 退货地区分布</h3>
+            <p class="desc">按宏观销售地区看纠纷量与退款，定位高退货区域，辅助区域化选品与物流策略。</p>
+            <div id="regionBars" class="chart"></div>
+            <table id="regionTbl"><thead><tr><th>地区</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+          </div>
+          <!-- ⑭ 季节分布（方向2 维度扩展） -->
+          <div class="card">
+            <h3>⑭ 退货季节趋势</h3>
+            <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
+            <div id="seasonBars" class="chart"></div>
+            <table id="seasonTbl"><thead><tr><th>季节</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+          </div>
+          <!-- ⑮ 退货成本 & 供应商黑名单（方向2 维度扩展） -->
+          <div class="card">
+            <h3>⑮ 退货成本 & 供应商黑名单</h3>
+            <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出质量分&lt;50 的高风险供应商与可解释理由。</p>
+            <div id="costKpis" class="chart"></div>
+            <div id="blacklist"></div>
+          </div>
         </div>
       </section>
 
@@ -481,7 +505,7 @@
               <div style="margin-top:8px">发现的问题：<span id="defects"></span></div>
               <div style="margin-top:10px">退货图缺陷标注（关键帧红框）：</div>
               <div class="annot-wrap"><canvas id="annot"></canvas></div>
-              <div class="annot-note">※ 当前为演示示意框（按缺陷类型生成）；接入真实视觉模型后自动替换为检测坐标，且全程不替代平台裁决。</div>
+              <div class="annot-note">※ 当前为演示示意框（按缺陷类型生成，所示置信度为演示示意值）；接入真实视觉模型后自动替换为检测坐标与真实分数，且全程不替代平台裁决。</div>
               <div style="margin-top:8px">优先处理级别：<b id="prio"></b></div>
               <div class="dossier-head"><span>自动生成的举证材料</span><button type="button" id="copyDossier">复制</button></div>
               <pre id="dossier"></pre>
@@ -771,13 +795,15 @@ function reportText(d){
   L.push(`生成时间：${new Date().toLocaleString('zh-CN')}｜数据源：${CURRENT_SOURCE==='real'?'实际数据':'演示数据'}｜筛选：${scope}`);
   L.push('');
   L.push(`【核心指标】已分析退货 ${d.total_cases} 笔｜累计退款 ¥${Number(d.total_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:2})}｜维权胜诉率 ${pct(d.win_rate||0)}｜货不对板嫌疑率 ${pct(d.avg_dispute_rate||0)}`);
+  L.push(`【退货成本】物流成本（估算）¥${Number(d.logistics_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}｜退货总成本（退款+物流）¥${Number(d.total_return_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}`);
   L.push('');
   L.push(`【根因分析】${d.root_cause||'暂无足够数据'}`);
   if(d.report) L.push(`【洞察报告】${d.report}`);
   L.push('');
   L.push('【选品 / 品控建议】');
   (d.recommendations||[]).forEach((r,i)=>L.push(`${i+1}. ${r}`));
-  const blacks=(d.supplier_scorecard||[]).filter(s=>s.level==='高风险'||s.quality_score<50).slice(0,5);
+  const blacks=(d.supplier_blacklist&&d.supplier_blacklist.length)?d.supplier_blacklist
+    :(d.supplier_scorecard||[]).filter(s=>s.level==='高风险'||s.quality_score<50).slice(0,5);
   if(blacks.length){
     L.push(''); L.push('【供应商红黑榜（黑榜=高风险，建议换）】');
     blacks.forEach(s=>L.push(`- ${s.supplier} ${s.name||''}：质量分 ${Number(s.quality_score||0).toFixed(1)}，${s.level||'高风险'}（胜诉率 ${pct(s.win_rate||0)}）`));
@@ -796,7 +822,8 @@ function exportReport(){
   if(!d.total_cases){ $('#insStatus').textContent='请先刷新看板'; return; }
   const cat=$('#catSel').value||'', plat=$('#platSel').value||'';
   const scope=(cat?cat+' / ':'')+(plat||'全平台');
-  const blacks=(d.supplier_scorecard||[]).filter(s=>s.level==='高风险'||s.quality_score<50).slice(0,5);
+  const blacks=(d.supplier_blacklist&&d.supplier_blacklist.length)?d.supplier_blacklist
+    :(d.supplier_scorecard||[]).filter(s=>s.level==='高风险'||s.quality_score<50).slice(0,5);
   const alerts=d.anomaly_alerts||[];
   $('#ovTitle').textContent='选品·品控洞察报告';
   $('#ovBody').innerHTML=`
@@ -807,6 +834,8 @@ function exportReport(){
         <div class="r-kpi"><b>${Number(d.total_cases).toLocaleString()}</b><span>已分析退货（笔）</span></div>
         <div class="r-kpi"><b style="color:${wrColor(d.win_rate||0)}">${pct(d.win_rate||0)}</b><span>维权胜诉率</span></div>
         <div class="r-kpi"><b>¥${Number(d.total_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b><span>累计退款</span></div>
+        <div class="r-kpi"><b>¥${Number(d.logistics_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b><span>物流成本（估算）</span></div>
+        <div class="r-kpi"><b style="color:var(--warn)">¥${Number(d.total_return_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b><span>退货总成本</span></div>
         <div class="r-kpi"><b>${pct(d.avg_dispute_rate||0)}</b><span>货不对板嫌疑率</span></div>
       </div>
       <h4>根因分析</h4>
@@ -814,8 +843,8 @@ function exportReport(){
       ${d.report?`<h4>洞察报告</h4><div style="font-size:13px;line-height:1.7">${esc(d.report)}</div>`:''}
       <h4>选品 / 品控建议</h4>
       <ul>${(d.recommendations||[]).map(r=>`<li>${esc(r)}</li>`).join('')||'<li>暂无建议</li>'}</ul>
-      ${blacks.length?`<h4>供应商红黑榜（黑榜 = 高风险，建议换）</h4>
-      <ul>${blacks.map(s=>`<li><b>${esc(s.supplier)}</b> ${esc(s.name||'')}：质量分 ${Number(s.quality_score||0).toFixed(1)}，${esc(s.level||'高风险')}（胜诉率 ${pct(s.win_rate||0)}）</li>`).join('')}</ul>`:''}
+      ${blacks.length?`<h4>供应商黑名单（质量分 &lt; 50，建议换）</h4>
+      <ul>${blacks.map(s=>`<li><b>${esc(s.supplier)}</b> ${esc(s.name||'')}：质量分 ${Number(s.quality_score||0).toFixed(1)}${s.reason?`（${esc(s.reason)}）`:''}</li>`).join('')}</ul>`:''}
       ${alerts.length?`<h4>异常 SKU 预警</h4>
       <ul>${alerts.slice(0,5).map(a=>`<li><b>${esc(a.sku)}</b>（${esc(a.category||'')}）：${esc(a.reason||'')}</li>`).join('')}</ul>`:''}
       <div class="r-actions">
@@ -846,9 +875,18 @@ function renderAnnot(boxes, imgUrl){
     boxes.forEach(b=>{
       const x=Math.max(0,b.x*W), y=Math.max(0,b.y*H), w=Math.min(W-b.x*W,b.w*W), h=Math.min(H-b.y*H,b.h*H);
       ctx.strokeStyle='#f87171'; ctx.lineWidth=3; ctx.strokeRect(x,y,w,h);
-      ctx.fillStyle='rgba(248,113,113,.92)'; ctx.font='12px sans-serif';
-      // 红框标签也走 esc 转义，杜绝 live 模型自由文本引发的 XSS（P1-3）
-      ctx.fillText(esc(b.label), x+3, y>14?y-4:y+h+13);
+      // 置信度（演示示意值）：有则拼到标签，让红框更接近真实检测呈现（不替代平台裁决）
+      const showConf = (b.confidence!=null && b.confidence>0);
+      const txt = showConf ? `${b.label} · ${Math.round(b.confidence*100)}%` : b.label;
+      ctx.font='12px sans-serif';
+      const tw=ctx.measureText(txt).width;
+      const ly = y>16 ? y-15 : y+h+3;
+      // 标签底衬，提升红框上文字可读性（关键帧红框打磨）
+      ctx.fillStyle='rgba(15,23,42,.82)';
+      ctx.fillRect(x, ly-12, tw+8, 16);
+      ctx.fillStyle='#fecaca';  // 浅红，配底衬更清晰
+      // 标签文本走 esc 转义，杜绝 live 模型自由文本引发的 XSS（P1-3）
+      ctx.fillText(esc(txt), x+4, ly);
     });
   };
   img.onerror=()=>{cv.style.display='none';};  // URL 加载失败则静默隐藏，不阻断结果展示
@@ -966,6 +1004,43 @@ async function loadInsights(){
     div.textContent='▸ '+t; adv.appendChild(div);
   });
   if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示数据：'+d.error;
+
+  // ⑬ 地区分布
+  const rt=$('#regionTbl').querySelector('tbody'); rt.innerHTML='';
+  (d.region_view||[]).forEach(x=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${esc(x.region)}</td><td>${x.cases}</td><td>${x.refund}</td>`
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`;
+    rt.appendChild(tr);
+  });
+  renderBarh($('#regionBars'), (d.region_view||[]).map(x=>({label:x.region,v:x.refund,text:'¥'+x.refund,color:'#38bdf8'})));
+
+  // ⑭ 季节分布
+  const stt=$('#seasonTbl').querySelector('tbody'); stt.innerHTML='';
+  (d.season_view||[]).forEach(x=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${esc(x.season)}</td><td>${x.cases}</td><td>${x.refund}</td>`
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`;
+    stt.appendChild(tr);
+  });
+  renderBarh($('#seasonBars'), (d.season_view||[]).map(x=>({label:x.season,v:x.refund,text:'¥'+x.refund,color:'#a78bfa'})));
+
+  // ⑮ 退货成本 & 供应商黑名单
+  $('#costKpis').innerHTML =
+    `<div class="kv"><span>物流成本（估算）</span><b>¥${Number(d.logistics_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`
+    +`<div class="kv"><span>退货总成本（退款+物流）</span><b>¥${Number(d.total_return_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`;
+  const bl=$('#blacklist'); bl.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">供应商黑名单 · 质量分&lt;50</div>';
+  const blacks=d.supplier_blacklist||[];
+  if(blacks.length){
+    blacks.forEach(s=>{
+      const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
+      div.innerHTML=`<span><b>${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:#94a3b8;font-size:11px">${esc(s.reason)}</span></span>`
+        +`<span class="pill" style="background:var(--bad)">${s.quality_score}</span>`;
+      bl.appendChild(div);
+    });
+  } else {
+    bl.innerHTML+='<span class="note">暂无质量分&lt;50 的高风险供应商。</span>';
+  }
 
   // 图形化
   renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#f87171'})));
