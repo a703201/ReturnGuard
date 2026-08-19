@@ -136,7 +136,10 @@ def _mock(
         by = round(rng.random() * 0.55, 3)
         bw = round(0.20 + rng.random() * 0.22, 3)
         bh = round(0.20 + rng.random() * 0.22, 3)
-        defect_boxes.append({"label": d, "x": bx, "y": by, "w": bw, "h": bh})
+        # 示意置信度（确定性，0.75~0.98）：让红框更接近真实检测的呈现；
+        # 仅作演示，不替代真实视觉模型的检测分数（P1-3 仍走 esc 防 XSS）
+        conf = round(0.75 + rng.random() * 0.23, 2)
+        defect_boxes.append({"label": d, "x": bx, "y": by, "w": bw, "h": bh, "confidence": conf})
 
     return {
         "similarity": sim,
@@ -204,6 +207,34 @@ _BUCKET_ADVICE = {
     "非质量(倾向买家)": "保留同款一致性证据，主张买家责任，提升举证完整度",
 }
 
+# 地区退货物流成本占比（估算用，单一来源）：退货成本 = 退款 + 物流；物流按宏观地区粗略比例估算
+# 注意：demo 种子用国家码（US/UK/DE/…），real 种子用中文宏观地区（北美/欧洲/东南亚），
+# 二者口径不一；_region_bucket 统一归一到宏观地区，保证 region_view / 物流成本跨源一致。
+_REGION_SHIP_RATIO = {
+    "北美": 0.16, "欧洲": 0.18, "南美": 0.15, "东亚": 0.13,
+    "东南亚": 0.12, "大洋洲": 0.17, "": 0.14, "未知": 0.14, "其他": 0.14,
+}
+# 国家代码 → 宏观销售地区（仅兜底映射；已是中文宏观地区则透传）
+_REGION_MAP = {
+    "US": "北美", "CA": "北美", "MX": "北美",
+    "UK": "欧洲", "DE": "欧洲", "FR": "欧洲", "ES": "欧洲", "IT": "欧洲",
+    "RU": "欧洲", "NL": "欧洲", "SE": "欧洲", "PL": "欧洲", "PT": "欧洲",
+    "BR": "南美", "AR": "南美", "CL": "南美",
+    "JP": "东亚", "KR": "东亚", "CN": "东亚",
+    "SG": "东南亚", "MY": "东南亚", "TH": "东南亚", "VN": "东南亚",
+    "ID": "东南亚", "PH": "东南亚",
+    "AU": "大洋洲", "NZ": "大洋洲",
+}
+
+
+def _region_bucket(code: str | None) -> str:
+    """归一化地区口径：已是中文宏观地区（北美/欧洲/…）直接沿用；国家码映射为宏观地区；其余归「其他」。"""
+    if not code:
+        return ""
+    if code in _REGION_SHIP_RATIO:  # 已是宏观地区名
+        return code
+    return _REGION_MAP.get(code, "其他")
+
 
 def _dominant_defect(defects) -> str:
     """取一笔案件的主缺陷（忽略「无明显瑕疵」），用于根因归因。"""
@@ -218,6 +249,23 @@ def _parse_date(c: dict):
         return datetime.strptime(c.get("date", ""), "%Y-%m-%d")
     except Exception:
         return None
+
+
+def _season_of(date_str: str | None) -> str:
+    """由案件日期推导季节（12-2 冬 / 3-5 春 / 6-8 夏 / 9-11 秋）；无日期返回空串。"""
+    if not date_str:
+        return ""
+    try:
+        m = datetime.strptime(date_str, "%Y-%m-%d").month
+    except Exception:
+        return ""
+    if m in (3, 4, 5):
+        return "春"
+    if m in (6, 7, 8):
+        return "夏"
+    if m in (9, 10, 11):
+        return "秋"
+    return "冬"
 
 
 # ---- 各维度 builder：输入累加器，输出看板列表（纯函数，便于单测）----
@@ -305,6 +353,39 @@ def _build_matrix(matrix: dict) -> list[dict]:
                     "refund": round(v["refund"], 2),
                 }
             )
+    return out
+
+
+def _build_region_view(region: dict) -> list[dict]:
+    """地区维度聚合（方向2 维度扩展）：按销售地区统计纠纷量、退款、胜诉率。"""
+    out: list[dict] = []
+    for k, v in region.items():
+        out.append(
+            {
+                "region": k,
+                "cases": v["cases"],
+                "refund": round(v["refund"], 2),
+                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+            }
+        )
+    out.sort(key=lambda x: -x["cases"])
+    return out
+
+
+def _build_season_view(season: dict) -> list[dict]:
+    """季节维度聚合（方向2 维度扩展）：按季节统计纠纷量、退款、胜诉率。"""
+    order = {"春": 0, "夏": 1, "秋": 2, "冬": 3}
+    out: list[dict] = []
+    for k, v in season.items():
+        out.append(
+            {
+                "season": k,
+                "cases": v["cases"],
+                "refund": round(v["refund"], 2),
+                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+            }
+        )
+    out.sort(key=lambda x: order.get(x["season"], 9))
     return out
 
 
@@ -434,6 +515,11 @@ def _aggregate(cases: list[dict]) -> dict:
     root_all = Counter()
     # 全量相似度累加（每案都计），用于代理争议率分母，避免只统计"有平台"案件导致虚高
     sim_all = 0.0
+    # 地区 / 季节 维度累加器（方向2 维度扩展）
+    region = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    season = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    # 退货成本估算累加：物流成本按地区比例粗略估算（退款 + 物流 = 退货总成本）
+    logistics_all = 0.0
 
     for c in cases:
         s = c.get("sku", "未知")
@@ -506,6 +592,25 @@ def _aggregate(cases: list[dict]) -> dict:
             if c.get("outcome") == "赢":
                 mm["won"] += 1
 
+        # 地区维度（方向2 维度扩展）：归一化宏观地区，缺失/未知/其他不污染地区对比
+        reg_val = _region_bucket(c.get("region"))
+        if reg_val and reg_val not in ("未知", "其他"):
+            rr = region[reg_val]
+            rr["cases"] += 1
+            rr["refund"] += amt
+            if c.get("outcome") == "赢":
+                rr["won"] += 1
+        # 季节维度（由日期推导）
+        seas_val = _season_of(c.get("date"))
+        if seas_val:
+            ss = season[seas_val]
+            ss["cases"] += 1
+            ss["refund"] += amt
+            if c.get("outcome") == "赢":
+                ss["won"] += 1
+        # 退货成本估算：物流成本按归一化宏观地区比例累加（退款 + 物流 = 总成本）
+        logistics_all += amt * _REGION_SHIP_RATIO.get(_region_bucket(c.get("region")) or "", 0.14)
+
     # 代理指标（非平台真实争议笔数）：以"退货图与本店主图的相似度"推得。
     # avg_dispute = 1 - 平均相似度，越接近 1 表示"货不对板/调包"嫌疑越强。
     # 前端务必标注为代理指标，不可当作平台标记的争议率。
@@ -528,6 +633,28 @@ def _aggregate(cases: list[dict]) -> dict:
 
     sku_ranking, anomaly_alerts = _build_sku_ranking(sku, max_date)
 
+    # 供应商红黑榜 + 黑名单自动生成（方向2）：质量分<50 自动入黑名单，带可解释理由
+    supplier_scorecard = _build_supplier_scorecard(sup)
+    pct_local = lambda x: f"{round(x * 100)}%"
+    supplier_blacklist = [
+        {
+            "supplier": s["supplier"],
+            "name": s["name"],
+            "quality_score": s["quality_score"],
+            "level": s["level"],
+            "defect_rate": s["defect_rate"],
+            "win_rate": s["win_rate"],
+            "reason": f"质量分 {s['quality_score']}（{s['level']}）：缺陷率 {pct_local(s['defect_rate'])}、"
+                      f"维权胜诉率 {pct_local(s['win_rate'])}",
+        }
+        for s in supplier_scorecard
+        if s["quality_score"] < 50
+    ]
+
+    # 退货成本估算：物流成本（按地区比例）+ 退款 = 退货总成本
+    logistics_cost = round(logistics_all, 2)
+    total_return_cost = round(total_refund + logistics_cost, 2)
+
     return {
         "total_cases": total,
         "total_refund": round(total_refund, 2),
@@ -538,11 +665,17 @@ def _aggregate(cases: list[dict]) -> dict:
         "sku_ranking": sku_ranking,
         "defect_distribution": dict(defect_all),
         "category_heatmap": _build_category_heatmap(cat),
-        "supplier_scorecard": _build_supplier_scorecard(sup),
+        "supplier_scorecard": supplier_scorecard,
         "platform_view": _build_platform_view(plat),
         "platform_supplier_matrix": _build_matrix(matrix),
         "root_cause_dist": dict(root_all),
         "anomaly_alerts": anomaly_alerts,
+        # 方向2 维度扩展：地区/季节交叉 + 退货成本 + 供应商黑名单
+        "region_view": _build_region_view(region),
+        "season_view": _build_season_view(season),
+        "supplier_blacklist": supplier_blacklist,
+        "logistics_cost": logistics_cost,
+        "total_return_cost": total_return_cost,
         "sourcing_advice": [],
         "recommendations": [],
         "report": "",
@@ -567,7 +700,7 @@ def _mock_attribution(agg: dict) -> dict:
         root_cause = "暂无足够缺陷数据用于根因归因。"
 
     advice: list[str] = []
-    blacks = [s for s in agg.get("supplier_scorecard", []) if s["quality_score"] < 50]
+    blacks = agg.get("supplier_blacklist", [])
     if blacks:
         names = "、".join(
             f"{b['supplier']}({b['name']},质量分{b['quality_score']})" for b in blacks[:3]
@@ -606,7 +739,9 @@ def _mock_attribution(agg: dict) -> dict:
 
     report = (
         f"本期共沉淀 {agg['total_cases']} 笔退货案件，累计退款约 ¥{agg['total_refund']}，"
-        f"综合胜诉率 {agg['win_rate'] * 100:.0f}%。"
+        f"综合胜诉率 {agg['win_rate'] * 100:.0f}%，"
+        f"预估退货总成本约 ¥{agg.get('total_return_cost', agg['total_refund'])}"
+        f"（含物流 ¥{agg.get('logistics_cost', 0)}）。"
         + (f"根因集中于「{ranked[0][0]}」。" if ranked else "")
         + (
             f"已识别 {len(agg.get('anomaly_alerts', []))} 个异常 SKU、"
