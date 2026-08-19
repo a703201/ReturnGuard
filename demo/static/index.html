@@ -129,6 +129,26 @@
   .annot-wrap{position:relative;display:inline-block;margin-top:6px}
   #annot{width:100%;max-width:420px;border-radius:8px;display:none;background:#0b1220}
   .annot-note{color:#64748b;font-size:11px;margin-top:4px;line-height:1.5}
+  /* 取证流程三态步骤条（演示镜头：上传→分析→结果） */
+  .steps{display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;margin-bottom:10px;flex-wrap:wrap}
+  .steps .st{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #334155;transition:all .2s ease}
+  .steps .st.cur{color:#04121f;background:var(--acc);border-color:var(--acc);box-shadow:0 4px 14px rgba(56,189,248,.25)}
+  .steps .st.done{color:var(--ok);border-color:rgba(52,211,153,.4)}
+  .steps i{width:18px;height:1px;background:#334155}
+  /* 分析中提示（live 模式耗时长，需让评委知道在跑而非卡死） */
+  .analyzing{display:flex;align-items:center;gap:8px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.35);border-radius:8px;padding:8px 12px;margin-top:10px;font-size:13px;color:var(--acc)}
+  .analyzing .spin{width:14px;height:14px;border:2px solid rgba(56,189,248,.3);border-top-color:var(--acc);border-radius:50%;animation:spin .9s linear infinite;flex:none}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* 结果模式徽标：让评委一眼看出是真 AI 还是演示 */
+  .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;vertical-align:middle}
+  .badge.mock{background:rgba(56,189,248,.15);color:var(--acc);border:1px solid rgba(56,189,248,.35)}
+  .badge.live{background:rgba(52,211,153,.15);color:var(--ok);border:1px solid rgba(52,211,153,.4)}
+  .badge.fallback{background:rgba(251,191,36,.15);color:var(--warn);border:1px solid rgba(251,191,36,.4)}
+  /* 举证材料一键复制 */
+  .dossier-head{display:flex;align-items:center;justify-content:space-between;margin-top:10px}
+  .dossier-head button{background:transparent;border:1px solid #334155;color:#94a3b8;padding:3px 10px;font-size:12px;border-radius:6px;cursor:pointer;transition:all .2s ease}
+  .dossier-head button:hover{color:var(--acc);border-color:var(--acc)}
+  .dossier-head button.copied{color:var(--ok);border-color:var(--ok)}
   .cmp{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:4px}
   .cmp th,.cmp td{border:1px solid #334155;padding:8px 10px;text-align:left;vertical-align:top}
   .cmp th{color:#94a3b8;font-weight:600;background:#0b1220;width:110px}
@@ -380,6 +400,11 @@
         <div class="forensic-wrap">
           <div class="card">
             <h3>⑨ 一笔退货怎么快速举证</h3>
+            <div class="steps" id="forensicSteps" aria-label="取证流程">
+              <span class="st cur" data-s="1">① 上传对比图</span><i></i>
+              <span class="st" data-s="2">② AI 分析</span><i></i>
+              <span class="st" data-s="3">③ 生成举证材料</span>
+            </div>
             <p class="desc">上传退货图 + 本店主图，自动比对是否同款、有无破损/缺件，生成可提交平台仲裁的举证材料。每处理一单，看板数据实时 +1。</p>
             <form id="f">
               <label>退货商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
@@ -400,11 +425,13 @@
               <select name="supplier" id="formSup"><option value="">未指定</option></select>
               <button type="submit" id="btn">开始举证</button>
             </form>
+            <div id="analyzing" class="analyzing hide"><span class="spin"></span><span id="analyzingText">正在生成取证结果…</span></div>
             <div id="err" class="err"></div>
           </div>
           <div class="card">
             <h3>举证结果</h3>
             <div id="res" class="hide" style="margin-top:6px">
+              <div style="margin-bottom:8px"><span id="modeBadge" class="badge mock hide"></span></div>
               <div>这俩是不是同一件？<b id="sim"></b>（越接近 100% 越像原货；低则疑似调包/非同款）</div>
               <div class="bar"><i id="simbar"></i></div>
               <div style="margin-top:8px">判断：<span id="same" class="pill"></span> · 和商品页描述是否一致：<span id="cons"></span></div>
@@ -413,7 +440,7 @@
               <div class="annot-wrap"><canvas id="annot"></canvas></div>
               <div class="annot-note">※ 当前为演示示意框（按缺陷类型生成）；接入真实视觉模型后自动替换为检测坐标，且全程不替代平台裁决。</div>
               <div style="margin-top:8px">优先处理级别：<b id="prio"></b></div>
-              <div style="margin-top:10px">自动生成的举证材料：</div>
+              <div class="dossier-head"><span>自动生成的举证材料</span><button type="button" id="copyDossier">复制</button></div>
               <pre id="dossier"></pre>
               <div style="margin-top:8px">可直接播放给客服/仲裁方的语音说明：</div>
               <pre id="vtext"></pre>
@@ -872,9 +899,14 @@ async function loadPlatforms(){
 async function doAnalyze(e){
   e.preventDefault();
   $('#err').textContent=''; $('#res').classList.add('hide'); $('#resEmpty').classList.add('hide');
+  $('#modeBadge').classList.add('hide');
   const btn=$('#btn'); btn.disabled=true; btn.textContent='举证中…';
+  // 分析中状态：live 模式耗时长，明确提示避免误以为卡死
+  const fd=new FormData($('#f'));
+  $('#analyzing').classList.remove('hide');
+  $('#analyzingText').textContent = fd.get('mode')==='live' ? '真实 AI 分析中（约 30-60 秒，请稍候）…' : '正在生成取证结果…';
+  setStep(2);
   try{
-    const fd=new FormData($('#f'));
     const r=await apiFetch('/api/analyze',{method:'POST',body:fd});
     const d=await r.json();
     if(!r.ok) throw new Error(d.detail||'请求失败');
@@ -898,9 +930,39 @@ async function doAnalyze(e){
       $('#platEv').innerHTML=(d.platform_evidence||[]).map(t=>`<li>${t}</li>`).join('');
       $('#platEvWrap').classList.remove('hide');
     } else { $('#platEvWrap').classList.add('hide'); }
+    // 分析完成：关分析中、步骤条到③、展示本次取证模式徽标
+    $('#analyzing').classList.add('hide');
+    setStep(3);
+    renderBadge(d.mode);
+    const cb=$('#copyDossier'); cb.textContent='复制'; cb.classList.remove('copied');
     $('#res').classList.remove('hide');
-  }catch(err){ $('#err').textContent='错误：'+err.message; }
+  }catch(err){ $('#analyzing').classList.add('hide'); setStep(1); $('#err').textContent='错误：'+err.message; }
   finally{ btn.disabled=false; btn.textContent='开始举证'; }
+}
+
+// 取证流程步骤条：1 上传 → 2 分析中 → 3 完成
+function setStep(n){
+  document.querySelectorAll('#forensicSteps .st').forEach((el,i)=>{
+    el.classList.toggle('cur', i+1===n);
+    el.classList.toggle('done', i+1<n);
+  });
+}
+// 结果模式徽标：mock=演示 / live=真实AI / mock(fallback)=真实AI(降级)
+function renderBadge(mode){
+  const b=$('#modeBadge'); b.classList.remove('hide','mock','live','fallback');
+  if(mode==='live'){ b.classList.add('live'); b.textContent='真实 AI 归因'; }
+  else if(mode==='mock(fallback)'){ b.classList.add('fallback'); b.textContent='真实 AI（降级演示）'; }
+  else { b.classList.add('mock'); b.textContent='演示模式'; }
+}
+// 一键复制举证材料（演示「可直接提交平台仲裁」）
+async function copyDossier(){
+  const txt=$('#dossier').textContent||'';
+  if(!txt) return;
+  try{
+    await navigator.clipboard.writeText(txt);
+    const b=$('#copyDossier'); b.textContent='已复制'; b.classList.add('copied');
+    setTimeout(()=>{ b.textContent='复制'; b.classList.remove('copied'); },2000);
+  }catch(err){ $('#err').textContent='复制失败：'+err.message; }
 }
 
 // 用洞察响应填充顶部品类/平台/供应商筛选下拉（P3-2 复用一次响应）
@@ -986,6 +1048,7 @@ async function submitEntry(e){
 // 事件绑定
 document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.addEventListener('click',()=>setSource(b.dataset.src)));
 $('#f').addEventListener('submit',doAnalyze);
+$('#copyDossier').addEventListener('click',copyDossier);
 $('#entryForm').addEventListener('submit',submitEntry);
 $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
