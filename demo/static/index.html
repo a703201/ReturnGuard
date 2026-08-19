@@ -262,7 +262,10 @@
   .src-banner.show{display:block}
 
   /* 数据录入表单（实际数据添加接口）*/
-  .entry-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;height:100%;overflow:auto}
+  /* 数据录入页：tabpane 本身 flex 占满 content；wrap 占满剩余高度；两列卡片各自内部滚动 */
+  #tab-entry.active{display:flex;flex-direction:column;overflow:hidden}
+  .entry-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0;overflow:hidden}
+  .entry-form,.entry-list{overflow:auto;min-height:0}
   .entry-form label{display:block;font-size:12px;color:#94a3b8;margin:10px 0 4px}
   .entry-form input, .entry-form select, .entry-form textarea{
     width:100%;background:#0b1220;border:1px solid #334155;border-radius:8px;color:#e2e8f0;
@@ -272,7 +275,6 @@
   .entry-actions{display:flex;gap:10px;align-items:center;margin-top:14px}
   .entry-msg{font-size:12px;margin-top:10px}
   .entry-msg.ok{color:var(--ok)} .entry-msg.err{color:var(--bad)}
-  .entry-list{max-height:100%;overflow:auto}
   .entry-list table{width:100%;border-collapse:collapse;font-size:12px}
   .entry-list th,.entry-list td{border-bottom:1px solid #1e293b;padding:6px 8px;text-align:left;color:#cbd5e1}
   .entry-list th{color:#94a3b8;position:sticky;top:0;background:var(--card)}
