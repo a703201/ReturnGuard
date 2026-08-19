@@ -670,7 +670,9 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
             logger.exception("live 洞察失败，回退 mock: %s", e)
             agg["mode"] = "mock(fallback)"
             agg["error"] = str(e)
-    agg = _mock_attribution(agg)
+            agg = _mock_attribution(agg)  # 仅 live 失败回退时才用 mock 归因（避免覆盖 LLM 结果）
+    else:
+        agg = _mock_attribution(agg)  # mock 模式：确定性规则归因
     agg["mode"] = agg.get("mode", "mock")
     with _ins_lock:
         _ins_cache[key] = agg

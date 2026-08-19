@@ -1,22 +1,25 @@
-"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼 Model Router 调用）
+"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼 Token Plan 专属网关调用）
 
-本文件把「方案文档」里规划的 7 个模型能力封装成可调用函数，供 pipeline 在 live 模式下调取。
-对应方案 3.1 节的模型映射：
+本文件把「方案文档」里规划的模型能力封装成可调用函数，供 pipeline 在 live 模式下调取。
+当前网关（Token Plan，OpenAI 兼容协议）开通能力以「文本推理 / 图像生成 / TTS 语音」为主：
 
-    能力                  模型                                  本文件函数
-    ──────────────────  ──────────────────────────────────    ──────────────
-    ① 同款一致性比对      qwen/tongyi-embedding-vision-plus     embed_image + cosine
-    ② 瑕疵视觉识别        qwen/qwen3-vl-plus                     vl_chat
-    ③ listing 承诺提取     qwen/qwen-vl-ocr                       ocr
-    ④ 卷宗/陈述/聚类       qwen/qwen3-max + deepseek-r1          llm / llm_json / build_insights_live
-    ⑤ 案件优先级排序      qwen/qwen3-rerank                      rerank
-    ⑥ 母语语音陈述        qwen/qwen3-tts-instruct-flash          tts
+    能力                  模型（新网关命名，无 qwen/ 前缀）          本文件函数
+    ──────────────────  ──────────────────────────────────────    ──────────────
+    ④ 文本生成 / 聚类归因  qwen3.7-max（也可 qwen3.6-flash 等）       llm / llm_json / build_insights_live
+    ⑥ 母语语音陈述        qwen-audio-3.0-tts-plus                   tts
+
+以下能力当前网关的「团队版模型列表」未开通（保持原模型名占位，调用会报错并由
+pipeline 自动回退 mock，保证演示不中断）：
+    ① 同款一致性比对（图像向量）    tongyi-embedding-vision-plus → embed_image + cosine
+    ② 瑕疵视觉识别（多模态理解）    qwen3-vl-plus               → vl_chat
+    ③ listing 承诺提取（OCR）       qwen-vl-ocr                 → ocr
+    ⑤ 案件优先级排序（重排）        qwen3-rerank                → rerank
+若网关后续开通视觉/向量能力，只需把对应函数里的 model 改成网关下发的模型名即可。
 
 运行前提（live 模式必须）：
-    - 环境变量 MODEL_ROUTER_API_KEY：赛事发放的算力 Key
-    - 环境变量 PUBLIC_IMAGE_BASE：上传图片可公网访问的基础 URL
-      说明：Model Router 在服务端拉取图片做向量/识别，localhost 本地图它拉不到，
-      因此 live 模式需要把图片放到对象存储（如阿里云 OSS）并配置可公网访问的地址。
+    - demo/.env 或环境变量 MODEL_ROUTER_API_KEY：Token Plan 专属 API Key
+      注意：必须与专属基地址配套使用；用 dashscope.aliyuncs.com 通用地址无法抵扣套餐额度。
+    - 环境变量 PUBLIC_IMAGE_BASE：上传图片可公网访问的基础 URL（视觉能力需要时再配）
 """
 
 import base64
@@ -28,15 +31,19 @@ import re
 
 import requests
 from constants import SAME_ITEM_THRESHOLD, SEVERITY
+from dotenv import load_dotenv
 
 logger = logging.getLogger("returnguard.models_router")
 
-# ---- 阿里云百炼 Model Router 基础信息（OpenAI 兼容协议）----
-# 支持通过 MODEL_ROUTER_BASE_URL 环境变量覆盖（便于切换到赛事指定的网关/内网代理）；
-# 不设置时回退到官方默认地址。消除「compose 配了变量但代码不读」的死配置。
-API_BASE = os.environ.get("MODEL_ROUTER_BASE_URL", "https://model-router.edu-aliyun.com/v1").rstrip(
-    "/"
-)
+# ---- 阿里云百炼 Token Plan 专属网关（OpenAI 兼容协议）----
+# 密钥 / 基地址优先从 demo/.env 读取（.env 不入 git，见根与 demo 两层 .gitignore），
+# 也支持外部环境变量覆盖（如 docker compose 注入）。
+load_dotenv()  # 读取 demo/.env（本地敏感配置：API Key、网关地址等）
+
+API_BASE = os.environ.get(
+    "MODEL_ROUTER_BASE_URL",
+    "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+).rstrip("/")
 API_KEY = os.environ.get("MODEL_ROUTER_API_KEY", "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
 
@@ -49,7 +56,9 @@ def _headers():
 # ===================== ① 同款一致性比对（图像向量）=====================
 def embed_image(image_url):
     """调用 tongyi-embedding-vision-plus，把一张商品图转成向量。
-    返回：浮点数列表（向量）。用于后续余弦相似度判断是否同一件。"""
+    返回：浮点数列表（向量）。用于后续余弦相似度判断是否同一件。
+    注意：当前 Token Plan 网关团队版模型列表未开通图像向量，调用会报错；
+    由 pipeline 的 live 回退机制降级到 mock（确定性哈希），演示不中断。"""
     r = requests.post(
         f"{API_BASE}/embeddings",
         headers=_headers(),
@@ -74,7 +83,8 @@ def cosine(a, b):
 # ===================== ② 瑕疵视觉识别（多模态理解）=====================
 def vl_chat(image_url, prompt):
     """调用 qwen3-vl-plus，对图片提问题并返回文字回答。
-    方案功能②用它做「破损/缺件/污渍/使用痕迹」等瑕疵标签识别。"""
+    方案功能②用它做「破损/缺件/污渍/使用痕迹」等瑕疵标签识别。
+    注意：当前网关未开通多模态理解，调用会报错并回退 mock。"""
     r = requests.post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -99,7 +109,8 @@ def vl_chat(image_url, prompt):
 # ===================== ③ listing 承诺提取（OCR）=====================
 def ocr(image_url):
     """调用 qwen-vl-ocr，从本店主图/详情图里提取文字承诺（如「全新未拆/30天退换」）。
-    方案功能③用它做「退回件实际状态 vs 本店承诺」的货不对板核验。"""
+    方案功能③用它做「退回件实际状态 vs 本店承诺」的货不对板核验。
+    注意：当前网关未开通 OCR 视觉模型，调用会报错并回退 mock。"""
     r = requests.post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -119,9 +130,9 @@ def ocr(image_url):
 
 
 # ===================== ④ 文本生成 / 推理（大模型）=====================
-def llm(prompt, model="qwen/qwen3-max"):
-    """调用 qwen3-max 做文本生成（举证卷宗、母语陈述、一致性判断）。
-    也可传 deepseek-v1 等做更复杂推理。返回模型文本。"""
+def llm(prompt, model="qwen3.7-max"):
+    """调用 qwen3.7-max 做文本生成（举证卷宗、母语陈述、一致性判断）。
+    新网关命名无 qwen/ 前缀；可选 qwen3.6-flash / deepseek-v4-flash 等更快模型。返回模型文本。"""
     r = requests.post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -133,25 +144,42 @@ def llm(prompt, model="qwen/qwen3-max"):
 
 
 def _extract_json(raw):
-    """从模型返回里稳健地抽取 JSON。
-    兼容 deepseek-r1 的 <think>...</think> 包裹、以及前后多余解释文本。
+    """从模型返回里稳健地抽取 JSON 对象。
+
+    兼容：
+      - markdown 代码围栏（```json ... ```）
+      - deepseek / qwen3.6+ 的 <think>...</think> 思考链
+      - JSON 前后的解释文本 / 多余尾巴
+      - 输出被截断、或夹带两个以上 JSON 对象（取首个可解析的对象）
     返回：解析后的 dict；抽不到则返回 {}。"""
     if not raw:
         return {}
     s = raw.strip()
+    s = re.sub(r"```(?:json)?\s*", "", s, flags=re.S)  # 去掉 ```json 围栏
     s = re.sub(r"<think>.*?</think>", "", s, flags=re.S)  # 去掉思考链
-    start, end = s.find("{"), s.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    starts = [m.start() for m in re.finditer(r"\{", s)]
+    if not starts:
         return {}
-    block = s[start : end + 1]
-    try:
-        return json.loads(block)
-    except Exception:
+    ends = [m.start() for m in re.finditer(r"\}", s)]
+    if not ends:
         return {}
+    # 优先最长候选（首个 { → 最后一个 }），解析失败再逐步缩短，
+    # 处理截断 / 夹带多段 JSON 的情况
+    for si in starts:
+        for ei in reversed(ends):
+            if ei <= si:
+                break
+            try:
+                return json.loads(s[si : ei + 1])
+            except Exception:
+                continue
+    return {}
 
 
-def llm_json(prompt, model="qwen/qwen3-max"):
-    """调用大模型并直接返回结构化 JSON（用于洞察聚类/归因）。"""
+def llm_json(prompt, model="qwen3.7-max"):
+    """调用大模型并直接返回结构化 JSON（用于洞察聚类/归因）。
+    qwen3.6+ 等模型会把思考放进 reasoning_content、content 可能为空，
+    此时回退读取 reasoning_content 再抽取。"""
     r = requests.post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -159,13 +187,15 @@ def llm_json(prompt, model="qwen/qwen3-max"):
         timeout=120,
     )
     r.raise_for_status()
-    return _extract_json(r.json()["choices"][0]["message"]["content"])
+    msg = r.json()["choices"][0]["message"]
+    raw = msg.get("content") or msg.get("reasoning_content") or ""
+    return _extract_json(raw)
 
 
 # ===================== ⑤ 案件优先级排序（重排）=====================
-def rerank(query, documents, model="qwen/qwen3-rerank"):
+def rerank(query, documents, model="qwen3-rerank"):
     """调用 qwen3-rerank，按「追回价值」对多笔待处理案件重排，把高金额/高胜算排前。
-    注：若赛事未发放该模型额度，pipeline 会退化为本地公式计算（见 pipeline.analyze_case）。"""
+    注：当前网关未开通重排模型，pipeline 会退化为本地公式计算（见 pipeline.analyze_case）。"""
     r = requests.post(
         f"{API_BASE}/rerank",
         headers=_headers(),
@@ -178,12 +208,12 @@ def rerank(query, documents, model="qwen/qwen3-rerank"):
 
 # ===================== ⑥ 母语语音陈述（TTS）=====================
 def tts(text, voice="Chelsie"):
-    """调用 qwen3-tts-instruct-flash 生成语音（base64 编码的音频）。
-    方案功能④用它把举证陈述转成母语语音，方便直接提交仲裁方/客服播放。"""
+    """调用 qwen-audio-3.0-tts-plus 生成语音（base64 编码的音频）。
+    新网关命名 qwen-audio-3.0-tts-plus（OpenAI 兼容 /audio/speech 路径，若网关路径不同需调整）。"""
     r = requests.post(
         f"{API_BASE}/audio/speech",
         headers=_headers(),
-        json={"model": "qwen/qwen3-tts-instruct-flash", "input": text, "voice": voice},
+        json={"model": "qwen-audio-3.0-tts-plus", "input": text, "voice": voice},
         timeout=60,
     )
     r.raise_for_status()
@@ -274,7 +304,7 @@ def build_insights_live(aggregated: dict) -> dict:
         "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写建议，面向卖家管理者。\n"
         "4) report：字符串，一段《选品 / 品控洞察报告》正文（中文，约 150 字），总结现状与下一步。\n"
     )
-    out = llm_json(prompt, model="qwen/qwen3-max")
+    out = llm_json(prompt, model="qwen3.7-max")
     if not out:
         raise RuntimeError("洞察 LLM 未返回有效 JSON")
     return {

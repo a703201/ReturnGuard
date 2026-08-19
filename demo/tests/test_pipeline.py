@@ -70,3 +70,71 @@ def test_aggregate_excludes_pending_from_winrate():
     assert all(x["category"] != "未分类" for x in ins["category_heatmap"]), "不应出现未分类噪声桶"
     assert all(x["supplier"] != "未知" for x in ins["supplier_scorecard"]), "不应出现未知供应商"
     assert all(x["platform"] != "未知" for x in ins["platform_view"]), "不应出现未知平台"
+
+
+# ============ models_router._extract_json 健壮性（真实网关输出形态） ============
+def test_extract_json_markdown_fence():
+    """兼容 ```json 代码围栏包裹。"""
+    from models_router import _extract_json
+    raw = '```json\n{"ok": true, "n": 1}\n```'
+    assert _extract_json(raw) == {"ok": True, "n": 1}
+
+
+def test_extract_json_think_and_trailing():
+    """兼容 <think> 思考链 + 前后解释文本 + 尾随垃圾。"""
+    from models_router import _extract_json
+    raw = ('<think>我要先分析一下……</think>\n'
+           '好的，以下是结果：\n'
+           '```json\n{"root_cause": "供应商质量", "items": [1, 2]}\n```\n'
+           '以上就是全部内容。')
+    assert _extract_json(raw)["root_cause"] == "供应商质量"
+    assert _extract_json(raw)["items"] == [1, 2]
+
+
+def test_extract_json_truncated_recover():
+    """输出被截断（JSON 尾部不完整）时，应能取回已完整部分。"""
+    from models_router import _extract_json
+    raw = '{"ok": true, "list": [1, 2, 3], "name": "跨境退货"} 截断...'
+    d = _extract_json(raw)
+    assert d.get("ok") is True
+
+
+def test_extract_json_multi_objects_take_first():
+    """夹带两个以上 JSON 对象时取首个可解析对象。"""
+    from models_router import _extract_json
+    raw = '先给一个：{"a": 1} 再给一个：{"b": 2}'
+    d = _extract_json(raw)
+    assert d == {"a": 1}
+
+
+def test_extract_json_none_or_garbage():
+    """无 JSON 或乱码返回 {}。"""
+    from models_router import _extract_json
+    assert _extract_json("") == {}
+    assert _extract_json("模型没有输出结构化内容") == {}
+    assert _extract_json(None) == {}
+
+
+def test_live_insights_keeps_llm_attribution(monkeypatch):
+    """P3：live 模式不得被 _mock_attribution 覆盖（LLM 归因输出必须保留）。"""
+    import models_router
+
+    def fake_build_insights_live(agg):
+        return {
+            "root_cause": "【LLM】包装防护不足叠加供应商品控不稳",
+            "sku_insights": [{"sku": "SKU-LLM", "finding": "高频功能故障", "action": "停货整改"}],
+            "recommendations": ["【LLM】建议一：升级包装"],
+            "report": "【LLM】洞察报告正文",
+        }
+
+    monkeypatch.setattr(models_router, "build_insights_live", fake_build_insights_live)
+    cases = [{
+        "outcome": "赢", "category": "3C数码", "supplier": "S1", "platform": "Amazon",
+        "similarity": 0.9, "amount": 100, "defect_tags": ["无明显瑕疵"], "sku": "A",
+    }]
+    ins = build_insights(cases, "live")
+    assert ins["mode"] == "live"
+    assert ins["root_cause"] == "【LLM】包装防护不足叠加供应商品控不稳"
+    assert ins["report"] == "【LLM】洞察报告正文"
+    assert ins["recommendations"] == ["【LLM】建议一：升级包装"]
+    assert ins["sku_insights"] == [{"sku": "SKU-LLM", "finding": "高频功能故障", "action": "停货整改"}]

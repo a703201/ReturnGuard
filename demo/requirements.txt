@@ -6,6 +6,7 @@ python-multipart==0.0.32
 requests==2.34.2
 pydantic==2.13.4
 SQLAlchemy==2.0.52
+python-dotenv==1.2.2  # 从 demo/.env 加载 API Key / 网关地址（.env 不入 git）
 
 # ---- 双轨存储层依赖（开发 SQLite / 部署 openGauss） ----
 # openGauss 兼容 PG 协议；部署期连接 openGauss 才需要，开发期可不装
