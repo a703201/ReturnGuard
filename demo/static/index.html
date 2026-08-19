@@ -122,8 +122,12 @@
   .chart{margin:6px 0 10px}
   .barh{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12px}
   .barh .lab{width:110px;flex:none;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .barh .track{flex:1;background:#0b1220;border-radius:6px;height:16px;overflow:hidden}
-  .barh .fill{height:100%;border-radius:6px;background:var(--acc);border:1px solid rgba(255,255,255,.28);box-shadow:0 0 8px rgba(56,189,248,.35);transition:width .3s ease;animation:barGrow .7s ease both}
+  .barh .track{flex:1;position:relative;background:#0b1220;border-radius:6px;height:16px;overflow:hidden}
+  /* 横向条轨道刻度：让各条形比例更容易用肉眼对比 */
+  .barh .track::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);background-size:25% 100%;pointer-events:none;z-index:0}
+  .barh .fill{position:relative;z-index:1;height:100%;border-radius:6px;background:var(--acc);border:1px solid rgba(255,255,255,.28);box-shadow:0 0 8px rgba(56,189,248,.35);transition:width .3s ease;animation:barGrow .7s ease both;min-width:4px}
+  .barh .fill::after{content:attr(data-pct);position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:600;color:rgba(15,23,42,.85);text-shadow:0 0 2px rgba(255,255,255,.6);opacity:0;transition:opacity .2s}
+  .barh:hover .fill::after{opacity:1}
   .barh .val{width:74px;flex:none;text-align:right;color:#94a3b8}
   .matrix{border-collapse:collapse;font-size:11px;width:100%;margin-top:4px}
   .matrix th,.matrix td{padding:4px 6px;border:1px solid #334155;text-align:center}
@@ -691,12 +695,13 @@ function animateValue(el, target, fmt, duration=700){
 function renderBarh(el, items){
   el.innerHTML='';
   if(!items.length){el.innerHTML='<span class="note">暂无数据。</span>';return;}
+  // 每个图表独立按自己的最大值归一化，确保同一张卡片内部比例正确
   const max=Math.max(1,...items.map(o=>o.v));
   items.forEach(o=>{
-    const wpct=Math.round(o.v/max*100);
+    const wpct=Math.max(1, Math.round(o.v/max*100));
     const div=document.createElement('div'); div.className='barh';
     div.innerHTML=`<span class="lab" title="${esc(o.label)}">${esc(o.label)}</span>`
-      +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}"></span></span>`
+      +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}" data-pct="${wpct}%" title="${esc(o.label)}：${esc(o.text)}（占本图表 ${wpct}%）"></span></span>`
       +`<span class="val">${esc(o.text)}</span>`;
     el.appendChild(div);
   });
