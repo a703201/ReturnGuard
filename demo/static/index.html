@@ -123,7 +123,7 @@
   .barh{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:12px}
   .barh .lab{width:110px;flex:none;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .barh .track{flex:1;background:#0b1220;border-radius:6px;height:16px;overflow:hidden}
-  .barh .fill{height:100%;border-radius:6px;background:var(--acc);transition:width .3s ease;animation:barGrow .7s ease both}
+  .barh .fill{height:100%;border-radius:6px;background:var(--acc);border:1px solid rgba(255,255,255,.28);box-shadow:0 0 8px rgba(56,189,248,.35);transition:width .3s ease;animation:barGrow .7s ease both}
   .barh .val{width:74px;flex:none;text-align:right;color:#94a3b8}
   .matrix{border-collapse:collapse;font-size:11px;width:100%;margin-top:4px}
   .matrix th,.matrix td{padding:4px 6px;border:1px solid #334155;text-align:center}
@@ -602,7 +602,7 @@
 const $ = s => document.querySelector(s);
 const pct = x => (x*100).toFixed(0) + '%';
 const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
-const realColor = w => w>=0.5?'#34d399':w>=0.3?'#fbbf24':'#f87171';
+const realColor = w => w>=0.5?'#4ade80':w>=0.3?'#facc15':'#fb7185';
 let _ins = null;  // 最近一次 insights 响应，供供应商下钻本地计算
 
 // ---- 数据源开关（演示数据 / 实际数据）----
@@ -696,7 +696,7 @@ function renderBarh(el, items){
     const wpct=Math.round(o.v/max*100);
     const div=document.createElement('div'); div.className='barh';
     div.innerHTML=`<span class="lab" title="${esc(o.label)}">${esc(o.label)}</span>`
-      +`<span class="track"><span class="fill" style="width:${wpct}%;background-color:${o.color||'var(--acc)'}"></span></span>`
+      +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}"></span></span>`
       +`<span class="val">${esc(o.text)}</span>`;
     el.appendChild(div);
   });
@@ -768,7 +768,7 @@ function openSupplier(name){
   const skuRows=skus.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.category)}</td><td>${r.cases}</td><td>¥${r.refund}</td><td style="color:${wrColor(r.win_rate)}">${pct(r.win_rate)}</td><td>${esc(r.top_defect)}</td></tr>`).join('');
   const dd=sc.defect_dist||{};
   const dmax=Math.max(1,...Object.values(dd));
-  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barh"><span class="lab">${esc(k)}</span><span class="track"><span class="fill" style="width:${Math.round(v/dmax*100)}%;background-color:var(--warn)"></span></span><span class="val">${v}</span></div>`).join('');
+  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barh"><span class="lab">${esc(k)}</span><span class="track"><span class="fill" style="width:${Math.round(v/dmax*100)}%;background:var(--warn)"></span></span><span class="val">${v}</span></div>`).join('');
   $('#ovTitle').textContent='供应商透视 · '+name;
   $('#ovBody').innerHTML=`<div class="sup-metrics" style="margin-bottom:10px">`
     +`<div><span class="note">质量分</span><b>${sc.quality_score??'-'}</b></div>`
@@ -1018,7 +1018,7 @@ async function loadInsights(){
       +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`;
     rt.appendChild(tr);
   });
-  renderBarh($('#regionBars'), (d.region_view||[]).map(x=>({label:x.region,v:x.refund,text:'¥'+x.refund,color:'#38bdf8'})));
+  renderBarh($('#regionBars'), (d.region_view||[]).map(x=>({label:x.region,v:x.refund,text:'¥'+x.refund,color:'#22d3ee'})));
 
   // ⑭ 季节分布
   const stt=$('#seasonTbl').querySelector('tbody'); stt.innerHTML='';
@@ -1028,7 +1028,7 @@ async function loadInsights(){
       +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`;
     stt.appendChild(tr);
   });
-  renderBarh($('#seasonBars'), (d.season_view||[]).map(x=>({label:x.season,v:x.refund,text:'¥'+x.refund,color:'#a78bfa'})));
+  renderBarh($('#seasonBars'), (d.season_view||[]).map(x=>({label:x.season,v:x.refund,text:'¥'+x.refund,color:'#e879f9'})));
 
   // ⑮ 退货成本 & 供应商黑名单
   $('#costKpis').innerHTML =
@@ -1048,9 +1048,9 @@ async function loadInsights(){
   }
 
   // 图形化
-  renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#f87171'})));
+  renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#fbbf24'})));
   renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})));
-  renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#f87171':x.level==='优质'?'#34d399':'#fbbf24'})));
+  renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#fb7185':x.level==='优质'?'#4ade80':'#facc15'})));
   renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
   renderSuppliers(d);
   renderDonut($('#kWinDonut'), d.win_rate||0);
