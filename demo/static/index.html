@@ -150,8 +150,15 @@
   .dossier-head button:hover{color:var(--acc);border-color:var(--acc)}
   .dossier-head button.copied{color:var(--ok);border-color:var(--ok)}
   /* 洞察报告导出（弹层 + 打印存 PDF + 复制文本） */
-  #btnReport{margin-left:8px;background:transparent;border:1px solid rgba(52,211,153,.45);color:var(--ok);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s ease}
-  #btnReport:hover{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.2)}
+  /* 看板顶部工具条：把「导出洞察报告」从顶栏下移到看板内，保持顶栏单行不换行 */
+  #tab-dash.active{display:flex;flex-direction:column}
+  #tab-dash.active .board{height:auto;flex:1;min-height:0}
+  .dash-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;margin-bottom:10px}
+  .dash-toolbar .dt-note{color:#94a3b8;font-size:12px}
+  .dash-toolbar #btnReport{margin-left:auto;background:transparent;border:1px solid rgba(52,211,153,.45);color:var(--ok);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s ease;white-space:nowrap}
+  .dash-toolbar #btnReport:hover{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.2)}
+  /* 大屏隐藏与下拉重复的冗余 scope pill，顶栏更干净（整合） */
+  @media (min-width:641px){ #scopeTag{display:none} }
   .report{padding:4px 2px}
   .report h4{color:var(--acc);font-size:13.5px;margin:14px 0 6px;border-bottom:1px solid #334155;padding-bottom:4px}
   .report .r-kpis{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
@@ -322,7 +329,6 @@
             <option value="live">洞察：AI 实算</option>
           </select>
           <button id="loadIns">刷新看板</button>
-          <button id="btnReport" type="button">导出洞察报告</button>
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
           <span id="insStatus" class="pill" style="background:#334155">就绪</span>
@@ -340,6 +346,10 @@
     <main class="content">
       <!-- 标签页 1：市场洞察看板（核心，占满一屏，仅卡内滚动） -->
       <section id="tab-dash" class="tabpane active">
+        <div class="dash-toolbar">
+          <span class="dt-note">看板随顶部「品类 / 平台 / 洞察模式」筛选实时刷新 · 一键导出本期洞察</span>
+          <button id="btnReport" type="button">导出洞察报告</button>
+        </div>
         <div class="board">
           <!-- ① 品类热力 -->
           <div class="card">
