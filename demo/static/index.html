@@ -161,7 +161,7 @@
   .dossier-head button{background:transparent;border:1px solid #334155;color:#94a3b8;padding:3px 10px;font-size:12px;border-radius:6px;cursor:pointer;transition:all .2s ease}
   .dossier-head button:hover{color:var(--acc);border-color:var(--acc)}
   .dossier-head button.copied{color:var(--ok);border-color:var(--ok)}
-  /* 洞察报告导出（弹层 + 打印存 PDF + 复制文本） */
+  /* 洞察报告导出（弹层 + 服务端生成 PDF 下载 + 复制文本） */
   /* 看板顶部工具条：把「导出洞察报告」从顶栏下移到看板内，保持顶栏单行不换行 */
   #tab-dash.active{display:flex;flex-direction:column}
   #tab-dash.active .board{height:auto;flex:1;min-height:0}
@@ -802,7 +802,7 @@ function openSupplier(name){
 }
 function closeOverlay(){$('#overlay').classList.remove('show');}
 
-// ============ 洞察报告导出（演示/交付：一键出报告，可打印存 PDF / 复制文本） ============
+// ============ 洞察报告导出（演示/交付：一键出报告，服务端生成 PDF 下载 / 复制文本） ============
 function reportText(d){
   const L=[];
   L.push('ReturnGuard 选品·品控洞察报告');
@@ -864,18 +864,42 @@ function exportReport(){
       ${alerts.length?`<h4>异常 SKU 预警</h4>
       <ul>${alerts.slice(0,5).map(a=>`<li><b>${esc(a.sku)}</b>（${esc(a.category||'')}）：${esc(a.reason||'')}</li>`).join('')}</ul>`:''}
       <div class="r-actions">
-        <button type="button" onclick="window.print()">打印 / 存为 PDF</button>
+        <button type="button" id="downloadPdfBtn">下载 PDF</button>
         <button type="button" class="ghost" id="copyReportBtn">复制报告文本</button>
       </div>
       <div class="r-foot">※ 以上仅基于已沉淀退货数据的客观统计，不构成对平台裁决的替代。ReturnGuard V1.0</div>
     </div>`;
   $('#overlay').classList.add('show');
   $('#copyReportBtn').onclick=()=>copyReportText(d);
+  $('#downloadPdfBtn').onclick=()=>downloadPdfReport();
 }
 function copyReportText(d){
   navigator.clipboard.writeText(reportText(d)).then(()=>{
     const b=$('#copyReportBtn'); b.textContent='已复制'; setTimeout(()=>{b.textContent='复制报告文本';},1800);
   }).catch(err=>{ $('#insStatus').textContent='复制失败：'+err.message; });
+}
+async function downloadPdfReport(){
+  const btn=$('#downloadPdfBtn');
+  const old=btn.textContent; btn.textContent='生成中…'; btn.disabled=true;
+  try{
+    const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
+    const qs=new URLSearchParams({mode});
+    if(cat) qs.set('category',cat);
+    if(plat) qs.set('platform',plat);
+    // source 由 apiUrl 统一附加，但 export_pdf 也会从 query 读取，这里显式保证一致
+    qs.set('source', CURRENT_SOURCE);
+    const r=await fetch(apiUrl('/api/export_pdf?'+qs.toString()));
+    if(!r.ok) throw new Error('导出失败 '+r.status);
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url;
+    const disp=r.headers.get('Content-Disposition')||'';
+    const m=disp.match(/filename="?([^";]+)"?/);
+    a.download=m?m[1]:'ReturnGuard洞察报告.pdf';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1200);
+  }catch(e){ alert('导出 PDF 失败：'+e.message); }
+  finally{ btn.textContent=old; btn.disabled=false; }
 }
 
 // 单案举证：退货图叠加缺陷红框（P3-5：改为加载 /uploads 返回的 URL，而非内联 base64）

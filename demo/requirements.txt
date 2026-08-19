@@ -13,3 +13,6 @@ python-dotenv==1.2.2  # 从 demo/.env 加载 API Key / 网关地址（.env 不�
 psycopg2-binary==2.9.10
 # 可选：openGauss 官方方言 opengauss+psycopg2://，仅当你要用 openGauss 特有类型/索引时安装
 # opengauss-sqlalchemy>=0.1.0
+
+# ---- PDF 报告导出（服务端生成，替代浏览器 window.print） ----
+reportlab==5.0.0
