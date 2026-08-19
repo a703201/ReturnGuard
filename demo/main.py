@@ -116,6 +116,8 @@ def _cleanup_old_uploads(max_age_hours: float = 24) -> None:
         cutoff = time.time() - max_age_hours * 3600
         removed = 0
         for fn in os.listdir(UPLOAD_DIR):
+            if fn == ".gitkeep":  # 保留目录占位文件，避免 git 丢失空目录约定
+                continue
             fp = os.path.join(UPLOAD_DIR, fn)
             try:
                 if os.path.isfile(fp) and os.path.getmtime(fp) < cutoff:
