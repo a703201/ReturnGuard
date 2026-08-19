@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>退件法医 · 退货情报站（大屏看板）</title>
 <style>
   :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0}
@@ -18,7 +21,7 @@
   @keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
-  @keyframes barGrow{from{width:0}}
+  @keyframes barGrow{from{width:0}to{width:var(--w)}}
   @keyframes glow{0%,100%{box-shadow:0 0 0 rgba(56,189,248,0)}50%{box-shadow:0 0 18px rgba(56,189,248,.12)}}
   @keyframes donutSpin{from{stroke-dashoffset:var(--dash-full)}to{stroke-dashoffset:0}}
 
@@ -125,7 +128,7 @@
   .barh .track{flex:1;position:relative;background:#0b1220;border-radius:6px;height:16px;overflow:hidden}
   /* 横向条轨道刻度：让各条形比例更容易用肉眼对比 */
   .barh .track::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);background-size:25% 100%;pointer-events:none;z-index:0}
-  .barh .fill{position:relative;z-index:1;height:100%;border-radius:6px;background:var(--acc);border:1px solid rgba(255,255,255,.28);box-shadow:0 0 8px rgba(56,189,248,.35);transition:width .3s ease;animation:barGrow .7s ease both;min-width:4px}
+  .barh .fill{position:relative;z-index:1;height:100%;border-radius:6px;background:var(--acc);border:1px solid rgba(255,255,255,.35);box-shadow:0 0 10px rgba(56,189,248,.45);width:var(--w);--w:0%;animation:barGrow .6s ease both;min-width:2px}
   .barh .fill::after{content:attr(data-pct);position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:10px;font-weight:600;color:rgba(15,23,42,.85);text-shadow:0 0 2px rgba(255,255,255,.6);opacity:0;transition:opacity .2s}
   .barh:hover .fill::after{opacity:1}
   .barh .val{width:74px;flex:none;text-align:right;color:#94a3b8}
@@ -701,7 +704,7 @@ function renderBarh(el, items){
     const wpct=Math.max(1, Math.round(o.v/max*100));
     const div=document.createElement('div'); div.className='barh';
     div.innerHTML=`<span class="lab" title="${esc(o.label)}">${esc(o.label)}</span>`
-      +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}" data-pct="${wpct}%" title="${esc(o.label)}：${esc(o.text)}（占本图表 ${wpct}%）"></span></span>`
+      +`<span class="track"><span class="fill" style="width:${wpct}%;--w:${wpct}%;background:${o.color||'var(--acc)'}" data-pct="${wpct}%" title="${esc(o.label)}：${esc(o.text)}（占本图表 ${wpct}%）"></span></span>`
       +`<span class="val">${esc(o.text)}</span>`;
     el.appendChild(div);
   });
@@ -773,7 +776,7 @@ function openSupplier(name){
   const skuRows=skus.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.category)}</td><td>${r.cases}</td><td>¥${r.refund}</td><td style="color:${wrColor(r.win_rate)}">${pct(r.win_rate)}</td><td>${esc(r.top_defect)}</td></tr>`).join('');
   const dd=sc.defect_dist||{};
   const dmax=Math.max(1,...Object.values(dd));
-  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="barh"><span class="lab">${esc(k)}</span><span class="track"><span class="fill" style="width:${Math.round(v/dmax*100)}%;background:var(--warn)"></span></span><span class="val">${v}</span></div>`).join('');
+  const defectsHtml=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{const wp=Math.round(v/dmax*100);return`<div class="barh"><span class="lab">${esc(k)}</span><span class="track"><span class="fill" style="width:${wp}%;--w:${wp}%;background:var(--warn)"></span></span><span class="val">${v}</span></div>`}).join('');
   $('#ovTitle').textContent='供应商透视 · '+name;
   $('#ovBody').innerHTML=`<div class="sup-metrics" style="margin-bottom:10px">`
     +`<div><span class="note">质量分</span><b>${sc.quality_score??'-'}</b></div>`
