@@ -792,11 +792,15 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
             from models_router import build_insights_live
 
             llm = build_insights_live(agg)
+            # ⑧ 下一步怎么做：优先用 LLM 专属的 sourcing_advice，缺失时回退到 LLM 的
+            # recommendations（保证 live 模式下 ⑧ 始终有内容，与 mock 字段结构一致）。
+            live_advice = llm.get("sourcing_advice") or llm.get("recommendations") or []
             agg.update(
                 {
                     "root_cause": llm.get("root_cause", agg.get("root_cause", "")),
                     "sku_insights": llm.get("sku_insights", agg.get("sku_insights", [])),
                     "recommendations": llm.get("recommendations", agg.get("recommendations", [])),
+                    "sourcing_advice": live_advice,
                     "report": llm.get("report", agg.get("report", "")),
                     "mode": "live",
                 }

@@ -96,10 +96,15 @@ INSIGHTS_SYSTEM_PERSONA = (
 def build_insights_prompt(aggregated: Dict[str, Any]) -> str:
     """把聚合统计组装成一段结构化 JSON 输出 prompt。
 
-    返回的 prompt 要求模型以纯 JSON 返回四部分：
-    root_cause / sku_insights / recommendations / report。
+    返回的 prompt 要求模型以纯 JSON 返回五部分：
+    root_cause / sku_insights / recommendations / sourcing_advice / report。
     上下文在 pipeline._aggregate 已算好的基础上，额外带入退款额、胜率、
     品类热力、供应商红黑榜、异常预警、地区/季节等维度，让 LLM 归因更有依据。
+
+    sourcing_advice 与 recommendations 的区别（避免前端/用户混淆）：
+    - recommendations 偏「选品 / 品控 / 策略建议」（方向性）；
+    - sourcing_advice 偏「卖家管理者下一步就要执行的具体动作」（待办清单，
+      强调谁 + 做什么 + 量化目标/期限），直接喂给 ⑧「下一步怎么做」卡片。
     """
     ctx = {
         "total_cases": aggregated.get("total_cases"),
@@ -118,13 +123,16 @@ def build_insights_prompt(aggregated: Dict[str, Any]) -> str:
         f"{INSIGHTS_SYSTEM_PERSONA}\n\n"
         "下面是一位跨境卖家退货案件的聚合统计（JSON）：\n"
         f"{ctx_json}\n\n"
-        "请完成四件事，并以**纯 JSON**返回（不要任何解释文本、不要 markdown 围栏，只返回可解析的 JSON 对象）：\n"
+        "请完成五件事，并以**纯 JSON**返回（不要任何解释文本、不要 markdown 围栏，只返回可解析的 JSON 对象）：\n"
         "1) root_cause：字符串。归纳退货高发的根因（如包装防护不足 / 供应商质量不稳定 / "
         "listing 过度承诺 / 物流暴力分拣等），并给出对应的数据依据（引用上面 JSON 中的具体数字）。\n"
         '2) sku_insights：数组，取退款金额最高的前 3 个 SKU。每个元素为 '
         '{"sku": 字符串, "finding": 字符串（该 SKU 核心问题，含数据）, "action": 字符串（可执行整改动作）}。\n'
-        "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写建议，面向卖家管理者，"
-        "每条一句话、可落地。\n"
-        "4) report：字符串，一段《选品 / 品控洞察报告》正文（中文，150-220 字），"
+        "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写**策略建议**，面向卖家管理者，"
+        "每条一句话、可落地（偏方向性）。\n"
+        "4) sourcing_advice：数组，3-5 条**下一步的具体执行动作**（喂给「下一步怎么做」卡片）。"
+        "与 recommendations 的区别：这里是「马上要做的待办清单」，每条强调「谁 + 做什么 + 量化目标/期限」，"
+        "例如「对 S3、S6 两家高风险供应商启动备用供应链引入，2 周内完成比价」。每条一句话。\n"
+        "5) report：字符串，一段《选品 / 品控洞察报告》正文（中文，150-220 字），"
         "总结现状、点明根因、给出下一步，语言正式但不浮夸。\n"
     )

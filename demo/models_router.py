@@ -291,7 +291,7 @@ def live_analyze(
 def build_insights_live(aggregated: dict) -> dict:
     """方案「阶段B·群体洞察」：用大模型对聚合统计做缺陷聚类 + 根因归因 + 选品/品控建议。
     输入 aggregated 来自 pipeline._aggregate（sku_ranking / defect_distribution / total_cases 等）。
-    返回 {root_cause, sku_insights[], recommendations[], report}。
+    返回 {root_cause, sku_insights[], recommendations[], sourcing_advice[], report}。
     注意：本函数只负责「推理」，所有数值统计由 pipeline 算好再喂进来，保证可溯源。
     """
     if not API_KEY:
@@ -304,5 +304,6 @@ def build_insights_live(aggregated: dict) -> dict:
         "root_cause": out.get("root_cause", ""),
         "sku_insights": out.get("sku_insights", []),
         "recommendations": out.get("recommendations", []),
+        "sourcing_advice": out.get("sourcing_advice", []),
         "report": out.get("report", ""),
     }
