@@ -31,6 +31,14 @@ import re
 
 import requests
 from constants import SAME_ITEM_THRESHOLD, SEVERITY
+from prompts import (
+    DEFECT_RECOGNITION_PROMPT,
+    OCR_PROMISE_PROMPT,
+    consistency_prompt,
+    dossier_prompt,
+    voice_prompt,
+    build_insights_prompt,
+)
 from dotenv import load_dotenv
 
 logger = logging.getLogger("returnguard.models_router")
@@ -110,7 +118,7 @@ def vl_chat(image_url, prompt):
 
 
 # ===================== ③ listing 承诺提取（OCR）=====================
-def ocr(image_url):
+def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
     """调用 qwen-vl-ocr，从本店主图/详情图里提取文字承诺（如「全新未拆/30天退换」）。
     方案功能③用它做「退回件实际状态 vs 本店承诺」的货不对板核验。
     注意：当前网关未开通 OCR 视觉模型，调用会报错并回退 mock。"""
@@ -122,7 +130,10 @@ def ocr(image_url):
             "messages": [
                 {
                     "role": "user",
-                    "content": [{"type": "image_url", "image_url": {"url": image_url}}],
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
                 }
             ],
         },
@@ -246,22 +257,14 @@ def live_analyze(
     same = sim >= SAME_ITEM_THRESHOLD  # 阈值来自 constants，与 mock 一致（可调，用历史样本标定）
 
     # ② 瑕疵识别：让 VL 模型列出视觉瑕疵标签
-    raw = vl_chat(
-        ret_url, "列出该退货商品的视觉瑕疵，若无则说'无明显瑕疵'，用逗号分隔的简短中文标签。"
-    )
+    raw = vl_chat(ret_url, DEFECT_RECOGNITION_PROMPT)
     defects = [x.strip() for x in raw.replace("，", ",").split(",") if x.strip()] or ["无明显瑕疵"]
 
     # ③ + ④ 一致性核验与卷宗：OCR 提取承诺，LLM 判断货不对板并生成报告/陈述
     promise = ocr(prod_url)
-    consistency = llm(
-        f"退回件相似度{sim}，瑕疵：{defects}。本店承诺：{promise or listing_text}。判断是否货不对板，一句话。"
-    )
-    dossier = llm(
-        f"生成结构化举证报告：SKU {sku}，相似度 {sim}，瑕疵 {defects}，一致性 {consistency}。"
-    )
-    voice_text = llm(
-        f"用中文写一段 60 字内的母语退货举证口头陈述，基于：相似度 {sim}，问题 {defects}。"
-    )
+    consistency = llm(consistency_prompt(sim, defects, promise or listing_text))
+    dossier = llm(dossier_prompt(sku, sim, defects, consistency))
+    voice_text = llm(voice_prompt(sim, defects))
     audio = tts(voice_text)  # ⑥ 母语语音
 
     # ⑤ 优先级评分（此处用确定性公式，rerank 大规模多案时替换）
@@ -293,20 +296,7 @@ def build_insights_live(aggregated: dict) -> dict:
     """
     if not API_KEY:
         raise RuntimeError("未配置 MODEL_ROUTER_API_KEY")
-    ctx = {
-        "total_cases": aggregated.get("total_cases"),
-        "sku_ranking": aggregated.get("sku_ranking"),
-        "defect_distribution": aggregated.get("defect_distribution"),
-    }
-    prompt = (
-        "你是一名资深的跨境电商品控与选品分析师。下面是一位跨境卖家退货案件的聚合统计（JSON）：\n"
-        f"{json.dumps(ctx, ensure_ascii=False)}\n\n"
-        "请完成四件事，并以 JSON 返回（不要任何解释文本，只返回 JSON）：\n"
-        "1) root_cause：字符串，归纳退货高发的根因（如包装防护不足 / 供应商质量不稳定 / listing 过度承诺 / 物流暴力分拣等），并给出数据依据。\n"
-        '2) sku_insights：数组，取退款金额最高的前 3 个 SKU，每个元素为 {"sku":..,"finding":..,"action":..}，finding 指出该 SKU 的核心问题，action 给可执行整改动作。\n'
-        "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写建议，面向卖家管理者。\n"
-        "4) report：字符串，一段《选品 / 品控洞察报告》正文（中文，约 150 字），总结现状与下一步。\n"
-    )
+    prompt = build_insights_prompt(aggregated)
     out = llm_json(prompt, model=TEXT_MODEL)
     if not out:
         raise RuntimeError("洞察 LLM 未返回有效 JSON")
