@@ -151,6 +151,18 @@ def _resolve_source(request: Request) -> str:
     return src if src in VALID_SOURCES else DEFAULT_SOURCE
 
 
+def _require_api_key(request: Request) -> None:
+    """写接口可选鉴权：设置 ANALYZE_API_KEY 后，所有写接口
+    （/api/analyze、POST /api/cases、DELETE /api/cases/{id}）须携带
+    `X-API-Key` 请求头或 `?key=` 查询参数；未设置密钥时退化为免鉴权（演示态）。
+    统一收口，避免各写接口重复散落鉴权逻辑。"""
+    if not _API_KEY:
+        return
+    provided = request.headers.get("X-API-Key", "") or request.query_params.get("key", "")
+    if provided != _API_KEY:
+        raise HTTPException(status_code=401, detail="需要有效的 API Key")
+
+
 @asynccontextmanager
 async def lifespan(app):
     """服务启动时：初始化双源数据库（demo 播种 / real 空库）+ 清理过期上传图。
@@ -230,11 +242,8 @@ async def analyze(
     source(=demo|real)：取证结果沉淀到对应数据库（默认 demo）。
     """
     source = _resolve_source(request)
-    # P2-8 演示态可选鉴权：设置 ANALYZE_API_KEY 后必须携带
-    if _API_KEY:
-        provided = request.headers.get("X-API-Key", "") or request.query_params.get("key", "")
-        if provided != _API_KEY:
-            raise HTTPException(status_code=401, detail="需要有效的 API Key")
+    # P2-8 演示态可选鉴权：写接口统一校验（设置 ANALYZE_API_KEY 后必须携带）
+    _require_api_key(request)
     # P2-8 限流：按客户端 IP 固定窗口
     client_ip = request.client.host if request.client else "unknown"
     if not _check_rate_limit(client_ip):
@@ -402,8 +411,10 @@ def add_case(c: ManualCase, request: Request):
     """网页「数据录入」：手动添加一条实际退货案件到指定 source（默认 real 由前端开关控制）。
 
     不强制传图，填字段即可录入；落库后对应 source 的洞察看板实时刷新。
+    写接口：设置 ANALYZE_API_KEY 后需携带 API Key（_require_api_key）。
     """
     source = _resolve_source(request)
+    _require_api_key(request)
     data = c.model_dump()
     data["case_id"] = "RG-" + uuid.uuid4().hex[:8].upper()
     if not data.get("defect_tags"):
@@ -414,8 +425,9 @@ def add_case(c: ManualCase, request: Request):
 
 @app.delete("/api/cases/{case_id}")
 def delete_case_api(case_id: str, request: Request):
-    """删除指定 source 下的一条案件（实际数据管理用）。"""
+    """删除指定 source 下的一条案件（实际数据管理用）。写接口：需 API Key（_require_api_key）。"""
     source = _resolve_source(request)
+    _require_api_key(request)
     n = delete_case(source, case_id)
     return {"ok": True, "source": source, "deleted": n}
 
