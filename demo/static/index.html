@@ -125,8 +125,10 @@
   .barh .track{flex:1;background:#0b1220;border-radius:6px;height:16px;overflow:hidden}
   .barh .fill{height:100%;border-radius:6px;background:var(--acc);transition:width .3s ease;animation:barGrow .7s ease both}
   .barh .val{width:74px;flex:none;text-align:right;color:#94a3b8}
-  .matrix{border-collapse:collapse;font-size:12px;width:100%;margin-top:4px}
-  .matrix th,.matrix td{padding:6px 8px;border:1px solid #334155;text-align:center}
+  .matrix{border-collapse:collapse;font-size:11px;width:100%;margin-top:4px}
+  .matrix th,.matrix td{padding:4px 6px;border:1px solid #334155;text-align:center}
+  /* ⑩ 平台×供应商维权交叉：卡片内独立滚动，避免被 flex 压缩到只显示一行 */
+  #matrixHeat.chart{flex:1;min-height:0;overflow:auto}
   .matrix th{color:#94a3b8;font-weight:600;background:#0b1220}
   .matrix td.pl{text-align:left;color:#cbd5e1;font-weight:600}
   .annot-wrap{position:relative;display:inline-block;margin-top:6px}
@@ -277,7 +279,7 @@
   .entry-msg.ok{color:var(--ok)} .entry-msg.err{color:var(--bad)}
   .entry-list table{width:100%;border-collapse:collapse;font-size:12px}
   .entry-list th,.entry-list td{border-bottom:1px solid #1e293b;padding:6px 8px;text-align:left;color:#cbd5e1}
-  .entry-list th{color:#94a3b8;position:sticky;top:0;background:var(--card)}
+  .entry-list th{color:#94a3b8;position:sticky;top:0;background:var(--card);z-index:2;box-shadow:0 1px 0 #334155}
   .entry-del{background:transparent;border:1px solid #334155;color:#f87171;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px}
   .entry-del:hover{background:rgba(248,113,113,.12)}
   @media (max-width:900px){ .entry-wrap{grid-template-columns:1fr} }
