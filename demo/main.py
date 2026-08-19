@@ -33,9 +33,13 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     load_cases,
     save_case,
 )
+from urllib.parse import quote
+
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+from pdf_report import default_filename, generate_insights_pdf
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
 from pipeline import analyze_case, build_insights, _season_of
@@ -361,20 +365,15 @@ def platforms():
     return {"platforms": list_platforms()}
 
 
-@app.get("/api/insights", response_model=InsightsResponse)
-def insights(request: Request, mode: str = "mock", category: str = "", platform: str = "", region: str = "", season: str = ""):
-    """阶段B · 群体洞察接口（AI 市场洞察核心交付物）。
-
-    参数：
-        source   demo（演示数据）/ real（实际数据），决定读取哪个数据库
-        mode     mock（规则归因，可复现）/ live（LLM 归因，需 Key）
-        category 按品类下钻（可选）
-        platform 按平台下钻（可选）
-        region   按销售地区下钻（可选，方向2 维度扩展）
-        season   按季节下钻：春/夏/秋/冬（可选，方向2 维度扩展）
-    返回：KPI、品类热力、根因归因、供应商红黑榜、平台对比、异常预警、SKU明细、洞察报告、选品建议，
-         以及维度扩展字段（region_view / season_view / supplier_blacklist / 退货成本估算）。
-    """
+def _get_insights(
+    request: Request,
+    mode: str,
+    category: str,
+    platform: str,
+    region: str,
+    season: str,
+) -> dict:
+    """与 /api/insights 一致的过滤 + 聚合逻辑，供 insights 与 export_pdf 复用。"""
     source = _resolve_source(request)
     if mode not in ("mock", "live"):
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
@@ -401,6 +400,51 @@ def insights(request: Request, mode: str = "mock", category: str = "", platform:
     agg = dict(agg)  # 浅拷贝，避免就地修改 build_insights 的共享缓存对象
     agg["source"] = source  # 让前端知道当前看板基于哪个数据源
     return agg
+
+
+@app.get("/api/insights", response_model=InsightsResponse)
+def insights(request: Request, mode: str = "mock", category: str = "", platform: str = "", region: str = "", season: str = ""):
+    """阶段B · 群体洞察接口（AI 市场洞察核心交付物）。
+
+    参数：
+        source   demo（演示数据）/ real（实际数据），决定读取哪个数据库
+        mode     mock（规则归因，可复现）/ live（LLM 归因，需 Key）
+        category 按品类下钻（可选）
+        platform 按平台下钻（可选）
+        region   按销售地区下钻（可选，方向2 维度扩展）
+        season   按季节下钻：春/夏/秋/冬（可选，方向2 维度扩展）
+    返回：KPI、品类热力、根因归因、供应商红黑榜、平台对比、异常预警、SKU明细、洞察报告、选品建议，
+         以及维度扩展字段（region_view / season_view / supplier_blacklist / 退货成本估算）。
+    """
+    return _get_insights(request, mode, category, platform, region, season)
+
+
+@app.get("/api/export_pdf")
+def export_pdf(request: Request, mode: str = "mock", category: str = "", platform: str = "", region: str = "", season: str = ""):
+    """导出洞察报告为 PDF（服务端生成，浏览器直接下载，不再依赖 window.print）。
+
+    过滤条件与 /api/insights 完全一致，确保导出内容与当前看板对应。
+    """
+    agg = _get_insights(request, mode, category, platform, region, season)
+    source = agg.get("source", "demo")
+    pdf_bytes = generate_insights_pdf(
+        agg,
+        mode=mode,
+        source=source,
+        category=category,
+        platform=platform,
+        region=region,
+        season=season,
+    )
+    filename = default_filename()
+    ascii_name = filename.encode("ascii", "ignore").decode().replace(" ", "_") or "ReturnGuard_report.pdf"
+    utf8_name = quote(filename, safe="")
+    content_disposition = f"attachment; filename=\"{ascii_name}\"; filename*=utf-8''{utf8_name}"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition},
+    )
 
 
 @app.get("/api/cases")
