@@ -694,13 +694,17 @@ function animateValue(el, target, fmt, duration=700){
 }
 
 // 通用横向条形图
-function renderBarh(el, items){
+// opts.absolute=true 时直接把 o.v 当 0-100 的百分比宽度（用于平台维权难度等本身已是比率的数据）
+function renderBarh(el, items, opts={}){
   el.innerHTML='';
   if(!items.length){el.innerHTML='<span class="note">暂无数据。</span>';return;}
-  // 每个图表独立按自己的最大值归一化，确保同一张卡片内部比例正确
-  const max=Math.max(1,...items.map(o=>o.v));
+  const absolute=!!opts.absolute;
+  // 非绝对模式：每个图表独立按自己的最大值归一化，确保同一张卡片内部比例正确
+  const max=absolute?100:Math.max(1,...items.map(o=>o.v));
   items.forEach(o=>{
-    const wpct=Math.max(1, Math.round(o.v/max*100));
+    const wpct=absolute
+      ?Math.max(0,Math.min(100,Math.round(Number(o.v)||0)))
+      :Math.max(1,Math.round(o.v/max*100));
     const div=document.createElement('div'); div.className='barh';
     div.innerHTML=`<span class="lab" title="${esc(o.label)}">${esc(o.label)}</span>`
       +`<span class="track"><span class="fill" style="width:${wpct}%;background:${o.color||'var(--acc)'}" data-pct="${wpct}%" title="${esc(o.label)}：${esc(o.text)}（占本图表 ${wpct}%）"></span></span>`
@@ -1056,7 +1060,7 @@ async function loadInsights(){
 
   // 图形化
   renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#fbbf24'})));
-  renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})));
+  renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})), {absolute:true});
   renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#fb7185':x.level==='优质'?'#4ade80':'#facc15'})));
   renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
   renderSuppliers(d);
