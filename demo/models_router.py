@@ -46,6 +46,9 @@ API_BASE = os.environ.get(
 ).rstrip("/")
 API_KEY = os.environ.get("MODEL_ROUTER_API_KEY", "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
+# 默认文本推理模型：可用 MODEL_ROUTER_TEXT_MODEL 覆盖（demo/.env 配置）。
+# 演示/速度优先时可切 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等（对比结论见 compare_models.py）。
+TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", "qwen3.7-max")
 
 
 def _headers():
@@ -130,9 +133,9 @@ def ocr(image_url):
 
 
 # ===================== ④ 文本生成 / 推理（大模型）=====================
-def llm(prompt, model="qwen3.7-max"):
-    """调用 qwen3.7-max 做文本生成（举证卷宗、母语陈述、一致性判断）。
-    新网关命名无 qwen/ 前缀；可选 qwen3.6-flash / deepseek-v4-flash 等更快模型。返回模型文本。"""
+def llm(prompt, model=TEXT_MODEL):
+    """调用默认文本模型（MODEL_ROUTER_TEXT_MODEL，默认 qwen3.7-max）做文本生成。
+    可选 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等更快模型。返回模型文本。"""
     r = requests.post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -176,7 +179,7 @@ def _extract_json(raw):
     return {}
 
 
-def llm_json(prompt, model="qwen3.7-max"):
+def llm_json(prompt, model=TEXT_MODEL):
     """调用大模型并直接返回结构化 JSON（用于洞察聚类/归因）。
     qwen3.6+ 等模型会把思考放进 reasoning_content、content 可能为空，
     此时回退读取 reasoning_content 再抽取。"""
@@ -304,7 +307,7 @@ def build_insights_live(aggregated: dict) -> dict:
         "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写建议，面向卖家管理者。\n"
         "4) report：字符串，一段《选品 / 品控洞察报告》正文（中文，约 150 字），总结现状与下一步。\n"
     )
-    out = llm_json(prompt, model="qwen3.7-max")
+    out = llm_json(prompt, model=TEXT_MODEL)
     if not out:
         raise RuntimeError("洞察 LLM 未返回有效 JSON")
     return {
