@@ -149,6 +149,38 @@
   .dossier-head button{background:transparent;border:1px solid #334155;color:#94a3b8;padding:3px 10px;font-size:12px;border-radius:6px;cursor:pointer;transition:all .2s ease}
   .dossier-head button:hover{color:var(--acc);border-color:var(--acc)}
   .dossier-head button.copied{color:var(--ok);border-color:var(--ok)}
+  /* 洞察报告导出（弹层 + 打印存 PDF + 复制文本） */
+  #btnReport{margin-left:8px;background:transparent;border:1px solid rgba(52,211,153,.45);color:var(--ok);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s ease}
+  #btnReport:hover{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.2)}
+  .report{padding:4px 2px}
+  .report h4{color:var(--acc);font-size:13.5px;margin:14px 0 6px;border-bottom:1px solid #334155;padding-bottom:4px}
+  .report .r-kpis{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+  .report .r-kpi{background:#0b1220;border:1px solid #334155;border-radius:10px;padding:8px 14px;min-width:110px}
+  .report .r-kpi b{display:block;font-size:18px;color:var(--txt)}
+  .report .r-kpi span{font-size:11px;color:#94a3b8}
+  .report ul{margin:6px 0 0;padding-left:18px;line-height:1.8;font-size:13px}
+  .report li{margin-bottom:4px}
+  .report .r-meta{color:#64748b;font-size:11.5px;margin-top:2px}
+  .report .r-actions{display:flex;gap:8px;margin-top:10px}
+  .report .r-actions button{background:var(--acc);color:#04121f;border:0;border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer;font-size:12.5px}
+  .report .r-actions button.ghost{background:transparent;border:1px solid #334155;color:#94a3b8}
+  .report .r-actions button.ghost:hover{color:var(--acc);border-color:var(--acc)}
+  .report .r-foot{color:#64748b;font-size:11px;margin-top:14px;border-top:1px solid #334155;padding-top:8px;line-height:1.6}
+  @media print{
+    body{background:#fff}
+    body *{visibility:hidden}
+    #overlay, #overlay *{visibility:visible}
+    #overlay{position:static;display:block;background:#fff;padding:0;backdrop-filter:none}
+    #overlay .panel{width:100%;max-width:100%;max-height:none;overflow:visible;box-shadow:none;background:#fff;color:#111;border-radius:0;padding:12px 16px}
+    #overlay .panel h3, #overlay .panel h4, #overlay .panel b{color:#111}
+    #overlay .report .r-kpi{background:#f1f5f9;border-color:#cbd5e1}
+    #overlay .report .r-kpi b{color:#0f172a}
+    #overlay .report .r-kpi span{color:#475569}
+    #overlay .report .r-meta, #overlay .report .r-foot{color:#475569}
+    #overlay .report h4{border-bottom-color:#cbd5e1;color:#0f172a}
+    .r-actions{display:none!important}
+    #ovClose{display:none!important}
+  }
   .cmp{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:4px}
   .cmp th,.cmp td{border:1px solid #334155;padding:8px 10px;text-align:left;vertical-align:top}
   .cmp th{color:#94a3b8;font-weight:600;background:#0b1220;width:110px}
@@ -290,6 +322,7 @@
             <option value="live">洞察：AI 实算</option>
           </select>
           <button id="loadIns">刷新看板</button>
+          <button id="btnReport" type="button">导出洞察报告</button>
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
           <span id="insStatus" class="pill" style="background:#334155">就绪</span>
@@ -719,6 +752,77 @@ function openSupplier(name){
 }
 function closeOverlay(){$('#overlay').classList.remove('show');}
 
+// ============ 洞察报告导出（演示/交付：一键出报告，可打印存 PDF / 复制文本） ============
+function reportText(d){
+  const L=[];
+  L.push('ReturnGuard 选品·品控洞察报告');
+  const cat=$('#catSel').value||'', plat=$('#platSel').value||'';
+  const scope=(cat?cat+' / ':'')+(plat||'全平台');
+  L.push(`生成时间：${new Date().toLocaleString('zh-CN')}｜数据源：${CURRENT_SOURCE==='real'?'实际数据':'演示数据'}｜筛选：${scope}`);
+  L.push('');
+  L.push(`【核心指标】已分析退货 ${d.total_cases} 笔｜累计退款 ¥${Number(d.total_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:2})}｜维权胜诉率 ${pct(d.win_rate||0)}｜货不对板嫌疑率 ${pct(d.avg_dispute_rate||0)}`);
+  L.push('');
+  L.push(`【根因分析】${d.root_cause||'暂无足够数据'}`);
+  if(d.report) L.push(`【洞察报告】${d.report}`);
+  L.push('');
+  L.push('【选品 / 品控建议】');
+  (d.recommendations||[]).forEach((r,i)=>L.push(`${i+1}. ${r}`));
+  const blacks=(d.supplier_scorecard||[]).filter(s=>s.level==='高风险'||s.quality_score<50).slice(0,5);
+  if(blacks.length){
+    L.push(''); L.push('【供应商红黑榜（黑榜=高风险，建议换）】');
+    blacks.forEach(s=>L.push(`- ${s.supplier} ${s.name||''}：质量分 ${Number(s.quality_score||0).toFixed(1)}，${s.level||'高风险'}（胜诉率 ${pct(s.win_rate||0)}）`));
+  }
+  const alerts=d.anomaly_alerts||[];
+  if(alerts.length){
+    L.push(''); L.push('【异常 SKU 预警】');
+    alerts.slice(0,5).forEach(a=>L.push(`- ${a.sku}（${a.category||''}）：${a.reason||''}`));
+  }
+  L.push('');
+  L.push('※ 以上仅基于已沉淀退货数据的客观统计，不构成对平台裁决的替代。ReturnGuard V1.0');
+  return L.join('\n');
+}
+function exportReport(){
+  const d=_ins||{};
+  if(!d.total_cases){ $('#insStatus').textContent='请先刷新看板'; return; }
+  const cat=$('#catSel').value||'', plat=$('#platSel').value||'';
+  const scope=(cat?cat+' / ':'')+(plat||'全平台');
+  const blacks=(d.supplier_scorecard||[]).filter(s=>s.level==='高风险'||s.quality_score<50).slice(0,5);
+  const alerts=d.anomaly_alerts||[];
+  $('#ovTitle').textContent='选品·品控洞察报告';
+  $('#ovBody').innerHTML=`
+    <div class="report">
+      <h3 style="margin:0 0 2px;font-size:18px">ReturnGuard 选品 · 品控洞察报告</h3>
+      <div class="r-meta">生成时间：${new Date().toLocaleString('zh-CN')} ｜ 数据源：${CURRENT_SOURCE==='real'?'实际数据':'演示数据'} ｜ 筛选：${esc(scope)}</div>
+      <div class="r-kpis">
+        <div class="r-kpi"><b>${Number(d.total_cases).toLocaleString()}</b><span>已分析退货（笔）</span></div>
+        <div class="r-kpi"><b style="color:${wrColor(d.win_rate||0)}">${pct(d.win_rate||0)}</b><span>维权胜诉率</span></div>
+        <div class="r-kpi"><b>¥${Number(d.total_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b><span>累计退款</span></div>
+        <div class="r-kpi"><b>${pct(d.avg_dispute_rate||0)}</b><span>货不对板嫌疑率</span></div>
+      </div>
+      <h4>根因分析</h4>
+      <div style="font-size:13px;line-height:1.7">${esc(d.root_cause||'暂无足够数据')}</div>
+      ${d.report?`<h4>洞察报告</h4><div style="font-size:13px;line-height:1.7">${esc(d.report)}</div>`:''}
+      <h4>选品 / 品控建议</h4>
+      <ul>${(d.recommendations||[]).map(r=>`<li>${esc(r)}</li>`).join('')||'<li>暂无建议</li>'}</ul>
+      ${blacks.length?`<h4>供应商红黑榜（黑榜 = 高风险，建议换）</h4>
+      <ul>${blacks.map(s=>`<li><b>${esc(s.supplier)}</b> ${esc(s.name||'')}：质量分 ${Number(s.quality_score||0).toFixed(1)}，${esc(s.level||'高风险')}（胜诉率 ${pct(s.win_rate||0)}）</li>`).join('')}</ul>`:''}
+      ${alerts.length?`<h4>异常 SKU 预警</h4>
+      <ul>${alerts.slice(0,5).map(a=>`<li><b>${esc(a.sku)}</b>（${esc(a.category||'')}）：${esc(a.reason||'')}</li>`).join('')}</ul>`:''}
+      <div class="r-actions">
+        <button type="button" onclick="window.print()">打印 / 存为 PDF</button>
+        <button type="button" class="ghost" id="copyReportBtn">复制报告文本</button>
+      </div>
+      <div class="r-foot">※ 以上仅基于已沉淀退货数据的客观统计，不构成对平台裁决的替代。ReturnGuard V1.0</div>
+    </div>`;
+  $('#overlay').classList.add('show');
+  $('#copyReportBtn').onclick=()=>copyReportText(d);
+}
+function copyReportText(d){
+  navigator.clipboard.writeText(reportText(d)).then(()=>{
+    const b=$('#copyReportBtn'); b.textContent='已复制'; setTimeout(()=>{b.textContent='复制报告文本';},1800);
+  }).catch(err=>{ $('#insStatus').textContent='复制失败：'+err.message; });
+}
+
 // 单案举证：退货图叠加缺陷红框（P3-5：改为加载 /uploads 返回的 URL，而非内联 base64）
 function renderAnnot(boxes, imgUrl){
   const cv=$('#annot');
@@ -1049,6 +1153,7 @@ async function submitEntry(e){
 document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.addEventListener('click',()=>setSource(b.dataset.src)));
 $('#f').addEventListener('submit',doAnalyze);
 $('#copyDossier').addEventListener('click',copyDossier);
+$('#btnReport').addEventListener('click',exportReport);
 $('#entryForm').addEventListener('submit',submitEntry);
 $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
