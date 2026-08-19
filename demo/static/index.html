@@ -127,8 +127,9 @@
   .barh .val{width:74px;flex:none;text-align:right;color:#94a3b8}
   .matrix{border-collapse:collapse;font-size:11px;width:100%;margin-top:4px}
   .matrix th,.matrix td{padding:4px 6px;border:1px solid #334155;text-align:center}
-  /* ⑩ 平台×供应商维权交叉：卡片内独立滚动，避免被 flex 压缩到只显示一行 */
-  #matrixHeat.chart{flex:1;min-height:0;overflow:auto}
+  /* ⑩ 平台×供应商维权交叉：禁用 flex 压缩，让 matrix 表格自然撑开，
+     溢出时统一由 .card 右侧滚动条处理（与 ⑮ 等其他卡片一致） */
+  #matrixHeat.chart{flex-shrink:0}
   .matrix th{color:#94a3b8;font-weight:600;background:#0b1220}
   .matrix td.pl{text-align:left;color:#cbd5e1;font-weight:600}
   .annot-wrap{position:relative;display:inline-block;margin-top:6px}
