@@ -35,9 +35,14 @@
    - 修复：用 `os.path.basename()` + 白名单清洗，并断言结果仍在 `UPLOAD_DIR` 内。
      ```python
      import re
+
      _SAFE = re.compile(r"[^A-Za-z0-9._-]")
+
+
      def _safe_name(name: str) -> str:
          return _SAFE.sub("_", os.path.basename(name or "file"))
+
+
      fn = _safe_name(returned_image.filename)
      rp = os.path.join(UPLOAD_DIR, f"{rid}_ret_{fn}")
      assert os.path.dirname(os.path.abspath(rp)) == UPLOAD_DIR, "路径越界"
@@ -294,3 +299,74 @@
 | **持续打磨** | P2-3/4/5/6/9、P3-1~5 | 1–2 天 |
 
 > 结论：代码已达"可演示、架构清晰、工程化到位"水平；**阻断性风险集中在 P1-1（数据污染）**，复赛路演前务必先修。其余 P2 多为生产化加固，可按部署节奏推进。
+
+---
+
+# 七、终审（2026-08-21）· A/B/C 组全量交付 + 测试/lint 门禁全绿
+
+> 审查基准：本仓库 v1.1.0。本轮按用户交付顺序完成 **A 组（假能力变真）→ B 组（数据闭环）→ C 组（多租户+合规+国产化）**，并对全部新增代码做终审。
+> 方法：静态通读 + 动态验证（TestClient 冒烟、openGauss 自动导入幂等复现、租户隔离复现）+ ruff/pytest 门禁全跑。
+
+## 7.1 门禁结论
+
+| 门禁 | 结果 |
+|---|---|
+| `ruff check .` | ✅ 0 错误（含仓库根 `render_diagrams.py` / `verify_api.py` 存量 8 项一并修掉） |
+| `ruff format --check .` | ✅ 全绿（43 files） |
+| `pytest -q`（隔离 SQLite env） | ✅ **65 passed**（1.0.0 基线 30 → 1.1.0 共 65） |
+| live 冒烟（`verify_live.py`） | ✅ 无 Key 自动 SKIP；有 Key 逐能力真实/回退标记正确 |
+
+## 7.2 旧问题终审状态（承接 6.2 / 6.3 / 6.4）
+
+| 原编号 | 项 | 状态 |
+|---|---|---|
+| P1-1 上传维度污染 | ✅ 已闭环（单案归「待分析」+ 维度补全，1.0.0） |
+| P1-2 取证原子性 | ✅ 已闭环（try/except 清理 + 优先返回结果，1.0.0） |
+| P1-3 XSS 转义 | ✅ **本轮彻底闭环**：修复 SKU/品类/供应商/根因标签/平台举证材料等全部漏转义点，统一 `esc()`；后端新增 CSP / `X-Content-Type-Options` / `Referrer-Policy` 防御纵深（`main.py security_headers` 中间件） |
+| P2-1 `/uploads` 暴露 | ✅ 已补过期清理（1.0.0）+ 图床抽象（本轮 A 组）；生产签名 URL 仍标注为部署期事项 |
+| P2-4 阈值 0.82 漂移 | ✅ **本轮彻底闭环**：`calibration.py` 自标定 + `get_active_threshold()` 单一来源，前端/生成器同步 |
+| P3-3 负向/一致性测试 | ✅ **本轮闭环**：新增 `tests/test_negative.py`（12 项）+ `tests/test_auth.py`（5 项） |
+| P3-17 live 图床 | ✅ **本轮闭环**：`storage.py`（OSS / PUBLIC_IMAGE_BASE / 本地回退）+ 上传即回传图床 |
+
+## 7.3 本轮新增能力复审
+
+### A 组 · 假能力变真
+- `models_router.live_analyze` 重构为**逐能力回退**（similarity/defects/ocr/tts 各自 try/except + `capabilities` 映射），任一能力失败不影响其余，gateway 渐进开通即生效——设计正确，杜绝"一个能力挂整链断"。
+- `storage.py` 图床抽象：OSS（boto3 懒加载）/ `PUBLIC_IMAGE_BASE` / 本地回退三级，`is_public_ready()` 显式暴露可回源状态；上传即 `bed_upload` 回传公网 URL，live 服务端回源有据可依。
+- `verify_live.py` 冒烟：无 Key SKIP、有 Key 逐能力报真实/回退，CI/演示两不误。
+
+### B 组 · 数据闭环
+- `pipeline` 新增 `time_series` / `forecast`（线性回归外推 + 趋势）/ `forecast_alerts`（环比激增），纯函数 `_build_time_series` / `_forecast_monthly` 可单测；前端趋势折线 + 预测 KPI 卡已渲染。
+- `importer.py` CSV 回流：列名映射（中英不敏感）、类型转换、缺 sku 跳过、**自动补 case_id**（修复原导入 NULL 案件号导致无法删除/去重的隐患）；连接器位 `import_from_connector` 可插拔。
+- `calibration.py`：Youden J 最优切点 + 落盘 + `get_active_threshold()` 统一读取（pipeline 与 live 同源）。
+
+### C 组 · 多租户 + 合规 + 国产化
+- **多租户隔离（实锤复现）**：注册两个租户 acme/beta + 匿名，实测——acme 只见自有 + public 基准，beta 只见自有 + public，匿名只见 public；**跨租户删除返回 deleted=0（拦截生效）**；`/api/auth/me` 匿名 401。私有数据严格隔离，`public` 作为共享基准。
+- **XSS 防御纵深**：前端漏转义点全清；后端 CSP（`object-src 'none'; base-uri 'self'; frame-ancestors 'none'`）+ nosniff + no-referrer，即使前端偶发漏转义也有兜底。
+- **负向测试**：非法 mode/platform/season/空白 category → 400；CSV 缺 sku 跳过；mock 确定性（同图同结果）；安全响应头断言。
+- **region/season 下钻**：后端 `/api/insights` 原生支持，前端新增地区/季节筛选并联动（与导出 PDF 同口径）。
+- **openGauss 自动导入（实锤复现）**：`RG_AUTO_IMPORT_CSV=seed_real.csv` 启动自动导入 real 源 20 条、全带 case_id；**重启再导入 imported=0 / skipped=20（幂等）**；存量库自动 `ALTER TABLE` 补 `tenant_id` 列（schema 演进不破坏）。
+- **账户体系安全**：pbkdf2（10 万轮）+ HMAC 签名令牌（无状态、7 天过期、`AUTH_SECRET` 可配）；密码最短 6 位、用户名正则；零新依赖（stdlib）。
+
+## 7.4 本轮顺手修复的隐藏问题
+
+- **mock 相似度确定性回归（重要）**：`_mock_similarity` 原按**文件名**哈希（上传文件名含随机 `rid`）→ 同一张图每次结果漂移（实测 0.785 vs 0.933）。改为按**图片内容**哈希（`_content_seed`），同图恒同结果，mock 可复现（PRD 要求）。
+- **CSV 导入 NULL 案件号**：补齐 `RG-XXXXXXXX`，与 `/api/cases` 手动录入口径一致。
+- **`auth.py` 懒引擎死锁**：初版 `_auth_session` 外层持锁再调 `get_auth_engine`（非重入 `threading.Lock`）→ 死锁；已改为引擎工厂内部加锁、会话不嵌套持锁（测试 65 项全过佐证）。
+
+## 7.5 已知限制 / 遗留（非阻断）
+
+| 项 | 说明 |
+|---|---|
+| live 模型开通依赖 | 视觉/向量/OCR/TTS 需 Model Router gateway 开通对应模型；未开通自动回退 mock 并逐能力标记，**开通即生效** |
+| 多 worker 缓存一致性 | 聚合/load_cases 缓存为进程内（SQLite/单 worker 演示足够）；openGauss 多 worker 生产建议加 Redis 共享缓存（非阻断） |
+| `/uploads` 静态可读 | 演示态；对外公网部署应改签名 URL + 短期过期（已在代码注释标注） |
+| Alembic 迁移 | 当前用 `_ensure_tenant_column` 做最小 schema 演进；大规模生产建议引入 Alembic（非阻断） |
+
+## 7.6 终审结论
+
+- **综合评级：A-**（1.0.0 基线 B- → 1.1.0 A-）。
+- 安全面：P1 全部清零；XSS 前端转义 + 后端 CSP 双保险；写接口鉴权/限流；多租户隔离经动态复现。
+- 质量面：测试 30 → **65**（含负向/一致性/租户隔离/openGauss 导入），ruff check + format 全绿。
+- 交付面：A/B/C 三组全部落地并文档化（CHANGELOG v1.1.0、README、`openGauss部署指南.md`、本报告）。
+- 遗留均为部署期/生产化增强，不阻断复赛演示与上架节奏。

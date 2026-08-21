@@ -90,20 +90,33 @@ def test_metrics_endpoint():
         r = c.get("/metrics")
         assert r.status_code == 200
         d = r.json()
-        for k in ("uptime_seconds", "requests", "avg_latency_ms", "errors_5xx",
-                  "analyze_count", "insights_count"):
+        for k in (
+            "uptime_seconds",
+            "requests",
+            "avg_latency_ms",
+            "errors_5xx",
+            "analyze_count",
+            "insights_count",
+        ):
             assert k in d, f"metrics 缺少字段 {k}"
 
 
 def test_real_source_isolated_and_empty():
-    """库级隔离：real 源初始为空且与 demo 种子物理隔离。"""
+    """库级隔离：real 源与 demo 种子物理隔离。
+
+    说明：demo/real 为独立库文件/实例，real 的初始数据来自录入/导入（含 C组多租户 public 基准）。
+    由于同一进程内全量测试的执行顺序不保证（部分测试会向 real 写入），这里断言的是
+    「物理隔离」这一不变量：real 源绝不混入 demo 种子 SKU。
+    """
     with TestClient(app) as c:
-        # real 源洞察应为空聚合，且 source 字段回传正确
         r = c.get("/api/insights", params={"mode": "mock", "source": "real"})
         assert r.status_code == 200
         d = r.json()
         assert d["source"] == "real"
-        assert d["total_cases"] == 0, "实际数据初始应为空"
+        # 物理隔离：demo 种子库的 SKU 绝不应出现在 real 源
+        demo_skus = {x["sku"] for x in c.get("/api/cases", params={"source": "demo"}).json()}
+        real_skus = {x["sku"] for x in c.get("/api/cases", params={"source": "real"}).json()}
+        assert demo_skus and real_skus.isdisjoint(demo_skus), "real 源不应混入 demo 种子数据"
         # demo 源仍是种子数据，不受影响
         d2 = c.get("/api/insights", params={"mode": "mock", "source": "demo"}).json()
         assert d2["source"] == "demo" and d2["total_cases"] > 0
@@ -114,9 +127,14 @@ def test_manual_add_routes_to_source():
     with TestClient(app) as c:
         sku = "SKU-ISOLATE-" + uuid.uuid4().hex[:6]
         payload = {
-            "sku": sku, "category": "3C数码", "supplier": "S9",
-            "platform": "Amazon", "amount": 199, "outcome": "赢",
-            "similarity": 0.95, "same_item": True,
+            "sku": sku,
+            "category": "3C数码",
+            "supplier": "S9",
+            "platform": "Amazon",
+            "amount": 199,
+            "outcome": "赢",
+            "similarity": 0.95,
+            "same_item": True,
             "defect_tags": ["无明显瑕疵"],
         }
         # 写入 real 源

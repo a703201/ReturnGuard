@@ -6,6 +6,7 @@
 - 采用 Platypus 流式布局，标题紧贴上边距，从根上消除之前「window.print 整体偏下」的问题。
 - 返回 PDF 字节流，由 FastAPI 端点以 attachment 形式下发，浏览器直接下载。
 """
+
 from __future__ import annotations
 
 import io
@@ -50,26 +51,59 @@ def _esc(t) -> str:
 
 def _styles():
     return {
-        "title": ParagraphStyle("title", fontName=_FONT, fontSize=20, leading=24,
-                                textColor=C_HEAD, spaceAfter=2),
-        "meta": ParagraphStyle("meta", fontName=_FONT, fontSize=9, leading=13,
-                               textColor=C_SUB, spaceAfter=6),
-        "h": ParagraphStyle("h", fontName=_FONT, fontSize=13, leading=17,
-                            textColor=C_ACCENT, spaceBefore=12, spaceAfter=5),
-        "body": ParagraphStyle("body", fontName=_FONT, fontSize=10, leading=15,
-                               textColor=C_HEAD, spaceAfter=4, alignment=TA_LEFT),
-        "li": ParagraphStyle("li", fontName=_FONT, fontSize=10, leading=15,
-                             textColor=C_HEAD, leftIndent=12, spaceAfter=2),
-        "cell": ParagraphStyle("cell", fontName=_FONT, fontSize=9, leading=12,
-                               textColor=C_HEAD, alignment=TA_LEFT),
-        "cellc": ParagraphStyle("cellc", fontName=_FONT, fontSize=9, leading=12,
-                                textColor=C_HEAD, alignment=TA_CENTER),
-        "th": ParagraphStyle("th", fontName=_FONT, fontSize=9, leading=12,
-                             textColor=colors.white, alignment=TA_CENTER),
-        "kpi": ParagraphStyle("kpi", fontName=_FONT, fontSize=10, leading=18,
-                              textColor=C_HEAD, alignment=TA_CENTER),
-        "note": ParagraphStyle("note", fontName=_FONT, fontSize=9, leading=13,
-                               textColor=C_SUB, alignment=TA_LEFT),
+        "title": ParagraphStyle(
+            "title", fontName=_FONT, fontSize=20, leading=24, textColor=C_HEAD, spaceAfter=2
+        ),
+        "meta": ParagraphStyle(
+            "meta", fontName=_FONT, fontSize=9, leading=13, textColor=C_SUB, spaceAfter=6
+        ),
+        "h": ParagraphStyle(
+            "h",
+            fontName=_FONT,
+            fontSize=13,
+            leading=17,
+            textColor=C_ACCENT,
+            spaceBefore=12,
+            spaceAfter=5,
+        ),
+        "body": ParagraphStyle(
+            "body",
+            fontName=_FONT,
+            fontSize=10,
+            leading=15,
+            textColor=C_HEAD,
+            spaceAfter=4,
+            alignment=TA_LEFT,
+        ),
+        "li": ParagraphStyle(
+            "li",
+            fontName=_FONT,
+            fontSize=10,
+            leading=15,
+            textColor=C_HEAD,
+            leftIndent=12,
+            spaceAfter=2,
+        ),
+        "cell": ParagraphStyle(
+            "cell", fontName=_FONT, fontSize=9, leading=12, textColor=C_HEAD, alignment=TA_LEFT
+        ),
+        "cellc": ParagraphStyle(
+            "cellc", fontName=_FONT, fontSize=9, leading=12, textColor=C_HEAD, alignment=TA_CENTER
+        ),
+        "th": ParagraphStyle(
+            "th",
+            fontName=_FONT,
+            fontSize=9,
+            leading=12,
+            textColor=colors.white,
+            alignment=TA_CENTER,
+        ),
+        "kpi": ParagraphStyle(
+            "kpi", fontName=_FONT, fontSize=10, leading=18, textColor=C_HEAD, alignment=TA_CENTER
+        ),
+        "note": ParagraphStyle(
+            "note", fontName=_FONT, fontSize=9, leading=13, textColor=C_SUB, alignment=TA_LEFT
+        ),
     }
 
 
@@ -108,10 +142,14 @@ def _wr_color(frac):
 
 def _rule():
     t = Table([[""]], colWidths=[AW], rowHeights=[2])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), C_ACCENT),
-        ("LINEBELOW", (0, 0), (-1, -1), 0, C_ACCENT),
-    ]))
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), C_ACCENT),
+                ("LINEBELOW", (0, 0), (-1, -1), 0, C_ACCENT),
+            ]
+        )
+    )
     return t
 
 
@@ -144,9 +182,16 @@ def _table(headers, data_rows, col_widths, aligns=None, zebra=True):
     return table
 
 
-def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
-                          category: str = "", platform: str = "",
-                          region: str = "", season: str = "") -> bytes:
+def generate_insights_pdf(
+    agg: dict,
+    *,
+    mode: str = "",
+    source: str = "demo",
+    category: str = "",
+    platform: str = "",
+    region: str = "",
+    season: str = "",
+) -> bytes:
     """把洞察聚合结果渲染成 A4 PDF，返回字节流。"""
     agg = agg or {}
     s = _styles()
@@ -159,9 +204,12 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
 
     # ---- 页眉：标题（紧贴顶部，避免偏下）----
     story.append(Paragraph("ReturnGuard 选品-品控洞察报告", s["title"]))
-    story.append(Paragraph(
-        f"生成时间：{now} ｜ 数据源：{src_label} ｜ 归因模式：{mode_label} ｜ 筛选：{_esc(scope)}",
-        s["meta"]))
+    story.append(
+        Paragraph(
+            f"生成时间：{now} ｜ 数据源：{src_label} ｜ 归因模式：{mode_label} ｜ 筛选：{_esc(scope)}",
+            s["meta"],
+        )
+    )
     story.append(_rule())
 
     total_cases = int(agg.get("total_cases", 0) or 0)
@@ -185,19 +233,27 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
         row = []
         for j in range(3):
             lab, val = kpis[i + j]
-            row.append(Paragraph(
-                f'<font size="15">{_esc(val)}</font><br/>'
-                f'<font size="8.5" color="#64748b">{_esc(lab)}</font>', s["kpi"]))
+            row.append(
+                Paragraph(
+                    f'<font size="15">{_esc(val)}</font><br/>'
+                    f'<font size="8.5" color="#64748b">{_esc(lab)}</font>',
+                    s["kpi"],
+                )
+            )
         kpi_rows.append(row)
     kpi_tbl = Table(kpi_rows, colWidths=[cw3, cw3, cw3])
-    kpi_tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), C_KPI_BG),
-        ("BOX", (0, 0), (-1, -1), 0.5, C_LINE),
-        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.white),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-    ]))
+    kpi_tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), C_KPI_BG),
+                ("BOX", (0, 0), (-1, -1), 0.5, C_LINE),
+                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.white),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 9),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+            ]
+        )
+    )
     story.append(Spacer(1, 8))
     story.append(kpi_tbl)
 
@@ -225,19 +281,23 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
         story.append(Paragraph("供应商黑名单（质量分 &lt; 50，建议更换）", s["h"]))
         rows = []
         for b in blacks:
-            rows.append([
-                Paragraph(_esc(b.get("supplier", "")), s["cell"]),
-                Paragraph(_esc(b.get("name", "")), s["cell"]),
-                Paragraph(_esc(b.get("quality_score", "")), s["cellc"]),
-                Paragraph(_esc(b.get("level", "")), s["cellc"]),
-                Paragraph(_esc(b.get("reason", "")), s["cell"]),
-            ])
-        story.append(_table(
-            ["供应商", "名称", "质量分", "等级", "说明"],
-            rows,
-            [AW * 0.15, AW * 0.18, AW * 0.1, AW * 0.1, AW * 0.47],
-            aligns=[TA_LEFT, TA_LEFT, TA_CENTER, TA_CENTER, TA_LEFT],
-        ))
+            rows.append(
+                [
+                    Paragraph(_esc(b.get("supplier", "")), s["cell"]),
+                    Paragraph(_esc(b.get("name", "")), s["cell"]),
+                    Paragraph(_esc(b.get("quality_score", "")), s["cellc"]),
+                    Paragraph(_esc(b.get("level", "")), s["cellc"]),
+                    Paragraph(_esc(b.get("reason", "")), s["cell"]),
+                ]
+            )
+        story.append(
+            _table(
+                ["供应商", "名称", "质量分", "等级", "说明"],
+                rows,
+                [AW * 0.15, AW * 0.18, AW * 0.1, AW * 0.1, AW * 0.47],
+                aligns=[TA_LEFT, TA_LEFT, TA_CENTER, TA_CENTER, TA_LEFT],
+            )
+        )
 
     # ---- 异常 SKU 预警 ----
     alerts = agg.get("anomaly_alerts") or []
@@ -245,17 +305,21 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
         story.append(Paragraph("异常 SKU 预警（近 30 天集中爆发）", s["h"]))
         rows = []
         for a in alerts[:8]:
-            rows.append([
-                Paragraph(_esc(a.get("sku", "")), s["cell"]),
-                Paragraph(_esc(a.get("category", "")), s["cell"]),
-                Paragraph(_esc(a.get("reason", "")), s["cell"]),
-            ])
-        story.append(_table(
-            ["SKU", "品类", "预警说明"],
-            rows,
-            [AW * 0.2, AW * 0.18, AW * 0.62],
-            aligns=[TA_LEFT, TA_LEFT, TA_LEFT],
-        ))
+            rows.append(
+                [
+                    Paragraph(_esc(a.get("sku", "")), s["cell"]),
+                    Paragraph(_esc(a.get("category", "")), s["cell"]),
+                    Paragraph(_esc(a.get("reason", "")), s["cell"]),
+                ]
+            )
+        story.append(
+            _table(
+                ["SKU", "品类", "预警说明"],
+                rows,
+                [AW * 0.2, AW * 0.18, AW * 0.62],
+                aligns=[TA_LEFT, TA_LEFT, TA_LEFT],
+            )
+        )
 
     # ---- 维度扩展：地区分布（⑬）----
     rv = agg.get("region_view") or []
@@ -263,19 +327,27 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
         story.append(Paragraph("退货地区分布", s["h"]))
         rows = []
         for x in rv:
-            rows.append([
-                Paragraph(_esc(x.get("region", "")), s["cell"]),
-                Paragraph(_fmt_int(x.get("cases", 0)), s["cellc"]),
-                Paragraph(_fmt_money(x.get("refund", 0)), s["cellc"]),
-                Paragraph(_fmt_pct(x.get("win_rate", 0)),
-                          ParagraphStyle("wc", parent=s["cellc"], textColor=_wr_color(x.get("win_rate", 0)))),
-            ])
-        story.append(_table(
-            ["地区", "纠纷量", "退款", "胜诉率"],
-            rows,
-            [AW * 0.28, AW * 0.24, AW * 0.24, AW * 0.24],
-            aligns=[TA_LEFT, TA_CENTER, TA_CENTER, TA_CENTER],
-        ))
+            rows.append(
+                [
+                    Paragraph(_esc(x.get("region", "")), s["cell"]),
+                    Paragraph(_fmt_int(x.get("cases", 0)), s["cellc"]),
+                    Paragraph(_fmt_money(x.get("refund", 0)), s["cellc"]),
+                    Paragraph(
+                        _fmt_pct(x.get("win_rate", 0)),
+                        ParagraphStyle(
+                            "wc", parent=s["cellc"], textColor=_wr_color(x.get("win_rate", 0))
+                        ),
+                    ),
+                ]
+            )
+        story.append(
+            _table(
+                ["地区", "纠纷量", "退款", "胜诉率"],
+                rows,
+                [AW * 0.28, AW * 0.24, AW * 0.24, AW * 0.24],
+                aligns=[TA_LEFT, TA_CENTER, TA_CENTER, TA_CENTER],
+            )
+        )
 
     # ---- 维度扩展：季节趋势（⑭）----
     sv = agg.get("season_view") or []
@@ -283,19 +355,27 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
         story.append(Paragraph("退货季节趋势", s["h"]))
         rows = []
         for x in sv:
-            rows.append([
-                Paragraph(_esc(x.get("season", "")), s["cell"]),
-                Paragraph(_fmt_int(x.get("cases", 0)), s["cellc"]),
-                Paragraph(_fmt_money(x.get("refund", 0)), s["cellc"]),
-                Paragraph(_fmt_pct(x.get("win_rate", 0)),
-                          ParagraphStyle("wc2", parent=s["cellc"], textColor=_wr_color(x.get("win_rate", 0)))),
-            ])
-        story.append(_table(
-            ["季节", "纠纷量", "退款", "胜诉率"],
-            rows,
-            [AW * 0.28, AW * 0.24, AW * 0.24, AW * 0.24],
-            aligns=[TA_LEFT, TA_CENTER, TA_CENTER, TA_CENTER],
-        ))
+            rows.append(
+                [
+                    Paragraph(_esc(x.get("season", "")), s["cell"]),
+                    Paragraph(_fmt_int(x.get("cases", 0)), s["cellc"]),
+                    Paragraph(_fmt_money(x.get("refund", 0)), s["cellc"]),
+                    Paragraph(
+                        _fmt_pct(x.get("win_rate", 0)),
+                        ParagraphStyle(
+                            "wc2", parent=s["cellc"], textColor=_wr_color(x.get("win_rate", 0))
+                        ),
+                    ),
+                ]
+            )
+        story.append(
+            _table(
+                ["季节", "纠纷量", "退款", "胜诉率"],
+                rows,
+                [AW * 0.28, AW * 0.24, AW * 0.24, AW * 0.24],
+                aligns=[TA_LEFT, TA_CENTER, TA_CENTER, TA_CENTER],
+            )
+        )
 
     return _build(story)
 
@@ -303,18 +383,25 @@ def generate_insights_pdf(agg: dict, *, mode: str = "", source: str = "demo",
 def _build(story) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=A4,
-        leftMargin=MARGIN_LR, rightMargin=MARGIN_LR,
-        topMargin=MARGIN_TOP, bottomMargin=MARGIN_BOTTOM,
-        title="ReturnGuard 选品-品控洞察报告", author="ReturnGuard",
+        buf,
+        pagesize=A4,
+        leftMargin=MARGIN_LR,
+        rightMargin=MARGIN_LR,
+        topMargin=MARGIN_TOP,
+        bottomMargin=MARGIN_BOTTOM,
+        title="ReturnGuard 选品-品控洞察报告",
+        author="ReturnGuard",
     )
 
     def _decorate(canvas, d):
         canvas.saveState()
         canvas.setFont(_FONT, 8)
         canvas.setFillColor(C_SUB)
-        canvas.drawString(MARGIN_LR, 8 * mm,
-                          "ReturnGuard V1.0 · 本报告仅基于已沉淀退货数据的客观统计，不构成对平台裁决的替代")
+        canvas.drawString(
+            MARGIN_LR,
+            8 * mm,
+            "ReturnGuard V1.0 · 本报告仅基于已沉淀退货数据的客观统计，不构成对平台裁决的替代",
+        )
         canvas.drawRightString(A4[0] - MARGIN_LR, 8 * mm, f"第 {d.page} 页")
         canvas.restoreState()
 

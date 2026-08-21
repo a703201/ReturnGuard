@@ -45,7 +45,10 @@
   .topbar{flex:0 0 auto;padding:10px 16px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #1e293b}
   .hrow1{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .hrow2{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .bar-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bar-top{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+  .bar-top select,.bar-top button#loadIns{padding:4px 8px;font-size:12px;min-height:30px;min-width:80px;max-width:130px}
+  .bar-top .pill{font-size:11px;padding:3px 8px}
+  .bar-top button#authBtn{padding:4px 10px;font-size:12px;min-height:30px}
   .content{flex:1;min-height:0;overflow:hidden;padding:12px 16px}
 
   /* KPI 紧凑条 */
@@ -71,7 +74,30 @@
   /* 看板网格：占满高度、每卡内部滚动，绝不整页滚动 */
   .tabpane{display:none;height:100%;opacity:0;transform:translateY(10px);transition:opacity .28s ease,transform .28s ease;will-change:opacity,transform}
   .tabpane.active{display:block;opacity:1;transform:translateY(0)}
-  .board{display:grid;gap:12px;height:100%;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(4,1fr)}
+  /* 按列折叠看板（Issue B）：3 列垂直列表，每列单开折叠，展开卡片占满列高 */
+  .board{display:flex;gap:12px;height:100%;min-height:0;align-items:stretch}
+  .board .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;min-height:0}
+  .board > #loginGate{order:99;display:none;flex:1;align-items:center;justify-content:center;text-align:center}
+  .board.gated > .col{display:none}
+  .board.gated > #loginGate{display:flex}
+  @media (max-width:1100px){.board{flex-direction:column;overflow:auto}.board .col{flex:0 0 auto;max-height:none}}
+  /* 卡片折叠：collapsed=仅标题（紧凑），open=占满列内剩余空间，卡内滚动 */
+  /* 卡片头：hover 高亮 + 右侧箭头（▸ → 90°，可点） */
+  .card .card-head{cursor:pointer;user-select:none;margin:0 0 8px;display:flex;align-items:center;gap:6px;padding:0;transition:color .2s ease}
+  .card .card-head::after{content:'▸';margin-left:auto;color:#94a3b8;font-size:13px;transition:transform .28s cubic-bezier(.4,0,.2,1),color .2s ease}
+  .card .card-head:hover{color:#fff}
+  .card:not(.collapsed) .card-head::after{transform:rotate(90deg);color:var(--acc)}
+  .card .card-head:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+  /* 卡片：折叠=仅标题紧凑，展开=占满列内剩余并高亮 */
+  .card{transition:border-color .28s ease,box-shadow .28s ease,padding .25s ease}
+  .card:not(.collapsed){border-color:rgba(46,91,255,.5);box-shadow:0 0 0 1px rgba(46,91,255,.28),0 10px 30px rgba(2,6,23,.35)}
+  .card.collapsed{padding:9px 14px !important;flex:0 0 auto}
+  .card.collapsed .card-head{margin:0}
+  .card:not(.collapsed){flex:1 1 0;min-height:0;display:flex;flex-direction:column}
+  /* 展开/收起动效：高度由 JS 实测内容高度（真 auto 高度），过渡 + 淡入 + 微位移 */
+  .card .card-body{opacity:0;transform:translateY(-6px);overflow:hidden;transition:max-height .38s cubic-bezier(.4,0,.2,1),opacity .32s ease,transform .32s ease}
+  .card.collapsed .card-body{max-height:0;flex:none}
+  .card:not(.collapsed) .card-body{max-height:none;flex:1;min-height:0;overflow:auto;opacity:1;transform:translateY(0)}
   .board.animated .card{animation:fadeInUp .35s ease both}
   .board.animated .card:nth-child(1){animation-delay:0ms}
   .board.animated .card:nth-child(2){animation-delay:40ms}
@@ -216,6 +242,18 @@
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:5px 0;border-bottom:1px dashed #334155}
   .kv span{color:#94a3b8;flex:none}
   .kv b{font-weight:600;color:#e2e8f0;text-align:right}
+
+  /* 平台举证包折叠面板（C组：默认收缩，点击平台名展开，带高度/淡入动效） */
+  .plat-acc{border:1px solid #334155;border-radius:10px;margin-top:10px;background:#0b1220;overflow:hidden;transition:border-color .25s ease,background .25s ease,box-shadow .25s ease}
+  .plat-acc.open{border-color:var(--acc);background:rgba(46,91,255,.04);box-shadow:0 0 0 1px rgba(46,91,255,.18),0 8px 24px rgba(2,6,23,.3)}
+  .plat-head{display:flex;align-items:center;gap:10px;width:100%;padding:12px 14px;background:transparent;border:none;color:var(--acc);font-size:15px;font-weight:600;cursor:pointer;text-align:left;font-family:inherit}
+  .plat-head:hover{background:rgba(46,91,255,.06)}
+  .plat-name{flex:0 0 auto}
+  .plat-hint{flex:1;color:#94a3b8;font-weight:400;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .plat-arrow{flex:0 0 auto;color:#94a3b8;transition:transform .2s ease;font-size:14px}
+  .plat-acc.open .plat-arrow{transform:rotate(90deg)}
+  .plat-body{max-height:0;overflow:hidden;opacity:0;padding:0 14px;border-top:1px solid #1f2937;transition:max-height .38s cubic-bezier(.4,0,.2,1),opacity .32s ease,padding .3s ease}
+  .plat-acc.open .plat-body{max-height:none;opacity:1;padding:6px 14px 14px}
   .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .card:hover{transform:translateY(-3px);box-shadow:0 10px 32px rgba(0,0,0,.38);border-color:rgba(56,189,248,.22)}
 
@@ -338,6 +376,18 @@
           </div>
           <select id="catSel"><option value="">全部品类</option></select>
           <select id="platSel"><option value="">全部平台</option></select>
+          <select id="regionSel" title="按销售地区下钻（维度扩展）">
+            <option value="">全部地区</option>
+            <option value="US">US</option><option value="UK">UK</option>
+            <option value="DE">DE</option><option value="FR">FR</option>
+            <option value="ES">ES</option><option value="RU">RU</option>
+            <option value="BR">BR</option>
+          </select>
+          <select id="seasonSel" title="按季节下钻（维度扩展）">
+            <option value="">全部季节</option>
+            <option value="春">春</option><option value="夏">夏</option>
+            <option value="秋">秋</option><option value="冬">冬</option>
+          </select>
           <select id="insMode">
             <option value="mock" selected>洞察：演示数据</option>
             <option value="live">洞察：AI 实算</option>
@@ -346,6 +396,8 @@
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
           <span id="insStatus" class="pill" style="background:#334155">就绪</span>
+          <span id="userTag" class="pill" style="background:var(--ok);display:none" title="当前租户：实际数据按租户隔离"></span>
+          <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer">登录</button>
         </div>
         <nav class="tabs">
           <button data-tab="dash" class="active">市场洞察</button>
@@ -365,85 +417,137 @@
           <button id="btnReport" type="button">导出洞察报告</button>
         </div>
         <div class="board">
-          <!-- ① 品类热力 -->
-          <div class="card">
-            <h3>① 钱都亏在哪些品类</h3>
-            <p class="desc">退货热力：哪类退货最多、最亏钱、最难赢。行越红越该警惕。</p>
-            <div id="catBars" class="chart"></div>
-            <table id="catTbl"><thead><tr><th>品类</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody></tbody></table>
+          <!-- 按列分组的看板（Issue B：按列折叠，展开前仅显示标题，点击展开；同列内单开折叠） -->
+          <div class="col" data-col="1">
+            <div class="card" data-card="c1-1" data-col="1">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">① 钱都亏在哪些品类</h3>
+              <div class="card-body">
+                <p class="desc">退货热力：哪类退货最多、最亏钱、最难赢。行越红越该警惕。</p>
+                <div id="catBars" class="chart"></div>
+                <table id="catTbl"><thead><tr><th>品类</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div class="card" data-card="c1-2" data-col="1">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">④ 各平台维权难度</h3>
+              <div class="card-body">
+                <p class="desc">不同平台判买家赢的倾向不同；买家友好型（如 AliExpress）更难赢。详见「平台举证包」。</p>
+                <div id="platBars" class="chart"></div>
+                <table id="platTbl"><thead><tr><th>平台</th><th>笔数</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div class="card" data-card="c1-3" data-col="1">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑦ 给老板的洞察总结</h3>
+              <div class="card-body">
+                <p class="desc">一段话讲清本期退货全貌，不用懂技术也能拿去汇报。</p>
+                <pre id="report"></pre>
+              </div>
+            </div>
+            <div class="card" data-card="c1-4" data-col="1">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑬ 退货地区分布</h3>
+              <div class="card-body">
+                <p class="desc">按宏观销售地区看纠纷量与退款，定位高退货区域，辅助区域化选品与物流策略。</p>
+                <div id="regionBars" class="chart"></div>
+                <table id="regionTbl"><thead><tr><th>地区</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div class="card" data-card="c1-5" data-col="1">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑯ 退货时间序列趋势</h3>
+              <div class="card-body">
+                <p class="desc">按月统计退货案件量（实线为历史，虚线为预测）。识别退货爬坡节奏，配合下方预测预警提前布局。</p>
+                <div id="trendLine" class="chart"></div>
+                <div id="trendNote" class="note"></div>
+              </div>
+            </div>
           </div>
-          <!-- ② 根因归因 -->
-          <div class="card">
-            <h3>② 退货为什么发生</h3>
-            <p class="desc">把退货原因归到几大类，告诉你最该先治哪一环。</p>
-            <div id="rootDist"></div>
-            <pre id="rootCause" style="margin-top:10px"></pre>
+          <div class="col" data-col="2">
+            <div class="card" data-card="c2-1" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">② 退货为什么发生</h3>
+              <div class="card-body">
+                <p class="desc">把退货原因归到几大类，告诉你最该先治哪一环。</p>
+                <div id="rootDist"></div>
+                <pre id="rootCause" style="margin-top:10px"></pre>
+              </div>
+            </div>
+            <div class="card" data-card="c2-2" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑤ 最近暴增的退货</h3>
+              <div class="card-body">
+                <p class="desc">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
+                <div id="alerts"><span class="note">暂无异常。</span></div>
+              </div>
+            </div>
+            <div class="card" data-card="c2-3" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑧ 下一步怎么做</h3>
+              <div class="card-body">
+                <p class="desc">落到动作的选品避坑与品控建议。</p>
+                <div id="advice"></div>
+              </div>
+            </div>
+            <div class="card" data-card="c2-4" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑭ 退货季节趋势</h3>
+              <div class="card-body">
+                <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
+                <div id="seasonBars" class="chart"></div>
+                <table id="seasonTbl"><thead><tr><th>季节</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div class="card" data-card="c2-5" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑰ 退货预测预警</h3>
+              <div class="card-body">
+                <p class="desc">基于历史月度序列做线性外推，预测未来 3 个月退货量与退款，并给出上行预警。</p>
+                <div id="forecastKpis" class="chart"></div>
+                <div id="forecastList"></div>
+                <div id="forecastAlerts"></div>
+              </div>
+            </div>
           </div>
-          <!-- ③ 供应商红黑榜 -->
-          <div class="card">
-            <h3>③ 哪些供应商最该换</h3>
-            <p class="desc">按缺陷率与胜诉率打质量分。黑榜=高风险建议换，红榜=可长期合作。</p>
-            <div id="supBars" class="chart"></div>
-            <div id="supBlack"></div>
-            <div id="supRed" style="margin-top:8px"></div>
+          <div class="col" data-col="3">
+            <div class="card" data-card="c3-1" data-col="3">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">③ 哪些供应商最该换</h3>
+              <div class="card-body">
+                <p class="desc">按缺陷率与胜诉率打质量分。黑榜=高风险建议换，红榜=可长期合作。</p>
+                <div id="supBars" class="chart"></div>
+                <div id="supBlack"></div>
+                <div id="supRed" style="margin-top:8px"></div>
+              </div>
+            </div>
+            <div class="card" data-card="c3-2" data-col="3">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑥ 最烧钱的退货商品</h3>
+              <div class="card-body">
+                <p class="desc">按退款金额排的退货商品（卡内可滚动）。点开看高发问题。</p>
+                <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div class="card" data-card="c3-3" data-col="3">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑩ 平台 × 供应商 维权交叉</h3>
+              <div class="card-body">
+                <p class="desc">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
+                <div id="matrixHeat" class="chart scrollx"></div>
+              </div>
+            </div>
+            <div class="card" data-card="c3-4" data-col="3">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑮ 退货成本 & 供应商黑名单</h3>
+              <div class="card-body">
+                <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出质量分&lt;50 的高风险供应商与可解释理由。</p>
+                <div id="costKpis" class="chart"></div>
+                <div id="blacklist"></div>
+              </div>
+            </div>
+            <div class="card" data-card="c3-5" data-col="3">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑱ 选品避坑闭环 · 可执行清单</h3>
+              <div class="card-body">
+                <p class="desc">把退货证据收敛成可直接落地的动作项（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控），按严重度排序。拿到就能做决策。</p>
+                <div id="sourcingLoop"></div>
+              </div>
+            </div>
           </div>
-          <!-- ④ 平台对比 -->
-          <div class="card">
-            <h3>④ 各平台维权难度</h3>
-            <p class="desc">不同平台判买家赢的倾向不同；买家友好型（如 AliExpress）更难赢。详见「平台举证包」。</p>
-            <div id="platBars" class="chart"></div>
-            <table id="platTbl"><thead><tr><th>平台</th><th>笔数</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
-          </div>
-          <!-- ⑤ 异常预警 -->
-          <div class="card">
-            <h3>⑤ 最近暴增的退货</h3>
-            <p class="desc">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
-            <div id="alerts"><span class="note">暂无异常。</span></div>
-          </div>
-          <!-- ⑥ SKU 明细 -->
-          <div class="card">
-            <h3>⑥ 最烧钱的退货商品</h3>
-            <p class="desc">按退款金额排的退货商品（卡内可滚动）。点开看高发问题。</p>
-            <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
-          </div>
-          <!-- ⑦ 报告 -->
-          <div class="card">
-            <h3>⑦ 给老板的洞察总结</h3>
-            <p class="desc">一段话讲清本期退货全貌，不用懂技术也能拿去汇报。</p>
-            <pre id="report"></pre>
-          </div>
-          <!-- ⑧ 建议 -->
-          <div class="card">
-            <h3>⑧ 下一步怎么做</h3>
-            <p class="desc">落到动作的选品避坑与品控建议。</p>
-            <div id="advice"></div>
-          </div>
-          <!-- ⑩ 平台 × 供应商 交叉 -->
-          <div class="card">
-            <h3>⑩ 平台 × 供应商 维权交叉</h3>
-            <p class="desc">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
-            <div id="matrixHeat" class="chart scrollx"></div>
-          </div>
-          <!-- ⑬ 地区分布（方向2 维度扩展） -->
-          <div class="card">
-            <h3>⑬ 退货地区分布</h3>
-            <p class="desc">按宏观销售地区看纠纷量与退款，定位高退货区域，辅助区域化选品与物流策略。</p>
-            <div id="regionBars" class="chart"></div>
-            <table id="regionTbl"><thead><tr><th>地区</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
-          </div>
-          <!-- ⑭ 季节分布（方向2 维度扩展） -->
-          <div class="card">
-            <h3>⑭ 退货季节趋势</h3>
-            <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
-            <div id="seasonBars" class="chart"></div>
-            <table id="seasonTbl"><thead><tr><th>季节</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
-          </div>
-          <!-- ⑮ 退货成本 & 供应商黑名单（方向2 维度扩展） -->
-          <div class="card">
-            <h3>⑮ 退货成本 & 供应商黑名单</h3>
-            <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出质量分&lt;50 的高风险供应商与可解释理由。</p>
-            <div id="costKpis" class="chart"></div>
-            <div id="blacklist"></div>
+          <!-- C组：实际数据(real)未登录时的全宽登录门（默认隐藏） -->
+          <div id="loginGate" class="card">
+            <div style="text-align:center;padding:36px 20px">
+              <div style="font-size:42px;line-height:1;margin-bottom:12px">🔒</div>
+              <h3 style="margin:0 0 8px">实际数据按租户隔离</h3>
+              <p id="loginGateMsg" class="desc" style="max-width:480px;margin:0 auto 18px">请登录后查看您的数据。</p>
+              <button id="loginGateBtn" type="button" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
+            </div>
           </div>
         </div>
       </section>
@@ -602,6 +706,30 @@
         <div id="ovBody"></div>
       </div>
     </div>
+
+    <!-- C组：账户体系 + 多租户登录弹窗（必须在此处：主脚本之前，确保关闭/提交监听能绑到元素） -->
+    <div id="authOverlay" class="overlay">
+      <div class="panel" style="width:min(400px,94vw);padding:22px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h3 style="margin:0">账户 / 租户</h3>
+          <button id="authClose" type="button" style="background:none;border:none;color:var(--acc);font-size:20px;cursor:pointer">×</button>
+        </div>
+        <p id="authHint" style="font-size:12px;color:#94a3b8;margin:0 0 12px">登录后实际数据按本租户隔离。</p>
+        <form id="authForm">
+          <label style="font-size:12px;color:#94a3b8">用户名（租户标识）</label>
+          <input id="authUser" required autocomplete="username" placeholder="如 acme" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0">
+          <label style="font-size:12px;color:#94a3b8">密码（至少 6 位）</label>
+          <input id="authPass" type="password" required autocomplete="current-password" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0">
+          <div id="authTenantWrap" style="display:none">
+            <label style="font-size:12px;color:#94a3b8">企业/店铺名（选填）</label>
+            <input id="authTenant" placeholder="如 Acme 贸易" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0">
+          </div>
+          <button id="authSubmit" type="submit" style="width:100%;background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px;cursor:pointer">登录</button>
+          <div id="authMsg" style="margin-top:8px;font-size:12px;color:var(--bad)"></div>
+        </form>
+        <button id="authTab" data-mode="login" type="button" style="width:100%;margin-top:10px;background:transparent;border:1px dashed #334155;color:var(--acc);border-radius:8px;padding:8px;cursor:pointer">注册</button>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -618,6 +746,7 @@ async function setSource(s){
   CURRENT_SOURCE = (s==='real') ? 'real' : 'demo';
   localStorage.setItem('rg_source', CURRENT_SOURCE);
   document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
+  updateAuthBtnVisibility(); // demo 时隐藏登录按钮，real 时显示
   $('#entryTarget').textContent = '将写入：' + (CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   const banner = $('#entryBanner');
   if(CURRENT_SOURCE==='real'){
@@ -637,7 +766,13 @@ function apiUrl(path){
   u.searchParams.set('source', CURRENT_SOURCE);
   return u.pathname + u.search;
 }
-function apiFetch(path, opts){ return fetch(apiUrl(path), opts); }
+function apiFetch(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers || {});
+  const tok = localStorage.getItem('rg_token');
+  if(tok) opts.headers['Authorization'] = 'Bearer ' + tok;
+  return fetch(apiUrl(path), opts);
+}
 
 // HTML 转义（P1-3）：所有动态文本拼进 innerHTML 前统一转义，杜绝 live 模型自由文本引发的 XSS
 function esc(s){
@@ -734,6 +869,98 @@ function renderMatrix(el, rows){
     html+='</tr>';
   });
   el.innerHTML=`<table class="matrix">${html}</table>`;
+}
+
+// ===================== B组：时间序列趋势线 =====================
+function trendLabel(t){
+  return t==='up'?'上行 ↑':t==='down'?'下行 ↓':'平稳 →';
+}
+
+function renderTrendLine(el, ts, forecast){
+  el.innerHTML='';
+  if(!ts || !ts.length){ el.innerHTML='<span class="note">暂无时间序列数据。</span>'; return; }
+  const fpts = (forecast && forecast.points) || [];
+  const hist = ts.map(x=>({label:x.month.slice(2), v:x.cases}));
+  const fc = fpts.map(x=>({label:x.month.slice(2), v:x.cases}));
+  const all = hist.concat(fc);
+  const W=580, H=210, padL=34, padB=28, padT=14, padR=12;
+  const maxV = Math.max(1, ...all.map(p=>p.v));
+  const n = all.length;
+  const xStep = (W-padL-padR)/Math.max(1,(n-1));
+  const Y = v => (H-padB - (v/maxV)*(H-padB-padT)).toFixed(1);
+  const X = i => (padL + i*xStep).toFixed(1);
+  // 历史实线 + 预测虚线（从最后一个历史点续接）
+  let histPath='', fPath='';
+  all.forEach((p,i)=>{
+    const cmd = (i===0)?'M':(p.f?'L':(histPath? ' L':''));
+    if(!p.f){ histPath += (histPath? ' ':'') + cmd + X(i)+',' + Y(p.v); }
+  });
+  if(fc.length){
+    const hLast = hist.length-1;
+    fPath = `M${X(hLast)},${Y(hist[hLast].v)}`;
+    fc.forEach((p,i)=> fPath += ` L${X(hist.length+i)},${Y(p.v)}`);
+  }
+  // 网格 + 标签
+  let grid='', xlab='';
+  for(let g=0; g<=4; g++){
+    const gy=(padT + (H-padB-padT)*g/4).toFixed(1);
+    const gv=Math.round(maxV*(1-g/4));
+    grid+=`<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="#1e293b" stroke-width="1"></line>`;
+    grid+=`<text x="${padL-5}" y="${(+gy+3).toFixed(1)}" fill="#64748b" font-size="9" text-anchor="end">${gv}</text>`;
+  }
+  all.forEach((p,i)=>{
+    xlab+=`<text x="${X(i)}" y="${H-10}" fill="${p.f?'#fbbf24':'#94a3b8'}" font-size="9" text-anchor="middle">${p.label}</text>`;
+  });
+  let dots='';
+  all.forEach((p,i)=>{ dots+=`<circle cx="${X(i)}" cy="${Y(p.v)}" r="2.6" fill="${p.f?'#fbbf24':'#22d3ee'}"></circle>`; });
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">
+    ${grid}${histPath?`<path d="${histPath}" fill="none" stroke="#22d3ee" stroke-width="2.2"></path>`:''}
+    ${fPath?`<path d="${fPath}" fill="none" stroke="#fbbf24" stroke-width="2.2" stroke-dasharray="5 4"></path>`:''}
+    ${dots}${xlab}</svg>`;
+}
+
+// ===================== B组：预测预警 =====================
+function renderForecast(kpiEl, listEl, alertEl, forecast, alerts){
+  kpiEl.innerHTML='';
+  if(!forecast || !forecast.available){
+    kpiEl.innerHTML='<span class="note">历史不足 3 个月，暂无法预测（多录入几个月的带日期案件即可）。</span>';
+    listEl.innerHTML=''; alertEl.innerHTML=''; return;
+  }
+  const trendColor = forecast.trend==='up'?'var(--bad)':forecast.trend==='down'?'var(--ok)':'var(--warn)';
+  kpiEl.innerHTML =
+    `<div class="kv"><span>趋势</span><b style="color:${trendColor}">${trendLabel(forecast.trend)}</b></div>`
+    +`<div class="kv"><span>下月预计退货</span><b>${forecast.next_month_cases} 笔</b></div>`
+    +`<div class="kv"><span>近3月均值</span><b>${forecast.recent_avg} 笔</b></div>`
+    +`<div class="kv"><span>下月预计退款</span><b>¥${Number(forecast.next_month_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`;
+  listEl.innerHTML='';
+  (forecast.points||[]).forEach(p=>{
+    const div=document.createElement('div'); div.style.cssText='background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;margin-top:6px;font-size:13px;display:flex;justify-content:space-between';
+    div.innerHTML=`<span>${esc(p.month)}</span><span>预计 <b>${p.cases}</b> 笔 · ¥${Number(p.refund).toLocaleString('zh-CN',{maximumFractionDigits:0})}</span>`;
+    listEl.appendChild(div);
+  });
+  alertEl.innerHTML='';
+  (alerts||[]).forEach(a=>{
+    const div=document.createElement('div'); div.className='alert'; div.style.marginTop='8px';
+    div.textContent='⚠ '+a.reason;
+    alertEl.appendChild(div);
+  });
+}
+
+// ===================== B组：选品避坑闭环 =====================
+function renderSourcingLoop(el, items){
+  el.innerHTML='';
+  if(!items || !items.length){ el.innerHTML='<span class="note">暂无明显负面信号，继续保持。</span>'; return; }
+  const sevColor={'高':'var(--bad)','中':'var(--warn)','低':'var(--ok)'};
+  items.forEach(it=>{
+    const div=document.createElement('div');
+    div.style.cssText='border:1px solid #334155;border-left:4px solid '+sevColor[it.severity||'低']+';border-radius:8px;padding:9px 11px;margin-top:8px;background:#0b1220';
+    div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <b style="font-size:13px">${esc(it.action)}</b>
+        <span class="pill" style="background:${sevColor[it.severity||'低']}">${esc(it.severity)}</span></div>
+      <div style="font-size:12px;color:#cbd5e1;margin-top:4px">对象：<b>${esc(it.target)}</b></div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:2px">${esc(it.reason)}</div>`;
+    el.appendChild(div);
+  });
 }
 
 // 供应商透视：增强评分榜渲染（扩展 C）
@@ -883,12 +1110,15 @@ async function downloadPdfReport(){
   const old=btn.textContent; btn.textContent='生成中…'; btn.disabled=true;
   try{
     const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
+    const reg=$('#regionSel').value, seas=$('#seasonSel').value;
     const qs=new URLSearchParams({mode});
     if(cat) qs.set('category',cat);
     if(plat) qs.set('platform',plat);
+    if(reg) qs.set('region',reg);
+    if(seas) qs.set('season',seas);
     // source 由 apiUrl 统一附加，但 export_pdf 也会从 query 读取，这里显式保证一致
     qs.set('source', CURRENT_SOURCE);
-    const r=await fetch(apiUrl('/api/export_pdf?'+qs.toString()));
+    const r=await apiFetch('/api/export_pdf?'+qs.toString());
     if(!r.ok) throw new Error('导出失败 '+r.status);
     const blob=await r.blob();
     const url=URL.createObjectURL(blob);
@@ -939,12 +1169,25 @@ async function loadInsights(){
   const board=$('.board'); if(board){board.classList.remove('animated'); void board.offsetWidth; board.classList.add('animated');}
   try{
   const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
+  const reg=$('#regionSel').value, seas=$('#seasonSel').value;
   const qs=new URLSearchParams({mode});
   if(cat) qs.set('category',cat);
   if(plat) qs.set('platform',plat);
-  const r=await fetch(apiUrl('/api/insights?'+qs.toString())); if(!r.ok) throw new Error('洞察接口 '+r.status);
+  if(reg) qs.set('region',reg);
+  if(seas) qs.set('season',seas);
+  const r=await apiFetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error('洞察接口 '+r.status);
   const d=await r.json();
   _ins = d;  // 供供应商下钻本地计算
+  // C组：实际数据(real)未登录时显示登录门，其他卡片隐藏
+  const _board=document.querySelector('.board');
+  if(d.requires_login){
+    if(_board) _board.classList.add('gated');
+    const _lgm=document.getElementById('loginGateMsg');
+    if(_lgm) _lgm.textContent=d.message||'请登录后查看实际数据';
+    status.textContent='请登录'; status.classList.remove('loading');
+    return;
+  }
+  if(_board) _board.classList.remove('gated');
   // 实际数据为空时给出引导（演示数据默认有种子，不会空）
   const emptyHint=$('#scopeTag');
   if(d.source==='real' && d.total_cases===0){
@@ -953,7 +1196,7 @@ async function loadInsights(){
   }
   $('#insModeTag').textContent=d.mode||mode;
   $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
-  $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台');
+  $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台')+(reg?' / '+reg:'')+(seas?' / '+seas:'');
   if(d.error) $('#insModeTag').textContent+=' (已切回演示)';
 
   // KPI（带动画）
@@ -982,7 +1225,7 @@ async function loadInsights(){
   const rc=d.root_cause_dist||{}; const rmax=Math.max(1,...Object.values(rc));
   Object.entries(rc).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
     const div=document.createElement('div'); div.style.marginTop='6px';
-    div.innerHTML=`<div style="font-size:12px;display:flex;justify-content:space-between"><span>${k}</span><span>${v} 笔</span></div>`
+    div.innerHTML=`<div style="font-size:12px;display:flex;justify-content:space-between"><span>${esc(k)}</span><span>${v} 笔</span></div>`
       +`<div class="bar"><i style="width:${Math.round(v/rmax*100)}%;background:var(--warn)"></i></div>`;
     rd.appendChild(div);
   });
@@ -1011,7 +1254,7 @@ async function loadInsights(){
   const pt=$('#platTbl').querySelector('tbody'); pt.innerHTML='';
   (d.platform_view||[]).forEach(x=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${x.platform}</td><td>${x.cases}</td>`
+    tr.innerHTML=`<td>${esc(x.platform)}</td><td>${x.cases}</td>`
       +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td><td>${x.refund}</td>`;
     pt.appendChild(tr);
   });
@@ -1029,10 +1272,10 @@ async function loadInsights(){
   (d.sku_ranking||[]).slice(0,15).forEach(x=>{
     const tr=document.createElement('tr');
     if(x.anomaly) tr.style.background='rgba(251,191,36,.12)';
-    tr.innerHTML=`<td>${x.sku}</td><td>${x.category}</td><td>${x.supplier}</td>`
+    tr.innerHTML=`<td>${esc(x.sku)}</td><td>${esc(x.category)}</td><td>${esc(x.supplier)}</td>`
       +`<td>${x.cases}</td><td>${x.refund}</td>`
       +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`
-      +`<td>${x.top_defect}</td><td>${x.anomaly?'⚠':'-'}</td>`;
+      +`<td>${esc(x.top_defect)}</td><td>${x.anomaly?'⚠':'-'}</td>`;
     st.appendChild(tr);
   });
 
@@ -1082,6 +1325,14 @@ async function loadInsights(){
     bl.innerHTML+='<span class="note">暂无质量分&lt;50 的高风险供应商。</span>';
   }
 
+  // ⑯⑰⑱ B组：时间序列 / 预测预警 / 选品避坑闭环
+  renderTrendLine($('#trendLine'), d.time_series||[], d.forecast||{});
+  $('#trendNote').textContent = (d.time_series&&d.time_series.length)
+    ? `历史 ${d.time_series.length} 个月；趋势 ${trendLabel((d.forecast||{}).trend)}`
+    : '暂无带日期的案件，无法生成时间序列（录入时填写「案件日期」即可）。';
+  renderForecast($('#forecastKpis'), $('#forecastList'), $('#forecastAlerts'), d.forecast||{}, d.forecast_alerts||[]);
+  renderSourcingLoop($('#sourcingLoop'), d.sourcing_checklist||[]);
+
   // 图形化
   renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#fbbf24'})));
   renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})), {absolute:true});
@@ -1105,24 +1356,60 @@ async function loadPlatforms(){
       html+='<tr><th>'+name+'</th>'+ps.map(p=>`<td>${esc(p[k])}</td>`).join('')+'</tr>';
     });
     $('#platCmp').innerHTML=`<table class="cmp">${html}</table>`;
+    // 各平台政策：默认折叠，点击平台名展开（单开折叠，大屏演示清洁）
     let tmpl='';
     ps.forEach(p=>{
       const cap=p.capability_map||{};
       const capItems=Object.entries(cap).map(([k,v])=>`<li><b>${esc(k)}</b>：${esc(v)}</li>`).join('');
-      tmpl+=`<div class="plat"><h4 style="margin:0 0 6px;color:var(--acc)">${esc(p.label)}</h4>`
+      tmpl+=`<div class="plat-acc" data-key="${esc(p.key)}">`
+        +`<button type="button" class="plat-head" aria-expanded="false">`
+        +`<span class="plat-name">${esc(p.label)}</span>`
+        +`<span class="plat-hint">举证偏向：${esc(p.burden_bias||'-')}</span>`
+        +`<span class="plat-arrow" aria-hidden="true">▸</span>`
+        +`</button>`
+        +`<div class="plat-body">`
         +`<div class="kv"><span>退货窗口</span><b>${esc(p.return_window)}</b></div>`
         +`<div class="kv"><span>响应时限</span><b>${esc(p.response_window)}</b></div>`
         +`<div class="kv"><span>运费承担</span><b>${esc(p.shipping_payer)}</b></div>`
         +`<div class="kv"><span>举证偏向</span><b>${esc(p.burden_bias)}</b></div>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:6px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
-        +`</div>`;
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:10px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
+        +`</div></div>`;
     });
     $('#platTmpl').innerHTML=tmpl;
   }catch(e){ $('#platCmp').innerHTML='<span class="err">举证包加载失败</span>'; }
 }
+// 平台举证包折叠：事件委托，单开折叠（点其他平台自动收上当前）
+// 真 auto 高度：用 plat-body.scrollHeight 实测内容高度过渡，结束后解除上限
+$('#platTmpl').addEventListener('click', e=>{
+  const head = e.target.closest('.plat-head');
+  if(!head) return;
+  const acc = head.parentElement;
+  const wasOpen = acc.classList.contains('open');
+  // 关闭所有已展开
+  document.querySelectorAll('#platTmpl .plat-acc.open').forEach(a=>{
+    const b=a.querySelector('.plat-body');
+    if(b && b.style.maxHeight===''){ b.style.maxHeight = Math.max(1,b.scrollHeight)+'px'; void b.offsetHeight; }
+    a.classList.remove('open');
+    const h=a.querySelector('.plat-head'); if(h) h.setAttribute('aria-expanded','false');
+    if(b) b.style.maxHeight='0px';
+  });
+  // 展开点击的平台（若原本收起）
+  if(!wasOpen){
+    acc.classList.add('open');
+    head.setAttribute('aria-expanded','true');
+    const b=acc.querySelector('.plat-body');
+    if(b){
+      b.style.maxHeight='0px';
+      void b.offsetHeight;
+      b.style.maxHeight = Math.max(1,b.scrollHeight)+'px';
+      const te=ev=>{ if(ev.propertyName==='max-height'){ b.style.maxHeight=''; b.removeEventListener('transitionend', te); } };
+      b.addEventListener('transitionend', te);
+    }
+  }
+});
 
 // 单案举证
 async function doAnalyze(e){
@@ -1156,7 +1443,7 @@ async function doAnalyze(e){
     $('#audio').src='data:audio/wav;base64,'+d.voice_audio_b64;
     if(d.platform && (d.platform_evidence||[]).length){
       $('#platName').textContent=d.platform;
-      $('#platEv').innerHTML=(d.platform_evidence||[]).map(t=>`<li>${t}</li>`).join('');
+      $('#platEv').innerHTML=(d.platform_evidence||[]).map(t=>`<li>${esc(t)}</li>`).join('');
       $('#platEvWrap').classList.remove('hide');
     } else { $('#platEvWrap').classList.add('hide'); }
     // 分析完成：关分析中、步骤条到③、展示本次取证模式徽标
@@ -1283,6 +1570,8 @@ $('#entryForm').addEventListener('submit',submitEntry);
 $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
 $('#platSel').addEventListener('change',loadInsights);
+$('#regionSel').addEventListener('change',loadInsights);
+$('#seasonSel').addEventListener('change',loadInsights);
 $('#ovClose').addEventListener('click',closeOverlay);
 $('#overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeOverlay();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeOverlay();});
@@ -1295,6 +1584,115 @@ $('#entryTableWrap').addEventListener('click',async e=>{
   if(!confirm('确认删除案件 '+id+'？')) return;
   const r=await apiFetch('/api/cases/'+encodeURIComponent(id),{method:'DELETE'});
   if(r.ok){ loadEntryList(); loadInsights(); }
+});
+
+// ===================== C组：账户体系 + 多租户登录 =====================
+// 令牌存 localStorage（rg_token）。登录后 real 源数据自动按当前租户隔离；
+// 未登录为匿名（public 公共基准）。登录态在初始化与每次刷新看板后校验一次。
+function authToken(){ return localStorage.getItem('rg_token') || ''; }
+// 演示数据(demo)时隐藏登录按钮/租户标签；实际数据(real)才显示（实际数据需登录查看）
+function updateAuthBtnVisibility(){
+  const isReal = CURRENT_SOURCE==='real';
+  const btn=$('#authBtn'), tag=$('#userTag');
+  if(btn) btn.style.display = isReal ? '' : 'none';
+  if(tag && !isReal) tag.style.display='none';
+}
+function updateAuthUI(){
+  const tok=authToken();
+  const btn=$('#authBtn'), tag=$('#userTag');
+  if(tok){
+    fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+tok}}).then(r=>r.ok?r.json():null).then(d=>{
+      if(d && d.user){
+        tag.textContent='租户：'+d.user.username; tag.style.display='inline-block';
+        btn.textContent='退出'; btn.classList.add('authed');
+      } else {
+        localStorage.removeItem('rg_token'); tag.style.display='none'; btn.textContent='登录'; btn.classList.remove('authed');
+      }
+      updateAuthBtnVisibility();
+    }).catch(()=>{ updateAuthBtnVisibility(); });
+  } else {
+    tag.style.display='none'; btn.textContent='登录'; btn.classList.remove('authed');
+    updateAuthBtnVisibility();
+  }
+}
+function openAuthModal(){ $('#authOverlay').classList.add('show'); $('#authMsg').textContent=''; }
+function closeAuthModal(){ $('#authOverlay').classList.remove('show'); }
+async function doAuth(e){
+  e.preventDefault();
+  const isReg=$('#authTab').dataset.mode==='register';
+  const u=($('#authUser').value||'').trim(), p=$('#authPass').value;
+  const msg=$('#authMsg');
+  const body={username:u,password:p};
+  if(isReg) body.tenant_name=($('#authTenant').value||'').trim()||u;
+  const r=await fetch('/api/auth/'+(isReg?'register':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok){ msg.textContent='✗ '+(d.detail||'失败'); return; }
+  localStorage.setItem('rg_token', d.token);
+  closeAuthModal(); updateAuthUI(); loadInsights(); loadEntryList();
+  msg.textContent='';
+}
+$('#authBtn').addEventListener('click',()=>{ if(authToken()){ localStorage.removeItem('rg_token'); updateAuthUI(); loadInsights(); } else { openAuthModal(); } });
+$('#loginGateBtn').addEventListener('click',openAuthModal);
+
+// 看板按列折叠（Issue B）：每列只展开一张卡，点击标题切换；同列其他自动收起
+// 初始由 HTML 中 aria-expanded="true" 决定（已默认每列第一张展开）
+// 真 auto 高度：用 body.scrollHeight 实测内容高度做 max-height 过渡，结束后解除上限
+function _expandCard(card){
+  const body = card.querySelector('.card-body');
+  card.classList.remove('collapsed');
+  const head = card.querySelector('.card-head'); if(head) head.setAttribute('aria-expanded','true');
+  if(!body) return;
+  body.style.maxHeight = '0px';
+  void body.offsetHeight; // 强制回流，保证从 0 起过渡
+  body.style.maxHeight = Math.max(1, body.scrollHeight) + 'px';
+  const te = ev => { if(ev.propertyName==='max-height'){ body.style.maxHeight=''; body.removeEventListener('transitionend', te); } };
+  body.addEventListener('transitionend', te);
+}
+function _collapseCard(card){
+  const body = card.querySelector('.card-body');
+  if(!body) return;
+  // 若当前是 auto(none)，先固定到当前内容高度，再收起
+  if(body.style.maxHeight==='' || !body.style.maxHeight){
+    body.style.maxHeight = Math.max(1, body.scrollHeight) + 'px';
+    void body.offsetHeight;
+  }
+  body.style.maxHeight = '0px';
+  const te = ev => { if(ev.propertyName==='max-height'){ card.classList.add('collapsed'); const h=card.querySelector('.card-head'); if(h) h.setAttribute('aria-expanded','false'); body.removeEventListener('transitionend', te); } };
+  body.addEventListener('transitionend', te);
+}
+document.addEventListener('click', e=>{
+  const head = e.target.closest('.card-head');
+  if(!head || !head.closest('.col')) return; // 仅看板内的 card-head
+  const card = head.closest('.card');
+  const col = card.parentElement;
+  const wasOpen = !card.classList.contains('collapsed');
+  // 收起同列所有已展开的卡
+  col.querySelectorAll('.card').forEach(c=>{
+    if(!c.classList.contains('collapsed')) _collapseCard(c);
+  });
+  // 若点的是未展开的卡，则展开它（点已展开的卡则保持全部收起）
+  if(!wasOpen) _expandCard(card);
+});
+// 键盘可达：Enter / Space 触发点击
+document.addEventListener('keydown', e=>{
+  if((e.key==='Enter'||e.key===' ') && e.target.classList && e.target.classList.contains('card-head')){
+    e.preventDefault(); e.target.click();
+  }
+});
+$('#authOverlay').addEventListener('click',e=>{ if(e.target.id==='authOverlay') closeAuthModal(); });
+$('#authClose').addEventListener('click',closeAuthModal);
+$('#authForm').addEventListener('submit',doAuth);
+$('#authTab').addEventListener('click',()=>{
+  const el=$('#authTab'); el.dataset.mode = el.dataset.mode==='register' ? 'login' : 'register';
+  el.textContent = el.dataset.mode==='register' ? '登录' : '注册';
+  $('#authTenantWrap').style.display = el.dataset.mode==='register' ? 'flex' : 'none';
+  $('#authHint').textContent = el.dataset.mode==='register' ? '注册即创建一个独立租户空间，实际数据按租户隔离。' : '登录后查看按本租户隔离的实际数据；未登录不可见。';
+});
+updateAuthUI();
+// 看板折叠初始：把 aria-expanded="false" 的卡片加上 .collapsed 类（HTML 已写好默认每列首张展开）
+document.querySelectorAll('.board .col .card').forEach(c=>{
+  const head=c.querySelector('.card-head');
+  if(head && head.getAttribute('aria-expanded')==='false') c.classList.add('collapsed');
 });
 </script>
 </body>
