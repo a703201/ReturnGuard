@@ -52,6 +52,8 @@ class AnalyzeResult(BaseModel):
     platform_evidence: list[str] = []
     mode: str = "mock"
     error: str | None = None
+    # live 模式逐能力真实/回退标记（similarity/defects/ocr/tts），便于演示说明哪些走了真实模型
+    capabilities: dict[str, bool] = {}
 
 
 class InsightsResponse(BaseModel):

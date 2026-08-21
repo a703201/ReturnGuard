@@ -33,8 +33,10 @@ import threading
 import wave
 from collections import Counter, defaultdict
 from datetime import datetime
+from statistics import mean
 
-from constants import DEFECT_POOL, SAME_ITEM_THRESHOLD, SEVERITY
+from calibration import get_active_threshold
+from constants import DEFECT_POOL, SEVERITY
 
 logger = logging.getLogger("returnguard.pipeline")
 
@@ -54,20 +56,29 @@ def invalidate_insights_cache() -> None:
     with _ins_lock:
         _ins_cache.clear()
 
+
 # ---- 缺陷词表/严重程度已迁至 constants.py（见文件头说明），此处仅保留业务映射 ----
 
 
 # ===================== 工具函数 =====================
-def _hash_seed(*paths) -> int:
-    """用文件名生成稳定随机种子（mock 模式专用），保证同一张图每次结果一致、可复现。"""
-    h = hashlib.md5("|".join(str(p) for p in paths).encode("utf-8")).hexdigest()
-    return int(h, 16)
+def _content_seed(*paths) -> int:
+    """用图片**内容**（而非路径，路径含随机 rid 前缀）生成稳定随机种子，
+    保证同一张图每次取证结果一致、可复现（修复 mock 相似度因随机文件名而漂移的隐患）。"""
+    h = hashlib.md5()
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                for chunk in iter(lambda: f.read(65536), b""):
+                    h.update(chunk)
+        except Exception:  # noqa: BLE001
+            h.update(str(p).encode("utf-8"))
+    return int(h.hexdigest(), 16)
 
 
 def _mock_similarity(returned_path: str, product_path: str) -> float:
-    """mock 相似度：由两张图文件名算出的确定性值（0.55~0.98），仅用于免 Key 演示。
+    """mock 相似度：由两张图内容算出的确定性值（0.55~0.98），仅用于免 Key 演示。
     注意：这不是模型真实能力，真实相似度在 live 模式由图向量余弦得到。"""
-    s = _hash_seed(returned_path, product_path)
+    s = _content_seed(returned_path, product_path)
     return round(0.55 + (s % 1000) / 1000 * 0.43, 3)
 
 
@@ -94,11 +105,11 @@ def _mock(
     """mock 模式的单案取证：用确定性规则模拟一单结果（无需模型）。
     字段含义与 live 模式一致，便于前端/洞察层无缝切换。"""
     sim = _mock_similarity(returned_path, product_path)
-    # 用文件名种子决定瑕疵数量与种类（确定性）
-    random.seed(_hash_seed(returned_path))
+    # 用图片内容种子决定瑕疵数量与种类（确定性，避免随机文件名导致结果漂移）
+    random.seed(_content_seed(returned_path))
     n_def = random.randint(0, 3)
     defects = random.sample(DEFECT_POOL, n_def) if n_def > 0 else ["无明显瑕疵"]
-    same = sim >= SAME_ITEM_THRESHOLD  # 阈值：≥阈值 视为同一件商品
+    same = sim >= get_active_threshold()  # 阈值：≥阈值 视为同一件商品（标定值或默认 0.82）
 
     # 功能③ 一致性判断：同款且无瑕疵→倾向于买家责任；否则存在货不对板/质量瑕疵
     if same and defects == ["无明显瑕疵"]:
@@ -128,7 +139,7 @@ def _mock(
     # 缺陷区域示意框（mock 确定性占位；live 接通后由视觉模型返回真实 bbox）
     # 归一化坐标(0~1)，前端按比例绘制红框；演示数据仅作"示意"，不替代真实检测。
     defect_boxes: list[dict] = []
-    rng = random.Random(_hash_seed(returned_path, "boxes"))
+    rng = random.Random(_content_seed(returned_path, "boxes"))
     for d in defects:
         if d == "无明显瑕疵":
             continue
@@ -163,17 +174,29 @@ def analyze_case(
     sku: str,
     amount: float,
     mode: str = "mock",
+    returned_url: str | None = None,
+    product_url: str | None = None,
 ) -> dict:
     """阶段A 统一入口：对一笔退货做取证，返回结构化结果（功能①②③④⑤）。
     - mode="mock"：确定性规则，免 Key 立即可演示。
     - mode="live"：调用 models_router.live_analyze 走真实模型；任何异常都回退 mock 并标注，
       确保现场演示不会因网络/额度问题而卡死。
+    - returned_url / product_url：上传图公网 URL（由 storage 图床层给出），透传给 live_analyze
+      供视觉/向量/OCR 模型服务端回源。
     """
     if mode == "live":
         try:
             from models_router import live_analyze
 
-            return live_analyze(returned_path, product_path, listing_text, sku, amount)
+            return live_analyze(
+                returned_path,
+                product_path,
+                listing_text,
+                sku,
+                amount,
+                returned_url=returned_url,
+                product_url=product_url,
+            )
         except Exception as e:  # 失败回退 mock，保证演示不中断
             logger.exception("live 取证失败，回退 mock: %s", e)
             res = _mock(returned_path, product_path, listing_text, sku, amount)
@@ -211,19 +234,45 @@ _BUCKET_ADVICE = {
 # 注意：demo 种子用国家码（US/UK/DE/…），real 种子用中文宏观地区（北美/欧洲/东南亚），
 # 二者口径不一；_region_bucket 统一归一到宏观地区，保证 region_view / 物流成本跨源一致。
 _REGION_SHIP_RATIO = {
-    "北美": 0.16, "欧洲": 0.18, "南美": 0.15, "东亚": 0.13,
-    "东南亚": 0.12, "大洋洲": 0.17, "": 0.14, "未知": 0.14, "其他": 0.14,
+    "北美": 0.16,
+    "欧洲": 0.18,
+    "南美": 0.15,
+    "东亚": 0.13,
+    "东南亚": 0.12,
+    "大洋洲": 0.17,
+    "": 0.14,
+    "未知": 0.14,
+    "其他": 0.14,
 }
 # 国家代码 → 宏观销售地区（仅兜底映射；已是中文宏观地区则透传）
 _REGION_MAP = {
-    "US": "北美", "CA": "北美", "MX": "北美",
-    "UK": "欧洲", "DE": "欧洲", "FR": "欧洲", "ES": "欧洲", "IT": "欧洲",
-    "RU": "欧洲", "NL": "欧洲", "SE": "欧洲", "PL": "欧洲", "PT": "欧洲",
-    "BR": "南美", "AR": "南美", "CL": "南美",
-    "JP": "东亚", "KR": "东亚", "CN": "东亚",
-    "SG": "东南亚", "MY": "东南亚", "TH": "东南亚", "VN": "东南亚",
-    "ID": "东南亚", "PH": "东南亚",
-    "AU": "大洋洲", "NZ": "大洋洲",
+    "US": "北美",
+    "CA": "北美",
+    "MX": "北美",
+    "UK": "欧洲",
+    "DE": "欧洲",
+    "FR": "欧洲",
+    "ES": "欧洲",
+    "IT": "欧洲",
+    "RU": "欧洲",
+    "NL": "欧洲",
+    "SE": "欧洲",
+    "PL": "欧洲",
+    "PT": "欧洲",
+    "BR": "南美",
+    "AR": "南美",
+    "CL": "南美",
+    "JP": "东亚",
+    "KR": "东亚",
+    "CN": "东亚",
+    "SG": "东南亚",
+    "MY": "东南亚",
+    "TH": "东南亚",
+    "VN": "东南亚",
+    "ID": "东南亚",
+    "PH": "东南亚",
+    "AU": "大洋洲",
+    "NZ": "大洋洲",
 }
 
 
@@ -299,9 +348,7 @@ def _build_supplier_scorecard(sup: dict) -> list[dict]:
             "高风险" if score < 20 else "待改进" if score < 30 else "合格" if score < 38 else "优质"
         )
         # 缺陷构成：剔除"无明显瑕疵"占位，保留真实缺陷分布（前端画构成条）
-        defect_dist = {
-            dk: dv for dk, dv in v["defects"].items() if dk != "无明显瑕疵"
-        }
+        defect_dist = {dk: dv for dk, dv in v["defects"].items() if dk != "无明显瑕疵"}
         out.append(
             {
                 "supplier": k,
@@ -387,6 +434,81 @@ def _build_season_view(season: dict) -> list[dict]:
         )
     out.sort(key=lambda x: order.get(x["season"], 9))
     return out
+
+
+# ===================== 时间序列 + 预测预警（B组）=====================
+def _build_time_series(ts: dict) -> list[dict]:
+    """按自然月汇总案件数与退款，返回升序时间序列（缺日期的案件不计入）。"""
+    out: list[dict] = []
+    for k, v in ts.items():
+        out.append({"month": k, "cases": v["cases"], "refund": round(v["refund"], 2)})
+    out.sort(key=lambda x: x["month"])
+    return out
+
+
+def _next_month(y: int, m: int, k: int) -> tuple[int, int]:
+    """由 (年, 月) 向后推 k 个月，返回新的 (年, 月)。"""
+    total = (y * 12 + (m - 1)) + k
+    return total // 12, total % 12 + 1
+
+
+def _forecast_monthly(series: list[dict], horizon: int = 3) -> dict:
+    """B组：对月度案件量做线性最小二乘外推，预测未来 horizon 个月并给出趋势结论。
+
+    方法：以月序为自变量做 OLS 拟合 slope/intercept，预测点 = intercept + slope·(n-1+k)；
+    单件退款按历史均值外推；趋势由 slope 相对均值占比判定（up/down/flat），避免弱噪声误报。
+    样本不足（<3 个月）返回 available=False，前端据此提示「暂无足够时间维度数据」。
+    纯确定性计算，无需模型、可复现，适合录屏演示。
+    """
+    n = len(series)
+    if n < 3:
+        return {
+            "available": False,
+            "points": [],
+            "trend": "flat",
+            "slope": 0.0,
+            "recent_avg": 0.0,
+            "next_month_cases": 0,
+            "next_month_refund": 0.0,
+        }
+    xs = list(range(n))
+    ys = [p["cases"] for p in series]
+    ybar = sum(ys) / n
+    xbar = (n - 1) / 2
+    sxx = sum((x - xbar) ** 2 for x in xs) or 1
+    sxy = sum((x - xbar) * (y - ybar) for x, y in zip(xs, ys, strict=True))
+    slope = sxy / sxx
+    intercept = ybar - slope * xbar
+    # 历史单件退款均值，用于外推预测退款
+    total_refund = sum(p["refund"] for p in series)
+    total_cases = sum(ys) or 1
+    avg_refund_per_case = total_refund / total_cases
+
+    y, m = int(series[-1]["month"][:4]), int(series[-1]["month"][5:7])
+    points: list[dict] = []
+    for k in range(1, horizon + 1):
+        ny, nm = _next_month(y, m, k)
+        pred_cases = max(0, round(intercept + slope * (n - 1 + k)))
+        points.append(
+            {
+                "month": f"{ny:04d}-{nm:02d}",
+                "cases": pred_cases,
+                "refund": round(pred_cases * avg_refund_per_case, 2),
+            }
+        )
+    # 趋势判定：slope 占均值比例，弱趋势视为 flat（防噪声误报）
+    rel = abs(slope) / ybar if ybar else 0.0
+    trend = "flat" if rel < 0.05 else ("up" if slope > 0 else "down")
+    recent_avg = round(mean(ys[-3:]), 1) if n >= 3 else ybar
+    return {
+        "available": True,
+        "points": points,
+        "trend": trend,
+        "slope": round(slope, 3),
+        "recent_avg": recent_avg,
+        "next_month_cases": points[0]["cases"],
+        "next_month_refund": points[0]["refund"],
+    }
 
 
 def _build_sku_ranking(sku: dict, max_date) -> tuple[list[dict], list[dict]]:
@@ -518,6 +640,8 @@ def _aggregate(cases: list[dict]) -> dict:
     # 地区 / 季节 维度累加器（方向2 维度扩展）
     region = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
     season = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    # 时间序列累加器（B组：时间序列 + 预测预警）：按自然月 'YYYY-MM' 累加案件数与退款
+    ts = defaultdict(lambda: {"cases": 0, "refund": 0.0})
     # 退货成本估算累加：物流成本按地区比例粗略估算（退款 + 物流 = 退货总成本）
     logistics_all = 0.0
 
@@ -608,6 +732,12 @@ def _aggregate(cases: list[dict]) -> dict:
             ss["refund"] += amt
             if c.get("outcome") == "赢":
                 ss["won"] += 1
+        # 时间序列维度（B组）：按自然月累加，供趋势线与预测
+        cd = c.get("date") or ""
+        if len(cd) >= 7 and cd[4] == "-":
+            mm = ts[cd[:7]]
+            mm["cases"] += 1
+            mm["refund"] += amt
         # 退货成本估算：物流成本按归一化宏观地区比例累加（退款 + 物流 = 总成本）
         logistics_all += amt * _REGION_SHIP_RATIO.get(_region_bucket(c.get("region")) or "", 0.14)
 
@@ -635,7 +765,10 @@ def _aggregate(cases: list[dict]) -> dict:
 
     # 供应商红黑榜 + 黑名单自动生成（方向2）：质量分<50 自动入黑名单，带可解释理由
     supplier_scorecard = _build_supplier_scorecard(sup)
-    pct_local = lambda x: f"{round(x * 100)}%"
+
+    def _pct(x: float) -> str:
+        return f"{round(x * 100)}%"
+
     supplier_blacklist = [
         {
             "supplier": s["supplier"],
@@ -644,8 +777,8 @@ def _aggregate(cases: list[dict]) -> dict:
             "level": s["level"],
             "defect_rate": s["defect_rate"],
             "win_rate": s["win_rate"],
-            "reason": f"质量分 {s['quality_score']}（{s['level']}）：缺陷率 {pct_local(s['defect_rate'])}、"
-                      f"维权胜诉率 {pct_local(s['win_rate'])}",
+            "reason": f"质量分 {s['quality_score']}（{s['level']}）：缺陷率 {_pct(s['defect_rate'])}、"
+            f"维权胜诉率 {_pct(s['win_rate'])}",
         }
         for s in supplier_scorecard
         if s["quality_score"] < 50
@@ -654,6 +787,29 @@ def _aggregate(cases: list[dict]) -> dict:
     # 退货成本估算：物流成本（按地区比例）+ 退款 = 退货总成本
     logistics_cost = round(logistics_all, 2)
     total_return_cost = round(total_refund + logistics_cost, 2)
+
+    # 时间序列 + 预测预警（B组）：月度序列 + 线性外推 + 上行预警
+    time_series = _build_time_series(ts)
+    forecast = _forecast_monthly(time_series)
+    forecast_alerts: list[dict] = []
+    if forecast.get("available") and forecast.get("trend") == "up":
+        recent_avg = forecast.get("recent_avg", 0) or 0
+        predicted = forecast.get("next_month_cases", 0)
+        if recent_avg >= 4 and predicted > recent_avg * 1.15:
+            pct_up = round((predicted - recent_avg) / recent_avg * 100)
+            forecast_alerts.append(
+                {
+                    "month": forecast["points"][0]["month"],
+                    "predicted": predicted,
+                    "recent_avg": recent_avg,
+                    "pct": pct_up,
+                    "reason": (
+                        f"退货量预测上行：{forecast['points'][0]['month']} 预计 {predicted} 笔，"
+                        f"较近3月均值({recent_avg}笔)环比 +{pct_up}%，"
+                        "建议提前做品控抽检与备货/物流前置"
+                    ),
+                }
+            )
 
     return {
         "total_cases": total,
@@ -676,6 +832,10 @@ def _aggregate(cases: list[dict]) -> dict:
         "supplier_blacklist": supplier_blacklist,
         "logistics_cost": logistics_cost,
         "total_return_cost": total_return_cost,
+        # B组：时间序列 + 预测预警
+        "time_series": time_series,
+        "forecast": forecast,
+        "forecast_alerts": forecast_alerts,
         "sourcing_advice": [],
         "recommendations": [],
         "report": "",
@@ -763,6 +923,68 @@ def _mock_attribution(agg: dict) -> dict:
     return agg
 
 
+def _build_sourcing_loop(agg: dict) -> list[dict]:
+    """B组·选品避坑闭环：把洞察的"负面信号"收敛成一份**可执行**清单（结构化、可导出、可落地）。
+
+    闭环逻辑：退货证据 → 洞察（供应商黑榜 / 品类低胜诉 / SKU 异常 / 退货量上行） →
+    反哺选品与品控的"动作项"，每条带 {动作, 对象, 理由, 严重度}，让卖家拿到就能做决策，
+    而不是一堆描述性结论。severity 加权排序（高→中→低），前端按严重度渲染色块。
+    """
+    SEV_W = {"高": 0, "中": 1, "低": 2}
+    items: list[dict] = []
+
+    # ① 供应商黑名单 → 规避动作
+    for b in agg.get("supplier_blacklist", []):
+        items.append(
+            {
+                "action": "规避供应商",
+                "target": f"{b.get('supplier', '')}({b.get('name', '')})",
+                "reason": b.get("reason", ""),
+                "severity": "高",
+            }
+        )
+
+    # ② 低胜诉率品类 → 上新前必核验
+    for c in agg.get("category_heatmap", []):
+        if c.get("win_rate", 1) < 0.30:
+            items.append(
+                {
+                    "action": "上新前必核验",
+                    "target": c.get("category", ""),
+                    "reason": (
+                        f"该品类纠纷胜诉率仅 {round(c.get('win_rate', 0) * 100)}%、"
+                        f"高发缺陷「{c.get('top_defect', '-')}」，上新前重点核验质量与图文一致性"
+                    ),
+                    "severity": "中",
+                }
+            )
+
+    # ③ SKU 异常爆发 → 暂停推广排查
+    for a in agg.get("anomaly_alerts", []):
+        items.append(
+            {
+                "action": "暂停推广·排查批次",
+                "target": a.get("sku", ""),
+                "reason": a.get("reason", ""),
+                "severity": "高",
+            }
+        )
+
+    # ④ 退货量上行预测 → 前置品控/备货
+    for fa in agg.get("forecast_alerts", []):
+        items.append(
+            {
+                "action": "前置品控·备货物流",
+                "target": "退货量整体",
+                "reason": fa.get("reason", ""),
+                "severity": "中",
+            }
+        )
+
+    items.sort(key=lambda x: SEV_W.get(x["severity"], 1))
+    return items
+
+
 def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") -> dict:
     """阶段B 统一入口：群体洞察（功能⑥）。
     - mock：确定性规则归因，结果可复现，适合录屏演示。
@@ -812,6 +1034,8 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
             agg = _mock_attribution(agg)  # 仅 live 失败回退时才用 mock 归因（避免覆盖 LLM 结果）
     else:
         agg = _mock_attribution(agg)  # mock 模式：确定性规则归因
+    # B组·选品避坑闭环：无论 mock/live，均把负面信号收敛成可执行清单（结构化、可落地）
+    agg["sourcing_checklist"] = _build_sourcing_loop(agg)
     agg["mode"] = agg.get("mode", "mock")
     with _ins_lock:
         _ins_cache[key] = agg

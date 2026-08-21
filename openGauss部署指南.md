@@ -1,0 +1,102 @@
+# ReturnGuard · openGauss 部署与真实数据自动导入指南
+
+> 适用：复赛部署期使用国产数据库 openGauss 承载「实际退货数据（real 源）」，并在服务启动时自动回流真实业务数据。
+> 开发期仍可零依赖用 SQLite，部署期仅改环境变量，**业务代码零改动**（双轨隔离已在 `db.py` 预埋）。
+
+---
+
+## 1. 前置条件
+
+- Docker 中已启动 openGauss（用户环境已就绪）。示例连接信息：
+  - 主机：`localhost`（或容器映射端口 `5432`）
+  - 库：`postgres` / 自建 `returnguard`
+  - 用户：`gaussdb` / 密码：`<你的密码>`
+- 部署依赖已装：`pip install -r requirements.txt`（含 `psycopg2-binary` 连接驱动）
+
+> openGauss 兼容 PostgreSQL 协议，ReturnGuard 用 `postgresql+psycopg2://` 方言即可连接，无需官方方言包。
+
+---
+
+## 2. 切到 openGauss（仅改环境变量）
+
+```bash
+# 实际数据(real 源) 指向 openGauss
+export REAL_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
+# 演示数据(demo 源) 仍可用 SQLite（或也指向 openGauss 另一库）
+export DATABASE_URL="sqlite:///./cases.db"
+
+# 可选：写接口鉴权（生产必开）
+export ANALYZE_API_KEY="一个强随机串"
+# 可选：上传图清理阈值（小时）
+export UPLOAD_MAX_AGE_HOURS=24
+```
+
+启动后 `db.py` 的 `get_engine` 会自动建表（`Base.metadata.create_all`），无需手动建表。
+
+> 兼容性补丁：openGauss 的 `SELECT version()` 返回 `(openGauss 5.0.0 ...)`，SQLAlchemy PG 方言会误判；`db.py` 已内置 `_patch_opengauss_dialect`，仅在连接 openGauss/PostgreSQL 时挂接，提取主版本号，导入期无副作用。
+
+---
+
+## 3. 真实数据自动导入（开机即回流）
+
+部署期设置 `RG_AUTO_IMPORT_CSV` 指向一份真实退货 CSV，服务启动即批量导入 **real 源**（即 openGauss）：
+
+```bash
+export RG_AUTO_IMPORT_CSV="/path/to/returnguard/demo/seed_real.csv"
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+仓库已附 `demo/seed_real.csv`（20 条样例，覆盖 US/UK/DE/FR/ES/RU/BR 与 5–9 月，便于验证时间序列+预测与地区维度）。
+
+### 自动导入特性
+
+- **幂等**：`dedupe=True` 按自然键 `(sku, 日期, 相似度)` 跳过 real 源中已存在的行，容器重启重复挂载同一份 CSV **不会重复堆积**。
+- **案件号补齐**：导入行自动生成 `RG-XXXXXXXX` 案件号（原链路缺 case_id → NULL，导致无法按 ID 删除/去重；现已与 `/api/cases` 手动录入一致）。
+- **失败不阻断启动**：导入异常仅记日志，服务照常启动。
+- **仅落 real 源**：CSV 导入强制落到 real（真实业务库），绝不污染 demo 种子库。
+
+### CSV 列映射（`importer._COL_MAP`，大小写/下划线/中文不敏感）
+
+| CSV 列名 | 含义 | 备注 |
+|---|---|---|
+| sku / 产品 | SKU 编号 | **必填**，缺失行跳过 |
+| 品类 / category | 品类 | 3C数码/饰品配件/小家电/服饰鞋包 |
+| 供应商 / supplier | 供应商编号 | S1~S8 |
+| 平台 / platform | 平台 | Amazon/AliExpress/Temu/SHEIN |
+| 地区 / region | 销售地区 | US/UK/DE/FR/ES/RU/BR |
+| 金额 / 退款 / amount | 退款金额(¥) | 数值 |
+| 日期 / date | 案件日期 | YYYY-MM-DD，驱动时间序列 |
+| 相似度 / similarity | 与本店主图相似度 | 0~1，驱动同款判定 |
+| 结果 / outcome | 维权结果 | 赢/部分退款/输 |
+| 缺陷 / 瑕疵 / defect_tags | 瑕疵标签 | 支持 `;` `,` `、` 多值 |
+
+---
+
+## 4. 验证部署
+
+```bash
+# 健康检查
+curl http://localhost:8000/health
+
+# 看板应基于 real 源、含自动导入的数据
+curl "http://localhost:8000/api/insights?source=real&mode=mock" | python -m json.tool | head -20
+
+# 确认导入条数
+curl "http://localhost:8000/api/cases?source=real&slim=1" | python -c "import sys,json;print('real 源案件数:',len(json.load(sys.stdin)))"
+```
+
+重启服务再次确认：real 源案件数**不翻倍**（幂等生效）。
+
+---
+
+## 5. 平台连接器（进阶，可选）
+
+待 Amazon SP-API / AliExpress 凭证就绪，`importer.import_from_connector(connector)` 可直接把平台退货数据落库，接口已预留，不改变 CSV 导入主链路。
+
+---
+
+## 6. 注意事项
+
+- openGauss 与 SQLite 双源**物理隔离**：demo 永远来自种子，real 来自录入/导入，切换零代码（`?source=demo|real` 或前端顶栏）。
+- 多 worker 部署（gunicorn -w N）下，结果缓存为进程内（SQLite 演示足够）；openGauss 生产多 worker 建议上层加 Redis 共享缓存（后续优化项，非阻断）。
+- 上传图 `/uploads` 为演示态静态可读；生产对外应改签名 URL + 短期过期（已在 `_cleanup_old_uploads` 注释标注）。

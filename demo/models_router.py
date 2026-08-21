@@ -23,23 +23,29 @@ pipeline 自动回退 mock，保证演示不中断）：
 """
 
 import base64
+import hashlib
+import io
 import json
 import logging
 import math
 import os
+import random
 import re
+import struct
+import wave
 
 import requests
-from constants import SAME_ITEM_THRESHOLD, SEVERITY
+from calibration import get_active_threshold
+from constants import SEVERITY
+from dotenv import load_dotenv
 from prompts import (
     DEFECT_RECOGNITION_PROMPT,
     OCR_PROMISE_PROMPT,
+    build_insights_prompt,
     consistency_prompt,
     dossier_prompt,
     voice_prompt,
-    build_insights_prompt,
 )
-from dotenv import load_dotenv
 
 logger = logging.getLogger("returnguard.models_router")
 
@@ -234,40 +240,117 @@ def tts(text, voice="Chelsie"):
     return base64.b64encode(r.content).decode("ascii")
 
 
+# ===================== live 模式逐能力回退（网关渐进开通即生效）=====================
+def _fallback_similarity(returned_path: str, product_path: str) -> float:
+    """live 图向量不可用时，用与 pipeline 同口径的确定性哈希相似度兜底（仅演示，非模型真实能力）。
+    放本模块内避免反向 import pipeline 造成循环依赖。"""
+    h = hashlib.md5(f"{returned_path}|{product_path}".encode()).hexdigest()
+    return round(0.55 + (int(h, 16) % 1000) / 1000 * 0.43, 3)
+
+
+def _fallback_defects(returned_path: str) -> list[str]:
+    """live 瑕疵视觉不可用时，确定性哈希兜底标签（仅演示）。"""
+    h = int(hashlib.md5(str(returned_path).encode("utf-8")).hexdigest(), 16)
+    rng = random.Random(h)
+    pool = ["外包装破损", "商品缺件", "污渍划痕", "使用痕迹", "功能故障", "货不对板", "色差明显"]
+    n = rng.randint(0, 3)
+    return rng.sample(pool, n) if n > 0 else ["无明显瑕疵"]
+
+
+def _gen_wav(text: str, sr: int = 16000, dur: float = 1.2) -> str:
+    """占位 WAV（正弦音），TTS 不可用时充当可播放音频（与 pipeline._gen_wav 同口径）。"""
+    n = int(sr * dur)
+    buf = io.BytesIO()
+    w = wave.open(buf, "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(sr)
+    for i in range(n):
+        val = int(12000 * math.sin(2 * math.pi * 440 * i / sr) * (1 - i / n))
+        w.writeframes(struct.pack("<h", val))
+    w.close()
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 # ===================== 单案取证（阶段A）实时编排 =====================
 def live_analyze(
-    returned_path: str, product_path: str, listing_text: str, sku: str, amount: float
+    returned_path: str,
+    product_path: str,
+    listing_text: str,
+    sku: str,
+    amount: float,
+    returned_url: str | None = None,
+    product_url: str | None = None,
 ) -> dict:
-    """方案「阶段A·个案举证」：把上传的退回图+本店主图送进多个模型，输出一单取证结果。
-    三路并行取证 → 一致性核验 → 卷宗+语音 → 优先级评分。
-    无 Key / 无公网图 时主动抛错，由 pipeline 回退到 mock，保证演示不中断。"""
+    """方案「阶段A·个案举证」live 编排：并行取证 → 一致性核验 → 卷宗+语音 → 优先级评分。
+
+    **逐能力回退**：任一模型调用失败（网关未开通/超时/额度）仅该能力回退 mock，其余真实能力仍生效，
+    从而网关「渐进开通」哪些模型，哪些就实时变真（A1/A3 变真的代码前提）。
+    无 Key / 无公网图 时整体抛错，由 pipeline 回退到 mock，保证演示不中断。
+
+    returned_url / product_url：上传图的公网 URL（由 storage 层给出，图床落地 P3-17）；
+    缺省时按 PUBLIC_IMAGE_BASE + 文件名拼装（保持旧行为）。
+    """
     if not API_KEY:
         raise RuntimeError("未配置 MODEL_ROUTER_API_KEY")
-    if not PUBLIC_IMAGE_BASE:
+    ret_url = returned_url or (
+        f"{PUBLIC_IMAGE_BASE}/{os.path.basename(returned_path)}" if PUBLIC_IMAGE_BASE else None
+    )
+    prod_url = product_url or (
+        f"{PUBLIC_IMAGE_BASE}/{os.path.basename(product_path)}" if PUBLIC_IMAGE_BASE else None
+    )
+    if not ret_url or not prod_url:
         raise RuntimeError("未配置 PUBLIC_IMAGE_BASE（live 模式需可公网访问的图片地址）")
 
-    # 组装两张图的公网 URL（Model Router 在服务端回源拉取）
-    ret_url = PUBLIC_IMAGE_BASE.rstrip("/") + "/" + os.path.basename(returned_path)
-    prod_url = PUBLIC_IMAGE_BASE.rstrip("/") + "/" + os.path.basename(product_path)
+    caps: dict[str, bool] = {}
 
-    # ① 同款一致性：两张图向量 → 余弦相似度
-    va = embed_image(ret_url)
-    vb = embed_image(prod_url)
-    sim = cosine(va, vb)
-    same = sim >= SAME_ITEM_THRESHOLD  # 阈值来自 constants，与 mock 一致（可调，用历史样本标定）
+    # ① 同款一致性：两张图向量 → 余弦相似度（网关开通 tongyi-embedding-vision-plus 即真实）
+    try:
+        va = embed_image(ret_url)
+        vb = embed_image(prod_url)
+        sim = cosine(va, vb)
+        caps["similarity"] = True
+    except Exception as e:
+        logger.warning("live 图向量失败，回退 mock 相似度: %s", e)
+        sim = _fallback_similarity(returned_path, product_path)
+        caps["similarity"] = False
+    # 阈值用自标定值（calibration.get_active_threshold），网关开通视觉后即按真实分离点判定
+    same = sim >= get_active_threshold()
 
-    # ② 瑕疵识别：让 VL 模型列出视觉瑕疵标签
-    raw = vl_chat(ret_url, DEFECT_RECOGNITION_PROMPT)
-    defects = [x.strip() for x in raw.replace("，", ",").split(",") if x.strip()] or ["无明显瑕疵"]
+    # ② 瑕疵识别（网关开通 qwen3-vl-plus 即真实；真实 bbox 待视觉模型支持，live 不返回示意框）
+    try:
+        raw = vl_chat(ret_url, DEFECT_RECOGNITION_PROMPT)
+        defects = [x.strip() for x in raw.replace("，", ",").split(",") if x.strip()] or [
+            "无明显瑕疵"
+        ]
+        caps["defects"] = True
+    except Exception as e:
+        logger.warning("live 瑕疵识别失败，回退 mock: %s", e)
+        defects = _fallback_defects(returned_path)
+        caps["defects"] = False
 
-    # ③ + ④ 一致性核验与卷宗：OCR 提取承诺，LLM 判断货不对板并生成报告/陈述
-    promise = ocr(prod_url)
+    # ③ + ④ 一致性核验与卷宗（OCR + LLM；网关开通 qwen-vl-ocr 即真实承诺提取）
+    try:
+        promise = ocr(prod_url)
+        caps["ocr"] = True
+    except Exception as e:
+        logger.warning("live OCR 失败，回退 listing_text: %s", e)
+        promise = listing_text
+        caps["ocr"] = False
     consistency = llm(consistency_prompt(sim, defects, promise or listing_text))
     dossier = llm(dossier_prompt(sku, sim, defects, consistency))
     voice_text = llm(voice_prompt(sim, defects))
-    audio = tts(voice_text)  # ⑥ 母语语音
 
-    # ⑤ 优先级评分（此处用确定性公式，rerank 大规模多案时替换）
+    # ⑥ 母语语音（网关开通 TTS 即真实）
+    try:
+        audio = tts(voice_text)
+        caps["tts"] = True
+    except Exception as e:
+        logger.warning("live TTS 失败，回退占位音频: %s", e)
+        audio = _gen_wav(voice_text)
+        caps["tts"] = False
+
+    # ⑤ 优先级评分（rerank 大规模多案时替换；单案用确定性公式，网关开通 qwen3-rerank 时可用）
     sev_score = max([SEVERITY.get(d, 0.2) for d in defects])
     priority = round(
         min(1.0, 0.4 + (1 - sim) * 0.3 + sev_score * 0.3 + (0.2 if amount > 50 else 0)), 3
@@ -283,7 +366,9 @@ def live_analyze(
         "voice_text": voice_text,
         "voice_audio_b64": audio,
         "priority_score": priority,
+        "defect_boxes": [],  # live 真实 bbox 待视觉模型支持；前端对 live 不展示示意框
         "mode": "live",
+        "capabilities": caps,  # 透出哪些能力是真实模型、哪些是回退，便于演示说明
     }
 
 

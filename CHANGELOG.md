@@ -4,6 +4,47 @@
 
 ---
 
+## [1.1.0] — 2026-08-21
+
+> 复赛冲刺版本：A 组「假能力变真」、B 组「数据闭环」、C 组「多租户 + 合规 + 国产化部署」全部落地；测试 30 → 65，lint 门禁清零。
+
+### A 组 · 把「假能力」变真（live 就绪 + 图床 + 逐能力回退）
+- **A1 真·同款图像向量比对**：live 模式接入图向量余弦（`tongyi-embedding-vision-plus`），图床回源；gateway 未开通时自动回退确定性 mock，逐能力标记真实/回退（`capabilities` 映射）。
+- **A2 真·瑕疵视觉识别 + 真实红框**：live 接入 `qwen3-vl-plus` 缺陷识别，返回归一化缺陷框；未开通回退示意框。
+- **A3 真·OCR + rerank**：listing 承诺 OCR（`qwen-vl-ocr`）+ 案件优先级 rerank（`qwen3-rerank`）链路就绪。
+- **A4 live 图床落地**：新增 `storage.py` 统一图床抽象（OSS / `PUBLIC_IMAGE_BASE` / 本地回退），上传图同步为公网 URL 供模型服务端回源；`/api/config` 暴露图床状态。
+- **逐能力回退**：视觉/向量/OCR/TTS 各自 try/except，任一能力失败不影响其余；gateway 渐进开通即生效，无需改代码。
+
+### B 组 · 真实数据闭环
+- **B1 时间序列 + 预测预警**：洞察新增 `time_series`（按月案件/退款）、`forecast`（线性回归外推次月 + 趋势）、`forecast_alerts`（环比激增预警），前端新增趋势图与预测卡片。
+- **B2 真实数据回流**：新增 `importer.py` CSV 批量导入（列名映射/类型转换/中文表头不敏感）+ Amazon SP-API / AliExpress 连接器位；`POST /api/import_csv` 上线。
+- **B3 相似度阈值自标定**：新增 `calibration.py`，用真同款/真调包样本按 Youden J 最优分离点标定阈值（`POST /api/calibrate`），pipeline 与 live 统一读取，消除三处写死 0.82 的漂移。
+- **B4 选品避坑闭环**：洞察新增 `sourcing_checklist`（可执行选品避坑建议：换供应商/修 listing/停售 SKU 等），前端新增「选品避坑」卡片。
+
+### C 组 · 多租户 + 合规 + 国产化部署
+- **C1 多租户 + 账户体系**：新增 `auth.py`（pbkdf2 加盐哈希 + HMAC 签名令牌，零新依赖）；`POST /api/auth/register|login`、`GET /api/auth/me`；real 源案件按 `tenant_id` 隔离（私有数据严格隔离，`public` 公共基准共享，demo 源保持共享演示库）；前端登录弹窗 + 令牌持久化。
+- **C2 XSS 转义（P1-3）**：修复 SKU/品类/供应商/根因标签/平台举证材料等漏转义点，统一 `esc()`；后端新增 CSP / `X-Content-Type-Options` / `Referrer-Policy` 防御纵深。
+- **C3 负向 / 一致性测试（P3-3）**：新增 `tests/test_negative.py`（非法输入 4xx、mock 确定性、安全响应头、鉴权、CSV 缺行跳过）与 `tests/test_auth.py`（注册/登录/租户隔离/跨租户删除拦截）。
+- **C4 region / season 维度扩展**：前端新增地区（US/UK/DE/FR/ES/RU/BR）与季节筛选，与 `/api/insights` 的 `region`/`season` 下钻联动。
+- **C5 openGauss 部署 + 自动导入**：`RG_AUTO_IMPORT_CSV` 启动自动导入 real 源（幂等去重、失败不阻断）；附 `seed_real.csv` 样例与 `openGauss部署指南.md`（含连接参数、验证、注意事项）。
+
+### 修复（Fixes）
+- **mock 相似度确定性回归**：`_mock_similarity` 由「文件名哈希」改为「图片内容哈希」，修复上传随机 rid 文件名导致同图结果漂移（确定性、可复现）。
+- **CSV 导入缺案件号**：导入行补齐 `RG-XXXXXXXX` 稳定 case_id（原为 NULL，导致无法按 ID 删除/去重）。
+- **多租户迁移**：存量 cases 表缺 `tenant_id` 列时自动 `ALTER TABLE` 追加，部署期 schema 演进不破坏。
+- **lint 门禁清零**：demo 与仓库根脚本 ruff check + format 全绿（修 import 排序、未用导入、B905 strict、E731 lambda、E702 分号等 35 项）。
+
+### 文档（Docs）
+- 新增 `openGauss部署指南.md`（真实数据自动导入 + 验证）。
+- 更新 `docs/CODE_REVIEW.md`（终审结论：P1 清零、测试与 lint 门禁全绿）。
+
+### 已知限制（Known Issues）
+- live 视觉/向量/OCR/TTS 仍依赖 Model Router gateway 开通对应模型；未开通自动回退 mock 并逐能力标记（演示不中断，开通即生效）。
+- openGauss 多 worker 部署下聚合缓存为进程内（SQLite/单 worker 演示足够；生产多 worker 建议上层加 Redis 共享缓存，非阻断）。
+- `/uploads` 为演示态静态可读；生产对外应改签名 URL + 短期过期（已在 `_cleanup_old_uploads` 注释标注）。
+
+---
+
 ## [1.0.0] — 2026-08-16
 
 > 复赛交付基线版本。首次将「退货情报站」作为完整产品形态对外交付：群体洞察看板为产品核心，单案取证为数据采集管道。

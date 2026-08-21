@@ -42,6 +42,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    text,
 )
 from sqlalchemy.dialects.postgresql.base import PGDialect
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -71,6 +72,7 @@ def _patch_opengauss_dialect(url: str) -> None:
         PGDialect._get_server_version_info = _get_server_version_info_for_opengauss
         logger.info("已挂接 openGauss 版本探测补丁")
 
+
 # ---- 连接配置：默认 SQLite 双源隔离；部署期改环境变量即可切 openGauss ----
 # 演示数据（demo）：来自种子 cases.json；实际数据（real）：用户在网页「数据录入」添加，初始为空。
 # 两源各自独立库文件，物理隔离，互不污染；切换零代码（env 或前端 source 参数）。
@@ -83,6 +85,9 @@ REAL_DATABASE_URL = os.environ.get("REAL_DATABASE_URL", REAL_SQLITE)
 SOURCES = {"demo": DEMO_DATABASE_URL, "real": REAL_DATABASE_URL}
 DEFAULT_SOURCE = "demo"
 VALID_SOURCES = ("demo", "real")
+# 多租户（C组）：real 源案件按 tenant_id 隔离。
+# "public" 为公共基准数据（匿名录入 / 启动自动导入），所有租户可见；私有租户数据严格隔离。
+PUBLIC_TENANT = "public"
 
 
 def _normalize_source(source) -> str:
@@ -200,10 +205,13 @@ class Case(Base):
     returned_image = Column(String(256))
     product_image = Column(String(256))
     # 单案取证完整留存（便于案件复盘 / 红框回放；规模部署建议音频/大图改对象存储 URL）
-    dossier = Column(Text)                       # 举证报告正文
-    voice_text = Column(Text)                    # 母语语音陈述文本
-    voice_audio_b64 = Column(Text)               # 语音 base64（演示用）
-    defect_boxes = Column(JSON)                  # 关键帧缺陷示意框（归一化坐标 0~1）
+    dossier = Column(Text)  # 举证报告正文
+    voice_text = Column(Text)  # 母语语音陈述文本
+    voice_audio_b64 = Column(Text)  # 语音 base64（演示用）
+    defect_boxes = Column(JSON)  # 关键帧缺陷示意框（归一化坐标 0~1）
+    # 多租户隔离（C组）：real 源按 tenant_id 隔离；demo 源为共享演示库，恒为 "demo"，不参与隔离。
+    # 历史/匿名数据 tenant_id 为 NULL，查询时按 "public" 处理（见 load_cases 等）。
+    tenant_id = Column(String(64), index=True)
 
 
 _COLUMNS = {c.name for c in Case.__table__.columns}
@@ -250,8 +258,16 @@ def _dict_to_row(d: dict) -> Case:
 # demo 库 674 条若含 voice_audio_b64，整库响应体可达约 25MB；列表接口只投影看板与删除
 # 所需字段，从源头消除大响应体（P3-①）。
 _LIST_FIELDS = (
-    Case.case_id, Case.sku, Case.sku_name, Case.category, Case.supplier,
-    Case.supplier_name, Case.amount, Case.outcome, Case.date, Case.platform,
+    Case.case_id,
+    Case.sku,
+    Case.sku_name,
+    Case.category,
+    Case.supplier,
+    Case.supplier_name,
+    Case.amount,
+    Case.outcome,
+    Case.date,
+    Case.platform,
 )
 
 
@@ -263,19 +279,44 @@ def _row_to_slim_dict(r) -> dict:
     return d
 
 
-def list_cases(source: str = DEFAULT_SOURCE) -> list[dict]:
+def list_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> list[dict]:
     """读取指定 source 的案件「列表投影」（仅关键字段），用于数据录入页列表展示与删除。
 
     与 load_cases 的区别：用 ORM 列投影只取列表所需字段，不返回 voice_audio_b64 /
     dossier / listing_text 等大字段，从源头避免整库 25MB 级响应体（P3-①）。
+    tenant_id：仅 real 源生效（多租户隔离），NULL 视为 "public" 一并返回。
     """
     source = _normalize_source(source)
     with get_session(source) as s:
-        rows = s.query(*_LIST_FIELDS).all()
+        q = s.query(*_LIST_FIELDS)
+        if source == "real" and tenant_id is not None:
+            q = q.filter(
+                (Case.tenant_id == tenant_id)
+                | (Case.tenant_id.is_(None))
+                | (Case.tenant_id == PUBLIC_TENANT)
+            )
+        rows = q.all()
     return [_row_to_slim_dict(r) for r in rows]
 
 
-def init_db(source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: bool = False) -> None:
+def _ensure_tenant_column(engine) -> None:
+    """多租户迁移：已存在的 cases 表可能缺 tenant_id 列（部署期 Schema 演进），
+    用 inspect 探测后 ALTER TABLE 追加，避免存量库因缺列而查询失败。"""
+    from sqlalchemy import inspect
+
+    try:
+        cols = {c["name"] for c in inspect(engine).get_columns("cases")}
+    except Exception:  # noqa: BLE001
+        return  # 表尚不存在，交给 create_all
+    if "tenant_id" not in cols:
+        logger.info("cases 表缺失 tenant_id 列，执行 ALTER TABLE 追加（多租户迁移）")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN tenant_id VARCHAR(64)"))
+
+
+def init_db(
+    source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: bool = False
+) -> None:
     """建表；若库为空（或 force=True）且为 demo 源，则导入种子 JSON，保证克隆/部署后演示数据一致。
 
     force=True 会先 drop 全部表再重建并重新导入——用于本地重新生成了 cases.json 后刷新库
@@ -288,6 +329,7 @@ def init_db(source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: b
         logger.info("[%s] force=True：重置案件库（drop_all + 重建 + 重新导入）", source)
         Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    _ensure_tenant_column(engine)  # 多租户迁移：存量库补 tenant_id 列
     if source == "demo":
         if seed_json is None:
             seed_json = os.path.join(BASE, "cases.json")
@@ -306,26 +348,47 @@ def init_db(source: str = DEFAULT_SOURCE, seed_json: str | None = None, force: b
         logger.info("[%s] 实际数据库就绪（空库，待录入）", source)
 
 
-def load_cases(source: str = DEFAULT_SOURCE) -> list[dict]:
-    """读取指定 source 的全部案件，返回 list[dict]。带按 source 的结果缓存。"""
+def load_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> list[dict]:
+    """读取指定 source 的案件，返回 list[dict]。带按 source 的结果缓存（仅 tenant_id=None 时缓存共享视图）。
+
+    tenant_id：仅 real 源生效（多租户隔离）。demo 源忽略（共享演示库）。
+    历史/匿名数据 tenant_id 为 NULL，按 "public" 一并返回，保证向后兼容。
+    """
     source = _normalize_source(source)
-    with _cache_lock:
-        if _cache[source] is not None:
-            return _cache[source]
+    if tenant_id is None:
+        with _cache_lock:
+            if _cache[source] is not None:
+                return _cache[source]
     with get_session(source) as s:
-        data = [_row_to_dict(r) for r in s.query(Case).all()]
-    with _cache_lock:
-        _cache[source] = data
+        q = s.query(Case)
+        if source == "real" and tenant_id is not None:
+            q = q.filter(
+                (Case.tenant_id == tenant_id)
+                | (Case.tenant_id.is_(None))
+                | (Case.tenant_id == PUBLIC_TENANT)
+            )
+        data = [_row_to_dict(r) for r in q.all()]
+    if tenant_id is None:
+        with _cache_lock:
+            _cache[source] = data
     return data
 
 
-def save_case(source: str = DEFAULT_SOURCE, case: dict | None = None) -> None:
-    """追加一条案件到指定 source（替代原 save_case(path, case)），并失效对应缓存。"""
+def save_case(
+    source: str = DEFAULT_SOURCE, case: dict | None = None, tenant_id: str | None = None
+) -> None:
+    """追加一条案件到指定 source（替代原 save_case(path, case)），并失效对应缓存。
+
+    tenant_id：仅 real 源生效（多租户隔离）。demo 源恒为共享演示库（"demo"），不参与隔离；
+    real 源缺省归 "public"（匿名/启动自动导入的数据），认证用户的数据归其自身租户。
+    """
     source = _normalize_source(source)
     if case is None:
         return
+    data = dict(case)
+    data["tenant_id"] = "demo" if source == "demo" else (tenant_id or "public")
     with get_session(source) as s:
-        s.add(_dict_to_row(case))
+        s.add(_dict_to_row(data))
         s.commit()
     _invalidate_cache(source)
     bump_generation(source)
@@ -338,19 +401,38 @@ def save_case(source: str = DEFAULT_SOURCE, case: dict | None = None) -> None:
         logger.warning("洞察缓存失效失败（可忽略）", exc_info=True)
 
 
-def get_case(source: str = DEFAULT_SOURCE, case_id: str = "") -> dict | None:
-    """按 case_id 查指定 source 的单条案件。"""
+def get_case(
+    source: str = DEFAULT_SOURCE, case_id: str = "", tenant_id: str | None = None
+) -> dict | None:
+    """按 case_id 查指定 source 的单条案件。real 源按 tenant_id 隔离（NULL 视为 public）。"""
     source = _normalize_source(source)
     with get_session(source) as s:
-        r = s.query(Case).filter_by(case_id=case_id).first()
+        q = s.query(Case).filter_by(case_id=case_id)
+        if source == "real" and tenant_id is not None:
+            q = q.filter(
+                (Case.tenant_id == tenant_id)
+                | (Case.tenant_id.is_(None))
+                | (Case.tenant_id == PUBLIC_TENANT)
+            )
+        r = q.first()
         return _row_to_dict(r) if r else None
 
 
-def delete_case(source: str = DEFAULT_SOURCE, case_id: str = "") -> int:
-    """按 case_id 删除指定 source 的一条案件，返回删除条数，并失效对应缓存。"""
+def delete_case(
+    source: str = DEFAULT_SOURCE, case_id: str = "", tenant_id: str | None = None
+) -> int:
+    """按 case_id 删除指定 source 的一条案件，返回删除条数，并失效对应缓存。
+    real 源按 tenant_id 隔离：仅能删除本租户（或 public 匿名）的案件。"""
     source = _normalize_source(source)
     with get_session(source) as s:
-        n = s.query(Case).filter_by(case_id=case_id).delete()
+        q = s.query(Case).filter_by(case_id=case_id)
+        if source == "real" and tenant_id is not None:
+            q = q.filter(
+                (Case.tenant_id == tenant_id)
+                | (Case.tenant_id.is_(None))
+                | (Case.tenant_id == PUBLIC_TENANT)
+            )
+        n = q.delete()
         s.commit()
     _invalidate_cache(source)
     bump_generation(source)

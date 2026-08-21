@@ -12,8 +12,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
-
+from typing import Any
 
 # ===================== ① 同款一致性比对（图像向量）=====================
 # 该能力走 embeddings 接口，无自然语言 prompt（输入为图片 URL）。
@@ -40,7 +39,7 @@ OCR_PROMISE_PROMPT = (
 
 # ===================== ④ 文本生成 / 推理 =====================
 # 4a. 货不对板一致性核验
-def consistency_prompt(similarity: float, defects: List[str], promise: str) -> str:
+def consistency_prompt(similarity: float, defects: list[str], promise: str) -> str:
     defect_str = "、".join(defects) if defects else "无明显瑕疵"
     return (
         "你是一名公正的跨境纠纷仲裁助手。请基于下列事实判断该笔退货是否「货不对板」"
@@ -55,7 +54,7 @@ def consistency_prompt(similarity: float, defects: List[str], promise: str) -> s
 
 
 # 4b. 结构化举证卷宗
-def dossier_prompt(sku: str, similarity: float, defects: List[str], consistency: str) -> str:
+def dossier_prompt(sku: str, similarity: float, defects: list[str], consistency: str) -> str:
     defect_str = "、".join(defects) if defects else "无明显瑕疵"
     return (
         "你是一名专业的跨境卖家维权助理。请为下面这笔退货生成一段「举证卷宗」正文，"
@@ -68,7 +67,7 @@ def dossier_prompt(sku: str, similarity: float, defects: List[str], consistency:
 
 
 # 4c. 母语口头陈述（TTS 前置文本）
-def voice_prompt(similarity: float, defects: List[str]) -> str:
+def voice_prompt(similarity: float, defects: list[str]) -> str:
     defect_str = "、".join(defects) if defects else "无明显瑕疵"
     return (
         "你正在帮助一位中国跨境卖家，就一笔退货向平台用母语做一段口头举证陈述。"
@@ -93,7 +92,7 @@ INSIGHTS_SYSTEM_PERSONA = (
 )
 
 
-def build_insights_prompt(aggregated: Dict[str, Any]) -> str:
+def build_insights_prompt(aggregated: dict[str, Any]) -> str:
     """把聚合统计组装成一段结构化 JSON 输出 prompt。
 
     返回的 prompt 要求模型以纯 JSON 返回五部分：
@@ -126,7 +125,7 @@ def build_insights_prompt(aggregated: Dict[str, Any]) -> str:
         "请完成五件事，并以**纯 JSON**返回（不要任何解释文本、不要 markdown 围栏，只返回可解析的 JSON 对象）：\n"
         "1) root_cause：字符串。归纳退货高发的根因（如包装防护不足 / 供应商质量不稳定 / "
         "listing 过度承诺 / 物流暴力分拣等），并给出对应的数据依据（引用上面 JSON 中的具体数字）。\n"
-        '2) sku_insights：数组，取退款金额最高的前 3 个 SKU。每个元素为 '
+        "2) sku_insights：数组，取退款金额最高的前 3 个 SKU。每个元素为 "
         '{"sku": 字符串, "finding": 字符串（该 SKU 核心问题，含数据）, "action": 字符串（可执行整改动作）}。\n'
         "3) recommendations：数组，3-5 条可执行的选品 / 品控 / listing 改写**策略建议**，面向卖家管理者，"
         "每条一句话、可落地（偏方向性）。\n"
