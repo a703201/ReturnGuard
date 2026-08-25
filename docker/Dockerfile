@@ -28,6 +28,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 再拷业务源码（demo/ 完整目录 → /app）
 COPY demo/ .
 
+# 拷入版本文件（仓库根目录 VERSION → /app/VERSION，main.py 启动时读取）
+COPY VERSION .
+
 # 拷入启动脚本（位于 docker/，与 compose 同目录），置于 /app 并赋可执行权限
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN mkdir -p uploads && chmod +x /app/entrypoint.sh
