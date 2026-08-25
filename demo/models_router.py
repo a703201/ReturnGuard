@@ -40,6 +40,7 @@ from constants import SEVERITY
 from dotenv import load_dotenv
 from prompts import (
     DEFECT_RECOGNITION_PROMPT,
+    DEFECT_BBOX_PROMPT,
     OCR_PROMISE_PROMPT,
     build_insights_prompt,
     consistency_prompt,
@@ -121,6 +122,64 @@ def vl_chat(image_url, prompt):
     )
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
+
+
+def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
+    """调用 qwen3-vl-plus 做缺陷定位，返回归一化 bbox 列表（坐标 0~1，xywh）。
+
+    返回：[{label, x, y, w, h, confidence}, ...]。用于「关键帧红框标注」真实坐标。
+    网关开通多模态理解即真实；未开通/解析失败由 live_analyze 回退确定性示意框，
+    保证演示不中断且如实标注（不替代平台裁决）。"""
+    r = requests.post(
+        f"{API_BASE}/chat/completions",
+        headers=_headers(),
+        json={
+            "model": "qwen/qwen3-vl-plus",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                }
+            ],
+        },
+        timeout=60,
+    )
+    r.raise_for_status()
+    msg = r.json()["choices"][0]["message"]
+    raw = msg.get("content") or msg.get("reasoning_content") or ""
+    data = _extract_json(raw)
+    items = data.get("boxes") or data.get("defects") or []
+    boxes: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        lab = str(item.get("label", "")).strip()
+        coords = item.get("bbox") or item.get("box") or []
+        if not lab or len(coords) < 4:
+            continue
+        try:
+            a = [float(c) for c in coords[:4]]
+        except Exception:
+            continue
+        # 要求归一化 0~1；越界（如像素坐标）无法可靠归一化则跳过，由回退机制补全
+        if not all(0 <= v <= 1 for v in a):
+            continue
+        x, y, w, h = a
+        conf = float(item.get("confidence", 0.0) or 0.0)
+        boxes.append(
+            {
+                "label": lab,
+                "x": round(x, 3),
+                "y": round(y, 3),
+                "w": round(w, 3),
+                "h": round(h, 3),
+                "confidence": round(conf, 2),
+            }
+        )
+    return boxes
 
 
 # ===================== ③ listing 承诺提取（OCR）=====================
@@ -257,6 +316,26 @@ def _fallback_defects(returned_path: str) -> list[str]:
     return rng.sample(pool, n) if n > 0 else ["无明显瑕疵"]
 
 
+def _fallback_defect_boxes(returned_path: str, defects: list[str]) -> list[dict]:
+    """live 缺陷定位（bbox）不可用时，确定性示意框（仅演示，不替代真实检测坐标）。
+
+    与 pipeline._mock 的示意框口径一致：按缺陷标签生成归一化 [x,y,w,h] + 演示置信度；
+    live 路径下会如实通过 capabilities["boxes"]=False 向前端标注「示意回退」。"""
+    out: list[dict] = []
+    h = int(hashlib.md5(f"{returned_path}|boxes".encode("utf-8")).hexdigest(), 16)
+    rng = random.Random(h)
+    for d in defects:
+        if d == "无明显瑕疵":
+            continue
+        bx = round(rng.random() * 0.6, 3)
+        by = round(rng.random() * 0.55, 3)
+        bw = round(0.20 + rng.random() * 0.22, 3)
+        bh = round(0.20 + rng.random() * 0.22, 3)
+        conf = round(0.75 + rng.random() * 0.23, 2)
+        out.append({"label": d, "x": bx, "y": by, "w": bw, "h": bh, "confidence": conf})
+    return out
+
+
 def _gen_wav(text: str, sr: int = 16000, dur: float = 1.2) -> str:
     """占位 WAV（正弦音），TTS 不可用时充当可播放音频（与 pipeline._gen_wav 同口径）。"""
     n = int(sr * dur)
@@ -329,6 +408,18 @@ def live_analyze(
         defects = _fallback_defects(returned_path)
         caps["defects"] = False
 
+    # ②' 缺陷定位（关键帧红框）：网关开通 qwen3-vl-plus 即返回真实归一化 bbox；
+    # 未开通 / 解析失败 → 确定性示意框（不替代真实检测），并标记 boxes=False 让前端如实标注「回退」
+    try:
+        boxes = vl_detect_boxes(ret_url, DEFECT_BBOX_PROMPT)
+        if not boxes:
+            raise ValueError("VL 未返回任何有效 bbox")
+        caps["boxes"] = True
+    except Exception as e:
+        logger.warning("live 缺陷定位失败，回退示意框: %s", e)
+        boxes = _fallback_defect_boxes(returned_path, defects)
+        caps["boxes"] = False
+
     # ③ + ④ 一致性核验与卷宗（OCR + LLM；网关开通 qwen-vl-ocr 即真实承诺提取）
     try:
         promise = ocr(prod_url)
@@ -366,7 +457,8 @@ def live_analyze(
         "voice_text": voice_text,
         "voice_audio_b64": audio,
         "priority_score": priority,
-        "defect_boxes": [],  # live 真实 bbox 待视觉模型支持；前端对 live 不展示示意框
+        "defect_boxes": boxes,  # live 真实 bbox（网关开通 qwen3-vl-plus）或确定性示意框（回退）
+        "defect_boxes_live": caps.get("boxes", False),  # True=真实视觉坐标，False=示意回退
         "mode": "live",
         "capabilities": caps,  # 透出哪些能力是真实模型、哪些是回退，便于演示说明
     }
