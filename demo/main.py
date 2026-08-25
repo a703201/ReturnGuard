@@ -296,6 +296,16 @@ if _CORS_ALLOW_ORIGINS:
     )
 
 
+# 演示态防浏览器缓存：GET 响应（页面 / 静态资源 / 接口）一律 no-cache，
+# 避免「网页未更新」——评委或现场刷新即见最新代码，无需手动清缓存。
+@app.middleware("http")
+async def no_cache_middleware(request: Request, call_next):
+    response = await call_next(request)
+    if request.method == "GET":
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @app.middleware("http")
 async def observe_middleware(request: Request, call_next):
     """P2-9：请求耗时日志 + 基础指标计数（便于容器采集与排障）。"""
