@@ -32,6 +32,7 @@ import os
 import random
 import re
 import struct
+import sys
 import wave
 
 import requests
@@ -53,7 +54,13 @@ logger = logging.getLogger("returnguard.models_router")
 # ---- 阿里云百炼 Token Plan 专属网关（OpenAI 兼容协议）----
 # 密钥 / 基地址优先从 demo/.env 读取（.env 不入 git，见根与 demo 两层 .gitignore），
 # 也支持外部环境变量覆盖（如 docker compose 注入）。
-load_dotenv()  # 读取 demo/.env（本地敏感配置：API Key、网关地址等）
+# 读取 demo/.env（本地敏感配置：API Key、网关地址等）。
+# 测试环境跳过：pytest 在启动期就把自身注入 sys.modules（早于任何业务模块 import），
+# 因此用 sys.modules.get("pytest") 判断最可靠；不能用 PYTEST_CURRENT_TEST——它只在测试
+# "执行期"才写入环境，模块"收集期" import 时尚未存在，会导致真实 .env 被误加载、七牛密钥等
+# 泄漏进用例、造成图床后端等非确定性行为。
+if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
+    load_dotenv()
 
 API_BASE = os.environ.get(
     "MODEL_ROUTER_BASE_URL",
