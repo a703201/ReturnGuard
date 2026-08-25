@@ -44,6 +44,9 @@ class AnalyzeResult(BaseModel):
     voice_audio_b64: str | None = None
     priority_score: float
     defect_boxes: list[DefectBox] = []
+    # 红框是否来自真实视觉模型：True=live 真实坐标框，False=live 回退示意框 / mock 演示框。
+    # 前端据此区分红框(真实)与琥珀色示意框(回退)，如实呈现、不替代平台裁决。
+    defect_boxes_live: bool = False
     # 退回图访问地址（/uploads/<文件名>），前端据此加载做红框标注；
     # 用 URL 替代整图 base64，避免 10MB 图塞进 JSON 撑大响应（P3-5）。
     returned_image_url: str = ""

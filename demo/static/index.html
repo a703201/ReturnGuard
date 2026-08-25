@@ -167,6 +167,10 @@
   .annot-wrap{position:relative;display:inline-block;margin-top:6px}
   #annot{width:100%;max-width:420px;border-radius:8px;display:none;background:#0b1220}
   .annot-note{color:#64748b;font-size:11px;margin-top:4px;line-height:1.5}
+  /* 红框来源徽标：真实视觉=绿；回退示意=琥珀 */
+  .box-badge{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600}
+  .box-badge.live{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.4)}
+  .box-badge.fallback{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.4)}
   /* 取证流程三态步骤条（演示镜头：上传→分析→结果） */
   .steps{display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;margin-bottom:10px;flex-wrap:wrap}
   .steps .st{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #334155;transition:all .2s ease}
@@ -617,7 +621,8 @@
               <div style="margin-top:8px">发现的问题：<span id="defects"></span></div>
               <div style="margin-top:10px">退货图缺陷标注（关键帧红框）：</div>
               <div class="annot-wrap"><canvas id="annot"></canvas></div>
-              <div class="annot-note">※ 当前为演示示意框（按缺陷类型生成，所示置信度为演示示意值）；接入真实视觉模型后自动替换为检测坐标与真实分数，且全程不替代平台裁决。</div>
+              <div id="boxBadge" class="box-badge"></div>
+              <div class="annot-note">※ 红框为真实视觉模型坐标时标注「AI 实算」；当前网关未开通视觉理解时自动回退为演示示意框（按缺陷类型生成，置信度为示意值），全程不替代平台裁决。</div>
               <div style="margin-top:8px">优先处理级别：<b id="prio"></b></div>
               <div class="dossier-head"><span>自动生成的举证材料</span><button type="button" id="copyDossier">复制</button></div>
               <pre id="dossier"></pre>
@@ -1130,9 +1135,19 @@ async function downloadPdfReport(){
 }
 
 // 单案举证：退货图叠加缺陷红框（P3-5：改为加载 /uploads 返回的 URL，而非内联 base64）
-function renderAnnot(boxes, imgUrl){
+function renderAnnot(boxes, imgUrl, boxLive){
   const cv=$('#annot');
   if(!boxes||!boxes.length||!imgUrl){cv.style.display='none';return;}
+  // boxLive=true：真实视觉模型坐标 → 红色实线框；false：live 回退示意框 / mock 演示框 → 琥珀虚线框
+  const live = !!boxLive;
+  const stroke = live ? '#f87171' : '#fbbf24';
+  const dash = live ? [] : [6,4];
+  const labelColor = live ? '#fecaca' : '#fde68a';
+  const badge = $('#boxBadge');
+  if(badge){
+    badge.textContent = live ? '红框：AI 实算（真实视觉坐标）' : '红框：演示示意（回退）';
+    badge.className = 'box-badge ' + (live ? 'live' : 'fallback');
+  }
   const img=new Image();
   img.onload=()=>{
     const W=Math.min(420, img.width||420), H=Math.round(img.height*W/(img.width||1));
@@ -1141,17 +1156,21 @@ function renderAnnot(boxes, imgUrl){
     ctx.drawImage(img,0,0,W,H);
     boxes.forEach(b=>{
       const x=Math.max(0,b.x*W), y=Math.max(0,b.y*H), w=Math.min(W-b.x*W,b.w*W), h=Math.min(H-b.y*H,b.h*H);
-      ctx.strokeStyle='#f87171'; ctx.lineWidth=3; ctx.strokeRect(x,y,w,h);
-      // 置信度（演示示意值）：有则拼到标签，让红框更接近真实检测呈现（不替代平台裁决）
+      ctx.save();
+      ctx.setLineDash(dash);
+      ctx.strokeStyle=stroke; ctx.lineWidth=3; ctx.strokeRect(x,y,w,h);
+      ctx.restore();
+      // 置信度（真实分数或演示示意值）：有则拼到标签，让红框更接近真实检测呈现（不替代平台裁决）
       const showConf = (b.confidence!=null && b.confidence>0);
-      const txt = showConf ? `${b.label} · ${Math.round(b.confidence*100)}%` : b.label;
+      const suffix = live ? '' : '（示意）';
+      const txt = (showConf ? `${b.label} · ${Math.round(b.confidence*100)}%` : b.label) + suffix;
       ctx.font='12px sans-serif';
       const tw=ctx.measureText(txt).width;
       const ly = y>16 ? y-15 : y+h+3;
       // 标签底衬，提升红框上文字可读性（关键帧红框打磨）
       ctx.fillStyle='rgba(15,23,42,.82)';
       ctx.fillRect(x, ly-12, tw+8, 16);
-      ctx.fillStyle='#fecaca';  // 浅红，配底衬更清晰
+      ctx.fillStyle=labelColor;  // 真实红/回退琥珀，配底衬更清晰
       // 标签文本走 esc 转义，杜绝 live 模型自由文本引发的 XSS（P1-3）
       ctx.fillText(esc(txt), x+4, ly);
     });
@@ -1433,7 +1452,9 @@ async function doAnalyze(e){
     // P1-3：缺陷标签拼进 innerHTML 前转义，杜绝 live 模型自由文本 XSS
     $('#defects').innerHTML=(d.defect_tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('');
     // P3-5：红框图从 /uploads 返回的 URL 加载（后端已不返回内联 base64）
-    renderAnnot(d.defect_boxes, d.returned_image_url);
+    // boxLive：红框来自真实视觉模型(True)还是回退示意框(False)；mock 模式恒为 False
+    const boxLive = !!(d.defect_boxes_live || (d.capabilities && d.capabilities.boxes));
+    renderAnnot(d.defect_boxes, d.returned_image_url, boxLive);
     $('#prio').textContent=d.priority_score;
     $('#dossier').textContent=d.dossier;
     $('#vtext').textContent=d.voice_text;
