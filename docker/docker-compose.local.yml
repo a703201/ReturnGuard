@@ -8,10 +8,17 @@
 #
 # 停止：docker compose -f docker/docker-compose.local.yml down
 #
-# 与 docker-compose.yml 的区别：
+# 与 docker-compose.yml（openGauss 保真部署）的区别：
 #   - 无 openGauss 容器（省内存、省初始化时间）
 #   - 使用 SQLite（与本地开发一致，demo 数据内置）
 #   - 适合演示 / 本地开发 / 快速验证
+#
+# 开发期热更新（关键）：
+#   - 通过 `../demo:/app` 把主机源码绑定挂载进容器，改文件即时生效，无需重建镜像
+#   - uvicorn 加 --reload，.py 改动自动重载（.html 等静态文件按请求读盘，刷新即见）
+#   - 覆盖 Dockerfile 的 ENTRYPOINT（默认 entrypoint.sh 会等待不存在的 db:5432，
+#     本地版无数据库容器，必须跳过该等待，否则启动要干等 ~120s）
+#   - SQLite 库文件落在挂载的 /app（= 主机 demo/），天然持久化，且已被 .gitignore 忽略
 # ============================================================
 name: returnguard-local
 
@@ -22,6 +29,9 @@ services:
       dockerfile: docker/Dockerfile
     image: returnguard-app:local
     container_name: rg_app_local
+    # 覆盖 Dockerfile 的 ENTRYPOINT（entrypoint.sh 会等待 db:5432，本地版无该服务），
+    # 改为直接执行下方 command（轻量、不等待外部数据库）。
+    entrypoint: ["sh", "-c"]
     environment:
       # SQLite 模式（默认值，显式声明以防覆盖）
       DATABASE_URL: sqlite:///./cases.db
@@ -38,18 +48,17 @@ services:
       LOGIN_LOCK_MIN: "15"
     ports:
       - "8000:8000"
+    # 开发期绑定挂载源码：改动即时生效，免重建镜像
     volumes:
-      - rg_data:/app/data          # 持久化 SQLite 数据库
+      - ../demo:/app
     working_dir: /app
-    # 使用轻量级入口脚本（不等待外部数据库）
-    command: ["sh", "-c", "python -c \"from auth import init_auth_db; from db import init_db; init_db('demo'); init_db('real')\" && uvicorn main:app --host 0.0.0.0 --port 8000"]
+    # 直接初始化（demo+real 双源）并启动 uvicorn；--reload 让 .py 改动自动重载
+    command:
+      - 'mkdir -p uploads && python -c "from auth import init_auth_db; from db import init_db; init_db(''demo''); init_db(''real'')" && uvicorn main:app --host 0.0.0.0 --port 8000 --reload'
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 20s
     restart: unless-stopped
-
-volumes:
-  rg_data:
