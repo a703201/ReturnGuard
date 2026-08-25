@@ -251,6 +251,12 @@ async def lifespan(app):
     init_db("real")  # 实际数据库：确保表存在，初始空库待录入
     # C组：账户/用户表（多租户隔离的租户目录）
     auth.init_auth_db()
+    # 复赛交付：预置演示测试账号（评委可直接登录 real 源体验多租户隔离 + 实际数据洞察）
+    try:
+        auth.register("demo", "demo123", "ReturnGuard 演示租户")
+        logger.info("已预置演示测试账号 demo/demo123")
+    except Exception:
+        logger.exception("预置演示账号失败（不影响启动）")
     # 安全自检：生产必须固化 AUTH_SECRET，否则令牌重启即失效且不利于统一轮换
     if not os.environ.get("AUTH_SECRET"):
         logger.critical(

@@ -171,6 +171,17 @@
   .box-badge{display:inline-block;margin-top:6px;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600}
   .box-badge.live{background:rgba(34,197,94,.15);color:#4ade80;border:1px solid rgba(34,197,94,.4)}
   .box-badge.fallback{background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.4)}
+  /* 多模型协同编排链路（P2 展示） */
+  .orch{background:#0b1220;border:1px solid #1e293b;border-radius:10px;padding:10px 12px}
+  .orch-title{font-size:12px;font-weight:600;color:#e2e8f0;margin-bottom:8px}
+  .orch-chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .orch-chip{display:inline-flex;flex-direction:column;align-items:center;gap:2px;padding:5px 10px;border-radius:8px;font-size:11px;min-width:62px;border:1px solid}
+  .orch-chip .orch-step{font-weight:600}
+  .orch-chip .orch-state{font-size:10px;opacity:.85}
+  .orch-chip.live{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.45);color:#4ade80}
+  .orch-chip.fallback{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.45);color:#fbbf24}
+  .orch-chip.local{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.45);color:#93c5fd}
+  .orch-hint{font-size:10px;color:#64748b;margin-top:8px;line-height:1.5}
   /* 取证流程三态步骤条（演示镜头：上传→分析→结果） */
   .steps{display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;margin-bottom:10px;flex-wrap:wrap}
   .steps .st{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #334155;transition:all .2s ease}
@@ -632,6 +643,11 @@
               <div id="platEvWrap" class="hide" style="margin-top:12px">
                 <div style="font-weight:600">平台举证要点（<span id="platName"></span> · 必备材料）</div>
                 <ul id="platEv" class="ev"></ul>
+              </div>
+              <div class="orch" id="orchWrap" style="margin-top:14px;display:none">
+                <div class="orch-title">多模型协同编排链路 · 逐能力真实 / 回退</div>
+                <div class="orch-chain" id="orchChain"></div>
+                <div class="orch-hint">网关渐进开通哪些模型，哪些即实时变真；任一能力不可用时仅该步回退演示，其余真实能力仍生效。</div>
               </div>
             </div>
             <div id="resEmpty" class="note">提交左侧表单后，这里显示该单的取证结果与平台举证要点。</div>
@@ -1468,6 +1484,7 @@ async function doAnalyze(e){
     $('#analyzing').classList.add('hide');
     setStep(3);
     renderBadge(d.mode);
+    renderOrchestration(d);
     const cb=$('#copyDossier'); cb.textContent='复制'; cb.classList.remove('copied');
     $('#res').classList.remove('hide');
   }catch(err){ $('#analyzing').classList.add('hide'); setStep(1); $('#err').textContent='错误：'+err.message; }
@@ -1487,6 +1504,34 @@ function renderBadge(mode){
   if(mode==='live'){ b.classList.add('live'); b.textContent='真实 AI 归因'; }
   else if(mode==='mock(fallback)'){ b.classList.add('fallback'); b.textContent='真实 AI（降级演示）'; }
   else { b.classList.add('mock'); b.textContent='演示模式'; }
+}
+// P2 多模型协同编排链路：把单案取证的 6 项模型能力 + 1 项本地公式串成可视化链路，
+// 每步如实显示「真实模型 / 回退演示 / 本地公式」，体现"网关渐进开通即生效"的设计。
+function renderOrchestration(d){
+  const wrap=$('#orchWrap');
+  if(d.mode!=='live' && d.mode!=='mock(fallback)'){ wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  const caps=d.capabilities||{};
+  const steps=[
+    {k:'① 同款比对', t:'similarity'},
+    {k:'② 瑕疵识别', t:'defects'},
+    {k:"②' 缺陷定位", t:'boxes'},
+    {k:'③ 承诺OCR', t:'ocr'},
+    {k:'④ 文本归因', t:'llm'},
+    {k:'⑤ 优先级', t:'rerank'},
+    {k:'⑥ 语音陈述', t:'tts'},
+  ];
+  const chain=$('#orchChain'); chain.innerHTML='';
+  steps.forEach(s=>{
+    let cls, state;
+    if(s.t==='rerank'){ cls='local'; state='本地公式'; }
+    else if(s.t==='llm'){ const live=(d.mode==='live'); cls=live?'live':'fallback'; state=live?'真实模型':'回退演示'; }
+    else { const live=(d.mode==='live') && caps[s.t]===true; cls=live?'live':'fallback'; state=live?'真实模型':'回退演示'; }
+    const chip=document.createElement('div');
+    chip.className='orch-chip '+cls;
+    chip.innerHTML=`<span class="orch-step">${esc(s.k)}</span><span class="orch-state">${esc(state)}</span>`;
+    chain.appendChild(chip);
+  });
 }
 // 一键复制举证材料（演示「可直接提交平台仲裁」）
 async function copyDossier(){
