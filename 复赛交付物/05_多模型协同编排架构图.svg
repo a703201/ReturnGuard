@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760" font-family="'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif">
+  <!-- background -->
+  <rect width="1000" height="760" fill="#f8fafc"/>
+  <rect x="0" y="0" width="1000" height="64" fill="#0f172a"/>
+  <text x="32" y="40" fill="#f1f5f9" font-size="22" font-weight="700">ReturnGuard · 多模型协同编排链路（复赛 P2 展示）</text>
+
+  <!-- legend -->
+  <g font-size="12">
+    <rect x="640" y="14" width="14" height="14" rx="3" fill="#dcfce7" stroke="#16a34a"/>
+    <text x="660" y="25" fill="#16a34a" font-weight="600">真实模型</text>
+    <rect x="740" y="14" width="14" height="14" rx="3" fill="#fef9c3" stroke="#ca8a04"/>
+    <text x="760" y="25" fill="#ca8a04" font-weight="600">回退演示</text>
+    <rect x="850" y="14" width="14" height="14" rx="3" fill="#dbeafe" stroke="#2563eb"/>
+    <text x="870" y="25" fill="#2563eb" font-weight="600">本地公式</text>
+  </g>
+
+  <!-- section title -->
+  <text x="32" y="92" fill="#0f172a" font-size="15" font-weight="700">① 多模型协同编排链路（逐能力回退 · 网关渐进开通即生效）</text>
+
+  <!-- chain steps -->
+  <g font-size="13">
+    <!-- step template: x=32 w=560 card, number badge, name, model, status chip right -->
+    <!-- step 1 -->
+    <g transform="translate(32,108)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">1</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">图像接收与归集</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">returned_image_url（图床落盘 /uploads）</text>
+      <rect x="466" y="13" width="84" height="20" rx="10" fill="#dbeafe" stroke="#2563eb"/>
+      <text x="508" y="27" fill="#2563eb" font-size="11" font-weight="600" text-anchor="middle">本地公式</text>
+    </g>
+    <!-- step 2 -->
+    <g transform="translate(32,160)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">2</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">视觉缺陷定位（关键帧红框）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">vl_detect_boxes → 归一化 bbox JSON</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退示意框</text>
+    </g>
+    <!-- step 3 -->
+    <g transform="translate(32,212)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">3</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">多模态缺陷识别</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">vl_chat（VL 多模态问答）</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+    <!-- step 4 -->
+    <g transform="translate(32,264)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">4</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">图像相似度比对（货不对板）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">embed_image + cosine 相似度</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+    <!-- step 5 -->
+    <g transform="translate(32,316)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">5</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">Listing 承诺提取（OCR）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">ocr（qwen-vl-ocr 多模态抽取）</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+    <!-- step 6 -->
+    <g transform="translate(32,368)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">6</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">一致性核验（货不对板判定）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">llm + consistency_prompt（Qwen）</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+    <!-- step 7 -->
+    <g transform="translate(32,420)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">7</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">归因洞察（选品避坑 / 品控）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">llm + build_insights_prompt（Qwen）</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+    <!-- step 8 -->
+    <g transform="translate(32,472)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">8</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">rerank 精排（证据优先级）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">rerank（跨模态重排）</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+    <!-- step 9 -->
+    <g transform="translate(32,524)">
+      <rect width="560" height="46" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+      <circle cx="22" cy="23" r="13" fill="#0f172a"/><text x="22" y="27" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">9</text>
+      <text x="46" y="20" fill="#0f172a" font-weight="700">TTS 陈述（口头举证）</text>
+      <text x="46" y="37" fill="#64748b" font-size="11">tts（qwen-audio-tts）</text>
+      <rect x="460" y="13" width="90" height="20" rx="10" fill="#fef9c3" stroke="#ca8a04"/>
+      <text x="505" y="27" fill="#ca8a04" font-size="11" font-weight="600" text-anchor="middle">回退演示</text>
+    </g>
+  </g>
+
+  <!-- arrow from chain to outputs -->
+  <path d="M600 440 C 660 440, 660 360, 720 360" fill="none" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- outputs -->
+  <g font-size="13">
+    <rect x="720" y="120" width="248" height="200" rx="10" fill="#0f172a"/>
+    <text x="744" y="150" fill="#f87171" font-size="14" font-weight="700">单案取证报告</text>
+    <text x="744" y="178" fill="#e2e8f0" font-size="12">· 红框标注图（真实/示意）</text>
+    <text x="744" y="200" fill="#e2e8f0" font-size="12">· 取证卷宗（结构化）</text>
+    <text x="744" y="222" fill="#e2e8f0" font-size="12">· 平台举证要点清单</text>
+    <text x="744" y="244" fill="#e2e8f0" font-size="12">· 一致性结论 + 口播稿</text>
+    <text x="744" y="266" fill="#e2e8f0" font-size="12">· 能力状态透出（caps）</text>
+    <text x="744" y="296" fill="#94a3b8" font-size="11">输出：JSON + 卷宗 + 红框图</text>
+
+    <rect x="720" y="350" width="248" height="200" rx="10" fill="#1e3a5f"/>
+    <text x="744" y="380" fill="#38bdf8" font-size="14" font-weight="700">群体洞察看板</text>
+    <text x="744" y="408" fill="#e2e8f0" font-size="12">· SKU 退货风险排名</text>
+    <text x="744" y="430" fill="#e2e8f0" font-size="12">· 缺陷类型分布</text>
+    <text x="744" y="452" fill="#e2e8f0" font-size="12">· 历史胜诉率参考</text>
+    <text x="744" y="474" fill="#e2e8f0" font-size="12">· 供应商评级</text>
+    <text x="744" y="496" fill="#e2e8f0" font-size="12">· 选品避坑建议</text>
+    <text x="744" y="526" fill="#94a3b8" font-size="11">输出：demo / real 双源隔离</text>
+  </g>
+
+  <!-- design principle note -->
+  <rect x="32" y="600" width="936" height="120" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="52" y="630" fill="#0f172a" font-size="14" font-weight="700">设计原则</text>
+  <text x="52" y="656" fill="#334155" font-size="12.5">1. 逐能力优雅回退：每个模型能力独立 try/except，失败即回退到确定性演示/本地公式，单点故障不影响整体取证链路。</text>
+  <text x="52" y="678" fill="#334155" font-size="12.5">2. 网关渐进开通即生效：视觉/向量/OCR/rerank 等模型在阿里云百炼 Token Plan 网关开通后自动升级为「真实模型」，无需改代码（MODEL_ROUTER_BASE_URL 不变）。</text>
+  <text x="52" y="700" fill="#334155" font-size="12.5">3. 全程只取证不裁决：胜诉率仅作历史参考，归因聚焦选品避坑与品控改进，不输出责任判定或法律意见。</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+</svg>
