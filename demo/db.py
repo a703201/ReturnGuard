@@ -299,19 +299,70 @@ def list_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> li
     return [_row_to_slim_dict(r) for r in rows]
 
 
-def _ensure_tenant_column(engine) -> None:
-    """多租户迁移：已存在的 cases 表可能缺 tenant_id 列（部署期 Schema 演进），
-    用 inspect 探测后 ALTER TABLE 追加，避免存量库因缺列而查询失败。"""
+def _migrate_case_columns(engine) -> None:
+    """Schema 演进（彻底解决「漂移坑」）：已存在的 cases 表可能缺若干列（部署期/开发期
+    Schema 演进，例如 dossier / voice_text / voice_audio_b64 / defect_boxes / tenant_id），
+    用 inspect 探测后逐列 ALTER TABLE 追加，避免存量库因缺列而查询失败。
+
+    关键点：SQLAlchemy 的 ``create_all`` **只会建缺失的表、不会 ALTER 已有表补列**，所以
+    任何后来新增的模型列都不会自动落到存量库上——这正是 openGauss 部署报
+    ``column cases.dossier does not exist`` 的根因。本函数对所有 ``Case`` 模型列做通用补列，
+    今后新增列也无需再手动维护迁移逻辑（不再靠删表重建）。
+
+    SQLite 与 openGauss/PostgreSQL 均适用：所有列均 nullable、无 NOT NULL 约束，
+    ``ALTER TABLE ... ADD COLUMN`` 在两类库均可直接执行；列类型用当前模型 DDL（按目标方言
+    compile）与 ``create_all`` 新建表时保持一致。索引在 ALTER 路径下不会被自动重建，故对
+    带 ``index=True`` 的缺列一并兜底补建。
+    """
     from sqlalchemy import inspect
 
     try:
-        cols = {c["name"] for c in inspect(engine).get_columns("cases")}
+        existing = {c["name"] for c in inspect(engine).get_columns("cases")}
     except Exception:  # noqa: BLE001
         return  # 表尚不存在，交给 create_all
-    if "tenant_id" not in cols:
-        logger.info("cases 表缺失 tenant_id 列，执行 ALTER TABLE 追加（多租户迁移）")
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE cases ADD COLUMN tenant_id VARCHAR(64)"))
+    if not existing:
+        return
+
+    dialect = engine.dialect
+    missing = []
+    for col in Case.__table__.columns:
+        if col.name in existing:
+            continue  # 已存在，跳过（主键 id 因已存在也会在此被跳过）
+        try:
+            col_type = col.type.compile(dialect=dialect)
+        except Exception:  # noqa: BLE001
+            col_type = "TEXT"  # 兜底：SQLite 下可正常落库
+        missing.append((col.name, col_type, col.index and not col.primary_key))
+
+    if not missing:
+        return
+
+    logger.info(
+        "[migrate] cases 表缺失 %d 列，执行 ALTER TABLE 追加: %s",
+        len(missing),
+        [m[0] for m in missing],
+    )
+    # 逐列独立事务：某一列在目标库不支持（如特殊类型）时只告警、不中断其他列的补列，
+    # 避免整段回滚导致所有缺列都没补上（生产保真部署更稳健；create_all 失败也不致命）。
+    added, failed = [], []
+    for name, col_type, need_idx in missing:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE cases ADD COLUMN {name} {col_type}"))
+                if need_idx:  # 兜底补索引（create_all 在 ALTER 路径下不会重建索引）
+                    idx_name = f"ix_cases_{name}"
+                    conn.execute(
+                        text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON cases ({name})")
+                    )
+            added.append(name)
+        except Exception:  # noqa: BLE001
+            logger.warning("[migrate] 补列失败（已跳过，不影响其余列）: %s %s", name, col_type)
+            failed.append(name)
+
+    if added:
+        logger.info("[migrate] 已补列 %d 个: %s", len(added), added)
+    if failed:
+        logger.warning("[migrate] 仍有 %d 列补列失败（需人工介入）: %s", len(failed), failed)
 
 
 def init_db(
@@ -329,7 +380,7 @@ def init_db(
         logger.info("[%s] force=True：重置案件库（drop_all + 重建 + 重新导入）", source)
         Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
-    _ensure_tenant_column(engine)  # 多租户迁移：存量库补 tenant_id 列
+    _migrate_case_columns(engine)  # 通用 Schema 演进：存量库补缺失列（含多租户 tenant_id）
     if source == "demo":
         if seed_json is None:
             seed_json = os.path.join(BASE, "cases.json")

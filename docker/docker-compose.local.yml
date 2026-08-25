@@ -1,0 +1,55 @@
+# ============================================================
+# ReturnGuard · 轻量级本地开发版（纯 SQLite，无需数据库容器）
+# ------------------------------------------------------------
+# 用法：
+#   cd returnguard
+#   docker compose -f docker/docker-compose.local.yml up -d --build
+#   浏览器打开 http://localhost:8000
+#
+# 停止：docker compose -f docker/docker-compose.local.yml down
+#
+# 与 docker-compose.yml 的区别：
+#   - 无 openGauss 容器（省内存、省初始化时间）
+#   - 使用 SQLite（与本地开发一致，demo 数据内置）
+#   - 适合演示 / 本地开发 / 快速验证
+# ============================================================
+name: returnguard-local
+
+services:
+  app:
+    build:
+      context: ..            # 仓库根
+      dockerfile: docker/Dockerfile
+    image: returnguard-app:local
+    container_name: rg_app_local
+    environment:
+      # SQLite 模式（默认值，显式声明以防覆盖）
+      DATABASE_URL: sqlite:///./cases.db
+      REAL_DATABASE_URL: sqlite:///./cases_real.db
+      AUTH_DATABASE_URL: sqlite:///./users.db
+      # 演示态：不需要 API Key、不需要模型网关
+      ANALYZE_API_KEY: ""
+      ANALYZE_RATE_LIMIT: "60"
+      # 安全加固默认值（演示态宽松，生产收紧）
+      REGISTRATION_ENABLED: "true"
+      AUTH_REGISTER_LIMIT: "10"
+      AUTH_LOGIN_IP_LIMIT: "30"
+      LOGIN_MAX_FAILS: "5"
+      LOGIN_LOCK_MIN: "15"
+    ports:
+      - "8000:8000"
+    volumes:
+      - rg_data:/app/data          # 持久化 SQLite 数据库
+    working_dir: /app
+    # 使用轻量级入口脚本（不等待外部数据库）
+    command: ["sh", "-c", "python -c \"from auth import init_auth_db; from db import init_db; init_db('demo'); init_db('real')\" && uvicorn main:app --host 0.0.0.0 --port 8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  rg_data:
