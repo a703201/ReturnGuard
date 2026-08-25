@@ -20,6 +20,18 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+
+from dotenv import load_dotenv
+
+# 必须在读取 QINIU_*/RG_OSS_*/PUBLIC_IMAGE_BASE 等环境变量前加载 .env，
+# 否则若本模块在 models_router(其内调用 load_dotenv) 之前被 import，
+# 模块级 os.environ.get 会捕获到空值且后续不再刷新（曾导致 running 服务误判图床为 local）。
+# 测试环境跳过：pytest 在启动期就把自身注入 sys.modules（早于任何业务模块 import），
+# 因此用 sys.modules.get("pytest") 判断最可靠；不能用 PYTEST_CURRENT_TEST——它只在测试
+# "执行期"才写入环境，模块"收集期" import 时尚未存在，会导致真实 .env 被误加载泄漏进用例。
+if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
+    load_dotenv()
 
 logger = logging.getLogger("returnguard.storage")
 
