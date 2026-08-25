@@ -388,10 +388,7 @@
             <option value="春">春</option><option value="夏">夏</option>
             <option value="秋">秋</option><option value="冬">冬</option>
           </select>
-          <select id="insMode">
-            <option value="mock" selected>洞察：演示数据</option>
-            <option value="live">洞察：AI 实算</option>
-          </select>
+          <!-- 洞察模式由数据源自动路由：demo→演示数据(mock)，real→AI实算(live)，无需手动选择 -->
           <button id="loadIns">刷新看板</button>
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
@@ -1109,7 +1106,7 @@ async function downloadPdfReport(){
   const btn=$('#downloadPdfBtn');
   const old=btn.textContent; btn.textContent='生成中…'; btn.disabled=true;
   try{
-    const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
+    const mode=CURRENT_SOURCE==='real'?'live':'mock', cat=$('#catSel').value, plat=$('#platSel').value;
     const reg=$('#regionSel').value, seas=$('#seasonSel').value;
     const qs=new URLSearchParams({mode});
     if(cat) qs.set('category',cat);
@@ -1168,7 +1165,7 @@ async function loadInsights(){
   status.textContent='加载中…'; status.classList.add('loading');
   const board=$('.board'); if(board){board.classList.remove('animated'); void board.offsetWidth; board.classList.add('animated');}
   try{
-  const mode=$('#insMode').value, cat=$('#catSel').value, plat=$('#platSel').value;
+  const mode=CURRENT_SOURCE==='real'?'live':'mock', cat=$('#catSel').value, plat=$('#platSel').value;
   const reg=$('#regionSel').value, seas=$('#seasonSel').value;
   const qs=new URLSearchParams({mode});
   if(cat) qs.set('category',cat);
@@ -1194,10 +1191,10 @@ async function loadInsights(){
     emptyHint.textContent='实际数据为空 · 去「数据录入」添加';
     emptyHint.style.background='var(--warn)';
   }
-  $('#insModeTag').textContent=d.mode||mode;
+  const modeLabel=(d.mode||mode)==='live'?'AI 实算':'演示数据';
+  $('#insModeTag').textContent=modeLabel+(d.error?' (已切回演示)':'');
   $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
   $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台')+(reg?' / '+reg:'')+(seas?' / '+seas:'');
-  if(d.error) $('#insModeTag').textContent+=' (已切回演示)';
 
   // KPI（带动画）
   animateValue($('#kTotal'), d.total_cases, v=>Math.round(v).toLocaleString());
