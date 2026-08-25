@@ -13,6 +13,11 @@ def _reload(monkeypatch, envs: dict) -> None:
         "RG_OSS_KEY",
         "RG_OSS_SECRET",
         "RG_OSS_REGION",
+        "QINIU_ACCESS_KEY",
+        "QINIU_SECRET_KEY",
+        "QINIU_BUCKET",
+        "QINIU_DOMAIN",
+        "QINIU_KEY_PREFIX",
     ):
         if k in envs:
             monkeypatch.setenv(k, envs[k])
@@ -50,3 +55,88 @@ def test_oss_fallback_without_boto3(monkeypatch):
     assert storage.backend_name() == "oss"
     url = storage.upload("/tmp/x.png", "a.png")
     assert url == "https://img.example.com/uploads/a.png"
+
+
+def test_qiniu_backend_mocked(monkeypatch):
+    # 用假 qiniu 模块避免真实网络/依赖；验证后端选择 + URL 拼装 + 优先级
+    import sys
+    import types
+
+    class _Info:
+        status_code = 200
+
+    class _Auth:
+        def __init__(self, ak, sk):
+            pass
+
+        def upload_token(self, bucket, key, expires):
+            return "fake-token"
+
+    def _put_file(token, key, local_path, **kw):
+        return {"key": key}, _Info()
+
+    fake = types.ModuleType("qiniu")
+    fake.Auth = _Auth
+    fake.put_file = _put_file
+    sys.modules["qiniu"] = fake
+
+    try:
+        _reload(
+            monkeypatch,
+            {
+                "QINIU_ACCESS_KEY": "ak",
+                "QINIU_SECRET_KEY": "sk",
+                "QINIU_BUCKET": "mybucket",
+                "QINIU_DOMAIN": "http://tuchuang.a703201sworld.top",
+                "QINIU_KEY_PREFIX": "ReturnGuard",
+            },
+        )
+        assert storage.backend_name() == "qiniu"
+        assert storage.is_public_ready() is True
+        url = storage.upload("/tmp/x.png", "abc.png")
+        assert url == "http://tuchuang.a703201sworld.top/ReturnGuard/abc.png"
+    finally:
+        sys.modules.pop("qiniu", None)
+
+
+def test_qiniu_over_oss_priority(monkeypatch):
+    # 七牛与 OSS 同时配置时，七牛优先（用户个人图床）
+    import sys
+    import types
+
+    class _Info:
+        status_code = 200
+
+    class _Auth:
+        def __init__(self, ak, sk):
+            pass
+
+        def upload_token(self, bucket, key, expires):
+            return "fake-token"
+
+    def _put_file(token, key, local_path, **kw):
+        return {"key": key}, _Info()
+
+    fake = types.ModuleType("qiniu")
+    fake.Auth = _Auth
+    fake.put_file = _put_file
+    sys.modules["qiniu"] = fake
+
+    try:
+        _reload(
+            monkeypatch,
+            {
+                "QINIU_ACCESS_KEY": "ak",
+                "QINIU_SECRET_KEY": "sk",
+                "QINIU_BUCKET": "mybucket",
+                "QINIU_DOMAIN": "http://tuchuang.a703201sworld.top",
+                "QINIU_KEY_PREFIX": "ReturnGuard",
+                "RG_OSS_BUCKET": "ossbucket",
+                "RG_OSS_ENDPOINT": "oss-cn.example.com",
+                "RG_OSS_KEY": "ak2",
+                "RG_OSS_SECRET": "sk2",
+            },
+        )
+        assert storage.backend_name() == "qiniu"
+    finally:
+        sys.modules.pop("qiniu", None)
