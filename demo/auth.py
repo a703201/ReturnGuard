@@ -19,7 +19,7 @@ import threading
 import time
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String, create_engine
+from sqlalchemy import Column, DateTime, Integer, String, create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 logger = __import__("logging").getLogger("returnguard.auth")
@@ -38,6 +38,10 @@ _auth_lock = threading.Lock()
 
 _USER_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 
+# 令牌版本缓存：降低每次鉴权的 DB 查询；登出时清缓存
+_version_cache: dict[str, tuple[int, float]] = {}
+_VERSION_TTL = 60.0
+
 
 class User(AuthBase):
     """账户表：一个用户即一个租户（tenant_id = username）。"""
@@ -49,6 +53,7 @@ class User(AuthBase):
     pw_salt = Column(String(64), nullable=False)
     tenant_name = Column(String(128), default="")  # 展示用企业/店铺名
     created_at = Column(DateTime, default=datetime.utcnow)
+    token_version = Column(Integer, default=0, nullable=False)  # 令牌吊销/登出：自增即令旧 token 失效
 
 
 def get_auth_engine():
@@ -66,6 +71,14 @@ def get_auth_engine():
 
 def init_auth_db() -> None:
     AuthBase.metadata.create_all(get_auth_engine())
+    # 非破坏迁移：旧库缺 token_version 列时补列（保留现有账号，含演示账号）
+    try:
+        with _auth_engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+            )
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在 / 方言不支持（如某些 openGauss 变体），忽略
 
 
 def _auth_session():
@@ -85,7 +98,7 @@ def register(username: str, password: str, tenant_name: str = "") -> tuple[bool,
         return False, "密码至少 6 位"
     with _auth_session() as s:
         if s.query(User).filter_by(username=username).first():
-            return False, "用户名已存在"
+            return False, "注册失败，请稍后重试"
         salt = os.urandom(16)
         u = User(
             username=username,
@@ -123,9 +136,39 @@ def get_user(username: str) -> dict | None:
         }
 
 
+def _current_version(username: str) -> int | None:
+    """读取用户当前 token_version（带短 TTL 缓存）；用户不存在返回 None。"""
+    now = time.time()
+    cached = _version_cache.get(username)
+    if cached and now - cached[1] < _VERSION_TTL:
+        return cached[0]
+    with _auth_session() as s:
+        u = s.query(User).filter_by(username=username).first()
+        if not u:
+            return None
+        v = getattr(u, "token_version", 0) or 0
+    _version_cache[username] = (v, now)
+    return v
+
+
+def logout(username: str) -> None:
+    """自增 token_version，使该用户所有已签发令牌立即失效（等价服务端登出/踢人）。"""
+    with _auth_session() as s:
+        u = s.query(User).filter_by(username=username).first()
+        if not u:
+            return
+        u.token_version = (getattr(u, "token_version", 0) or 0) + 1
+        s.commit()
+    _version_cache.pop(username, None)
+
+
 def issue_token(username: str, ttl: int = _TOKEN_TTL) -> str:
+    # 取当前 token_version，编入令牌；登出/吊销后版本变化，旧令牌即失效
+    ver = _current_version(username) or 0
     payload = (
         base64.urlsafe_b64encode(username.encode("utf-8")).decode("ascii")
+        + "|"
+        + str(ver)
         + "|"
         + str(int(time.time()) + ttl)
     )
@@ -134,17 +177,32 @@ def issue_token(username: str, ttl: int = _TOKEN_TTL) -> str:
 
 
 def verify_token(token: str | None) -> str | None:
-    """校验令牌，返回用户名（即 tenant_id），过期/篡改返回 None。"""
+    """校验令牌，返回用户名（即 tenant_id），过期/篡改/已吊销返回 None。
+
+    令牌格式：b64(username)|token_version|exp；旧格式（无版本段）仍兼容解析。"""
     if not token:
         return None
     try:
         payload, sig = token.rsplit(".", 1)
-        exp = int(payload.rsplit("|", 1)[1])
-        if exp < time.time():
+        parts = payload.split("|")
+        if len(parts) == 2:
+            b64u, exp = parts
+            ver = None
+        elif len(parts) == 3:
+            b64u, ver, exp = parts
+        else:
+            return None
+        if int(exp) < time.time():
             return None
         expect = hmac.new(_SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, expect):
             return None
-        return base64.urlsafe_b64decode(payload.rsplit("|", 1)[0]).decode("utf-8")
+        username = base64.urlsafe_b64decode(b64u).decode("utf-8")
+        # 版本校验（仅新格式令牌）：与当前版本不一致 → 已登出/吊销
+        if ver is not None:
+            cur = _current_version(username)
+            if cur is None or int(ver) != cur:
+                return None
+        return username
     except Exception:  # noqa: BLE001
         return None

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import re
@@ -73,9 +74,26 @@ _metrics["start_time"] = int(time.time())
 
 # ---- 写接口限流（P2-8）：演示态默认开启；环境 ANALYZE_RATE_LIMIT=0 关闭 ----
 _RATE_LIMIT = int(os.environ.get("ANALYZE_RATE_LIMIT", "60"))  # 每客户端每分钟上限
-_rate_window: dict[str, list[float]] = {}
+_rate_window: dict[str, list[float]] = {}  # key = f"{scope}:{ip}"
 # 线程安全锁（P3-⑧）：uvicorn 默认线程池跑同步端点，_metrics / _rate_window 为进程内共享可变结构
 _state_lock = threading.Lock()
+
+# ---- 认证安全加固（防 spam / 防攻击）----
+# 注册/登录限流：注册更严（每建一个租户=一套隔离数据），登录按 IP + 按用户名双重防护
+_AUTH_REGISTER_LIMIT = int(os.environ.get("AUTH_REGISTER_LIMIT", "10"))   # 每 IP 每分钟注册上限
+_AUTH_LOGIN_IP_LIMIT = int(os.environ.get("AUTH_LOGIN_IP_LIMIT", "30"))  # 每 IP 每分钟登录上限
+_LOGIN_MAX_FAILS = int(os.environ.get("LOGIN_MAX_FAILS", "5"))           # 单用户名连续失败上限
+_LOGIN_LOCK_SEC = int(os.environ.get("LOGIN_LOCK_MIN", "15")) * 60       # 锁定持续时间（秒）
+_REGISTRATION_ENABLED = os.environ.get("REGISTRATION_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+_REGISTRATION_INVITE_CODE = os.environ.get("REGISTRATION_INVITE_CODE", "").strip()
+# 仅当直连客户端属于可信代理时才采纳 X-Forwarded-For / X-Real-IP（逗号分隔 IP/CIDR；默认空=不信任）
+_AUTH_TRUSTED_PROXIES = [p.strip() for p in os.environ.get("AUTH_TRUSTED_PROXIES", "").split(",") if p.strip()]
+# 公网部署跨域白名单（逗号分隔具体域名；默认空=不挂 CORS，同源）；禁止 "*"
+_CORS_ALLOW_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+
+# 登录失败计数（按用户名）：用于靶向爆破封禁；进程内结构，需 _state_lock 保护
+_login_fails: dict[str, list[float]] = {}
+_login_lock_until: dict[str, float] = {}  # username -> 解锁时间戳
 
 # 演示态可选鉴权：设置 ANALYZE_API_KEY 后，/api/analyze 须带 X-API-Key 头或 ?key=
 _API_KEY = os.environ.get("ANALYZE_API_KEY", "")
@@ -143,19 +161,52 @@ def _cleanup_old_uploads(max_age_hours: float = 24) -> None:
         logger.warning("上传图清理失败（可忽略）", exc_info=True)
 
 
-def _check_rate_limit(client_ip: str) -> bool:
-    """P2-8：固定窗口限流（每客户端每分钟 _RATE_LIMIT 次）。返回 True=放行。"""
-    if _RATE_LIMIT <= 0:
+def _check_rate_limit(client_ip: str, scope: str = "analyze", limit: int | None = None) -> bool:
+    """P2-8：按 scope 分桶的固定窗口限流（默认 analyze 用 _RATE_LIMIT）。返回 True=放行。"""
+    cap = limit if limit is not None else _RATE_LIMIT
+    if cap <= 0:
         return True
     now = time.time()
+    key = f"{scope}:{client_ip}"
     with _state_lock:
-        hits = [t for t in _rate_window.get(client_ip, []) if now - t < 60]
-        if len(hits) >= _RATE_LIMIT:
-            _rate_window[client_ip] = hits
+        hits = [t for t in _rate_window.get(key, []) if now - t < 60]
+        if len(hits) >= cap:
+            _rate_window[key] = hits
             return False
         hits.append(now)
-        _rate_window[client_ip] = hits
+        _rate_window[key] = hits
     return True
+
+
+def _ip_in_set(ip: str, nets: list[str]) -> bool:
+    """判断 IP 是否落在可信代理列表（支持 CIDR / 精确 IP）。"""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for n in nets:
+        try:
+            if addr in ipaddress.ip_network(n, strict=False):
+                return True
+        except ValueError:
+            if ip == n:
+                return True
+    return False
+
+
+def get_client_ip(request: Request) -> str:
+    """代理感知客户端 IP：仅当直连客户端属于可信代理时才采纳 X-Forwarded-For / X-Real-IP。
+
+    未配置 AUTH_TRUSTED_PROXIES 时一律使用直连 IP，避免伪造转发头绕过限流。"""
+    direct = request.client.host if request.client else "unknown"
+    if _AUTH_TRUSTED_PROXIES and _ip_in_set(direct, _AUTH_TRUSTED_PROXIES):
+        xff = request.headers.get("X-Forwarded-For", "").strip()
+        if xff:
+            return xff.split(",")[0].strip()
+        xri = request.headers.get("X-Real-IP", "").strip()
+        if xri:
+            return xri
+    return direct
 
 
 def _resolve_source(request: Request) -> str:
@@ -200,6 +251,11 @@ async def lifespan(app):
     init_db("real")  # 实际数据库：确保表存在，初始空库待录入
     # C组：账户/用户表（多租户隔离的租户目录）
     auth.init_auth_db()
+    # 安全自检：生产必须固化 AUTH_SECRET，否则令牌重启即失效且不利于统一轮换
+    if not os.environ.get("AUTH_SECRET"):
+        logger.critical(
+            "AUTH_SECRET 未设置：使用进程内随机密钥，重启将令所有令牌失效，且不利于统一轮换；生产环境务必固化 AUTH_SECRET"
+        )
     # C组 openGauss 自动导入：部署期设 RG_AUTO_IMPORT_CSV=<路径>，real 源（可指向 openGauss）
     # 启动即批量回流真实退货数据，使洞察看板开箱即用真实业务数据（B组 importer 主链路）。
     auto_csv = os.environ.get("RG_AUTO_IMPORT_CSV", "")
@@ -220,6 +276,18 @@ app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="
 # 上传目录静态挂载：便于 live 模式下由 PUBLIC_IMAGE_BASE 指向本服务的 /uploads 提供图片
 # （注意：live 仍需图片可被 Model Router 服务端公网回源，纯内网部署需配对象存储）
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
+# 公网部署跨域白名单（可选）：仅当设置 CORS_ALLOW_ORIGINS 才挂，禁止 "*"
+if _CORS_ALLOW_ORIGINS:
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ALLOW_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["*"],
+    )
 
 
 @app.middleware("http")
@@ -298,7 +366,7 @@ async def analyze(
     # P2-8 演示态可选鉴权：写接口统一校验（设置 ANALYZE_API_KEY 后必须携带）
     _require_api_key(request)
     # P2-8 限流：按客户端 IP 固定窗口
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     if not _check_rate_limit(client_ip):
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
 
@@ -623,6 +691,7 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     tenant_name: str = ""
+    invite_code: str = ""
 
 
 class LoginRequest(BaseModel):
@@ -631,24 +700,57 @@ class LoginRequest(BaseModel):
 
 
 @app.post("/api/auth/register")
-def register_api(req: RegisterRequest):
+def register_api(req: RegisterRequest, request: Request):
     """注册账户（一个用户 = 一个租户），成功即返回令牌（自动登录）。
 
     real 源案件按租户隔离：注册后可录入/查看/删除属于自己租户的真实退货数据；
-    demo 源为共享演示库，不参与隔离。写接口鉴权与登录独立（登录凭用户名/密码）。"""
+    demo 源为共享演示库，不参与隔离。写接口鉴权与登录独立（登录凭用户名/密码）。
+
+    防 spam：注册按 IP 限流；可经 REGISTRATION_ENABLED 关闭、REGISTRATION_INVITE_CODE 邀请制。"""
+    client_ip = get_client_ip(request)
+    if not _check_rate_limit(client_ip, scope="register", limit=_AUTH_REGISTER_LIMIT):
+        raise HTTPException(status_code=429, detail="注册过于频繁，请稍后再试")
+    if not _REGISTRATION_ENABLED:
+        raise HTTPException(status_code=403, detail="注册已关闭")
+    if _REGISTRATION_INVITE_CODE and req.invite_code != _REGISTRATION_INVITE_CODE:
+        raise HTTPException(status_code=400, detail="邀请码无效")
     ok, reason = auth.register(req.username, req.password, req.tenant_name)
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
-    logger.info("新租户注册：%s", req.username)
+    logger.info("新租户注册：%s (ip=%s)", req.username, client_ip)
     return {"ok": True, "token": auth.issue_token(req.username), "username": req.username}
 
 
 @app.post("/api/auth/login")
-def login_api(req: LoginRequest):
-    """登录，返回 HMAC 签名令牌（无状态，7 天有效）。"""
+def login_api(req: LoginRequest, request: Request):
+    """登录，返回 HMAC 签名令牌（无状态，7 天有效）。
+
+    防爆破：按 IP 限流 + 按用户名连续失败计数封禁（LOGIN_MAX_FAILS / LOGIN_LOCK_MIN）。"""
+    client_ip = get_client_ip(request)
+    if not _check_rate_limit(client_ip, scope="login", limit=_AUTH_LOGIN_IP_LIMIT):
+        raise HTTPException(status_code=429, detail="登录过于频繁，请稍后再试")
+    # 用户名级临时封禁（靶向爆破防护）
+    now = time.time()
+    with _state_lock:
+        if _login_lock_until.get(req.username, 0) > now:
+            raise HTTPException(status_code=429, detail="该账户已被临时锁定，请稍后再试")
     token = auth.authenticate(req.username, req.password)
     if not token:
+        # 失败审计 + 计数封禁
+        logger.warning("登录失败 ip=%s user=%s reason=invalid_credentials", client_ip, req.username)
+        with _state_lock:
+            _metrics["auth_fail"] += 1
+            fails = _login_fails.get(req.username, [])
+            fails = [t for t in fails if now - t < _LOGIN_LOCK_SEC]
+            fails.append(now)
+            _login_fails[req.username] = fails
+            if len(fails) >= _LOGIN_MAX_FAILS:
+                _login_lock_until[req.username] = now + _LOGIN_LOCK_SEC
         raise HTTPException(status_code=401, detail="用户名或密码错误")
+    # 成功：清空该用户名失败计数
+    with _state_lock:
+        _login_fails.pop(req.username, None)
+        _login_lock_until.pop(req.username, None)
     return {"ok": True, "token": token, "username": req.username}
 
 
@@ -660,6 +762,16 @@ def me(request: Request):
         raise HTTPException(status_code=401, detail="未登录")
     u = auth.get_user(username)
     return {"ok": True, "user": u, "tenant": username}
+
+
+@app.post("/api/auth/logout")
+def logout_api(request: Request):
+    """登出：自增该用户 token_version，使其所有已签发令牌立即失效（等价服务端注销/踢人）。"""
+    username = _resolve_tenant(request)
+    if not username:
+        raise HTTPException(status_code=401, detail="未登录")
+    auth.logout(username)
+    return {"ok": True}
 
 
 # ===================== B组：相似度阈值自标定 + 真实数据回流 =====================

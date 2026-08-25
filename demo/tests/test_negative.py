@@ -4,7 +4,9 @@
 """
 
 import json
+import uuid
 
+import main  # 用于 monkeypatch 代理信任列表
 from fastapi.testclient import TestClient
 from main import app
 
@@ -137,3 +139,47 @@ def test_write_requires_api_key_when_set(monkeypatch):
             headers={"X-API-Key": "secret-key"},
         )
         assert r2.status_code == 200
+
+
+# ---------------- 防御纵深：代理感知 IP / 去枚举 ----------------
+
+
+class _StubRequest:
+    """最小请求桩，用于直接验证 get_client_ip 的代理感知逻辑。"""
+
+    class _Addr:
+        def __init__(self, host):
+            self.host = host
+
+    def __init__(self, direct, xff="", xri=""):
+        self.client = self._Addr(direct) if direct else None
+        self.headers = {}
+        if xff:
+            self.headers["X-Forwarded-For"] = xff
+        if xri:
+            self.headers["X-Real-IP"] = xri
+
+
+def test_get_client_ip_proxy_aware(monkeypatch):
+    """仅当直连属于可信代理时才采纳 X-Forwarded-For / X-Real-IP；否则用直连 IP（防伪造绕过限流）。"""
+    monkeypatch.setattr(main, "_AUTH_TRUSTED_PROXIES", ["127.0.0.1/32"])
+    assert main.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9, 10.0.0.1")) == "9.9.9.9"
+    assert main.get_client_ip(_StubRequest("127.0.0.1", xri="8.8.8.8")) == "8.8.8.8"
+    # 未配置可信代理 → 忽略转发头
+    monkeypatch.setattr(main, "_AUTH_TRUSTED_PROXIES", [])
+    assert main.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9")) == "127.0.0.1"
+    # 直连不在可信列表 → 不采纳
+    monkeypatch.setattr(main, "_AUTH_TRUSTED_PROXIES", ["10.0.0.0/8"])
+    assert main.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9")) == "127.0.0.1"
+
+
+def test_duplicate_register_generic(monkeypatch):
+    """重名注册返回泛化 400，不泄露'用户名已存在'（消除用户名枚举）。"""
+    monkeypatch.setattr(main, "_REGISTRATION_ENABLED", True)
+    monkeypatch.setattr(main, "_REGISTRATION_INVITE_CODE", "")
+    with TestClient(app) as c:
+        u = "dup_" + uuid.uuid4().hex[:6]
+        assert c.post("/api/auth/register", json={"username": u, "password": "secret123"}).status_code == 200
+        r2 = c.post("/api/auth/register", json={"username": u, "password": "secret123"})
+        assert r2.status_code == 400
+        assert "用户名已存在" not in r2.json().get("detail", "")

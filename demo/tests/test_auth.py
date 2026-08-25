@@ -7,6 +7,7 @@
 import uuid
 
 import auth  # 用于重置懒引擎，确保用户库隔离
+import main  # 用于 monkeypatch 限流/封禁/注册开关等模块级状态
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -112,3 +113,88 @@ def test_cross_tenant_delete_blocked(client):
         "/api/cases/" + bid + "?source=real", headers={"Authorization": "Bearer " + ta}
     )
     assert r.status_code == 200 and r.json()["deleted"] == 0
+
+
+# ---------------- 防 spam / 防攻击：限流、封禁、登出吊销、邀请码、注册开关 ----------------
+
+
+def _reset_auth_state(monkeypatch):
+    """清空进程内限流/封禁状态，并隔离用户库，保证测试互不干扰。"""
+    monkeypatch.setattr(main, "_rate_window", {})
+    monkeypatch.setattr(main, "_login_fails", {})
+    monkeypatch.setattr(main, "_login_lock_until", {})
+    monkeypatch.setattr(auth, "_auth_engine", None)
+    monkeypatch.setattr(auth, "_version_cache", {})
+
+
+def test_register_rate_limited(client, monkeypatch):
+    """同 IP 注册超过上限即被 429 拦截（防批量建租户 spam）。"""
+    _reset_auth_state(monkeypatch)
+    monkeypatch.setattr(main, "_AUTH_REGISTER_LIMIT", 2)
+    ok = 0
+    for i in range(4):
+        r = client.post(
+            "/api/auth/register",
+            json={"username": f"rl_{i}_{uuid.uuid4().hex[:4]}", "password": "secret123"},
+        )
+        if r.status_code == 200:
+            ok += 1
+        else:
+            assert r.status_code == 429
+    assert ok == 2  # 仅前 2 次成功，其余被限流
+
+
+def test_login_lockout_after_fails(client, monkeypatch):
+    """单用户名连续密码错误达上限后被临时锁定（429），锁定期内正确密码亦被拒。"""
+    _reset_auth_state(monkeypatch)
+    monkeypatch.setattr(main, "_LOGIN_MAX_FAILS", 3)
+    monkeypatch.setattr(main, "_LOGIN_LOCK_SEC", 900)
+    u = "lock_" + uuid.uuid4().hex[:6]
+    client.post("/api/auth/register", json={"username": u, "password": "secret123"})
+    for _ in range(3):  # 连续 3 次错密码
+        assert client.post("/api/auth/login", json={"username": u, "password": "wrong"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": u, "password": "wrong"}).status_code == 429
+    # 锁定期内即便密码正确也拒（需等待解锁或走找回流程）
+    assert client.post("/api/auth/login", json={"username": u, "password": "secret123"}).status_code == 429
+
+
+def test_logout_invalidates_token(client, monkeypatch):
+    """登出后旧令牌立即失效（token_version 自增），/me 返回 401。"""
+    _reset_auth_state(monkeypatch)
+    u = "out_" + uuid.uuid4().hex[:6]
+    r = client.post("/api/auth/register", json={"username": u, "password": "secret123"})
+    assert r.status_code == 200
+    tok = r.json()["token"]
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer " + tok}).status_code == 200
+    assert client.post("/api/auth/logout", headers={"Authorization": "Bearer " + tok}).status_code == 200
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer " + tok}).status_code == 401
+
+
+def test_invite_code_required_when_set(client, monkeypatch):
+    """设置邀请码后，无/错邀请码注册被拒，匹配则通过。"""
+    _reset_auth_state(monkeypatch)
+    monkeypatch.setattr(main, "_REGISTRATION_INVITE_CODE", "letmein")
+    no_code = client.post(
+        "/api/auth/register", json={"username": "inv1_" + uuid.uuid4().hex[:4], "password": "secret123"}
+    )
+    assert no_code.status_code == 400
+    bad = client.post(
+        "/api/auth/register",
+        json={"username": "inv2_" + uuid.uuid4().hex[:4], "password": "secret123", "invite_code": "nope"},
+    )
+    assert bad.status_code == 400
+    good = client.post(
+        "/api/auth/register",
+        json={"username": "inv3_" + uuid.uuid4().hex[:4], "password": "secret123", "invite_code": "letmein"},
+    )
+    assert good.status_code == 200
+
+
+def test_registration_disabled(client, monkeypatch):
+    """REGISTRATION_ENABLED=false 时注册返回 403。"""
+    _reset_auth_state(monkeypatch)
+    monkeypatch.setattr(main, "_REGISTRATION_ENABLED", False)
+    r = client.post(
+        "/api/auth/register", json={"username": "off_" + uuid.uuid4().hex[:4], "password": "secret123"}
+    )
+    assert r.status_code == 403
