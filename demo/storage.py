@@ -3,6 +3,8 @@
 live 模式下的视觉/图像向量/OCR 模型需要「服务端能公网回源拉取」上传的退货图。本模块把
 "本地上传图如何变成公网可访问 URL" 抽象成可插拔后端，消除此前 live 模式拿不到图的硬伤：
 
+- 七牛云对象存储（Qiniu，个人图床首选）：配置了 QINIU_ACCESS_KEY/SECRET/BUCKET/DOMAIN 时，
+  上传即 PUT 到七牛并返回公网 URL（真实图床，跨网络可达）。SDK 延迟导入，无 qiniu 环境不必安装。
 - 对象存储（OSS / S3 兼容）：配置了 RG_OSS_BUCKET/ENDPOINT/KEY/SECRET 时，上传即 PUT 到
   对象存储并返回公网 URL（真实图床，跨网络可达）。boto3 延迟导入，无对象存储环境不必安装。
 - PUBLIC_IMAGE_BASE：仅配置该变量（如反代 / 内网 DNS 把本服务的 /uploads 暴露为公网）时，
@@ -10,6 +12,7 @@ live 模式下的视觉/图像向量/OCR 模型需要「服务端能公网回源
 - 兜底：返回应用相对路径 /uploads/<文件名>（仅同主机 demo 可用；live 需公网可达，否则
   live_analyze 会主动抛错并回退 mock，保证演示不中断）。
 
+优先级：qiniu > oss > public_base > local。任一失败自动降级，保证上传主流程不中断。
 select_backend() / is_public_ready() 让调用方在 live 前判断是否具备公网图能力。
 """
 
@@ -20,12 +23,24 @@ import os
 
 logger = logging.getLogger("returnguard.storage")
 
+# ---- 七牛云（Qiniu）个人图床 ----
+QINIU_ACCESS_KEY = os.environ.get("QINIU_ACCESS_KEY", "")
+QINIU_SECRET_KEY = os.environ.get("QINIU_SECRET_KEY", "")
+QINIU_BUCKET = os.environ.get("QINIU_BUCKET", "")
+QINIU_DOMAIN = os.environ.get("QINIU_DOMAIN", "").rstrip("/")  # 公网域名，如 http://tuchuang.xxx.top
+QINIU_KEY_PREFIX = os.environ.get("QINIU_KEY_PREFIX", "").strip("/")  # 存储键前缀（"文件夹"），如 ReturnGuard
+
+# ---- OSS / S3 兼容对象存储 ----
 OSS_BUCKET = os.environ.get("RG_OSS_BUCKET", "")
 OSS_ENDPOINT = os.environ.get("RG_OSS_ENDPOINT", "")
 OSS_KEY = os.environ.get("RG_OSS_KEY", "")
 OSS_SECRET = os.environ.get("RG_OSS_SECRET", "")
 OSS_REGION = os.environ.get("RG_OSS_REGION", "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "").rstrip("/")
+
+
+def _use_qiniu() -> bool:
+    return bool(QINIU_ACCESS_KEY and QINIU_SECRET_KEY and QINIU_BUCKET and QINIU_DOMAIN)
 
 
 def _use_oss() -> bool:
@@ -37,8 +52,14 @@ def _oss_public_base() -> str:
     return f"https://{OSS_BUCKET}.{OSS_ENDPOINT}".rstrip("/")
 
 
+def _qiniu_public_base() -> str:
+    return QINIU_DOMAIN
+
+
 def backend_name() -> str:
     """当前生效的图床后端名，便于 /api/config 与日志透出。"""
+    if _use_qiniu():
+        return "qiniu"
     if _use_oss():
         return "oss"
     if PUBLIC_IMAGE_BASE:
@@ -47,19 +68,25 @@ def backend_name() -> str:
 
 
 def is_public_ready() -> bool:
-    """live 模式能否拿到公网图：对象存储已配 或 PUBLIC_IMAGE_BASE 已配。"""
-    return _use_oss() or bool(PUBLIC_IMAGE_BASE)
+    """live 模式能否拿到公网图：任一真实图床已配 或 PUBLIC_IMAGE_BASE 已配。"""
+    return _use_qiniu() or _use_oss() or bool(PUBLIC_IMAGE_BASE)
 
 
 def upload(local_path: str, filename: str) -> str:
     """把本地上传图变成公网可访问 URL（可能就地把文件同步到对象存储）。
 
     返回公网 URL 字符串：
+        - 七牛云：<QINIU_DOMAIN>/<QINIU_KEY_PREFIX>/<filename>
         - 对象存储：https://<bucket>.<endpoint>/<filename>
         - PUBLIC_IMAGE_BASE：<base>/<filename>
         - 兜底：/uploads/<filename>
-    对象存储失败不影响主流程：自动降级到 PUBLIC_IMAGE_BASE / 本地路径并记日志。
+    任一真实图床失败不影响主流程：逐层降级到下一后端并记日志。
     """
+    if _use_qiniu():
+        try:
+            return _upload_qiniu(local_path, filename)
+        except Exception:  # 七牛异常降级，保证上传主流程不中断
+            logger.exception("Qiniu 上传失败，降级到 OSS / PUBLIC_IMAGE_BASE / 本地路径")
     if _use_oss():
         try:
             return _upload_oss(local_path, filename)
@@ -68,6 +95,23 @@ def upload(local_path: str, filename: str) -> str:
     if PUBLIC_IMAGE_BASE:
         return f"{PUBLIC_IMAGE_BASE}/{filename}"
     return f"/uploads/{filename}"
+
+
+def _qiniu_key(filename: str) -> str:
+    return f"{QINIU_KEY_PREFIX}/{filename}" if QINIU_KEY_PREFIX else filename
+
+
+def _upload_qiniu(local_path: str, filename: str) -> str:
+    """上传到七牛云对象存储（qiniu SDK 延迟导入，避免无 qiniu 环境也必须安装）。"""
+    from qiniu import Auth, put_file  # noqa: PLC0415
+
+    q = Auth(QINIU_ACCESS_KEY, QINIU_SECRET_KEY)
+    key = _qiniu_key(filename)
+    token = q.upload_token(QINIU_BUCKET, key, 3600)
+    ret, info = put_file(token, key, local_path)
+    if info is None or getattr(info, "status_code", None) != 200:
+        raise RuntimeError(f"Qiniu 上传失败: {info}")
+    return f"{_qiniu_public_base()}/{key}"
 
 
 def _upload_oss(local_path: str, filename: str) -> str:

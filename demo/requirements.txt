@@ -16,3 +16,6 @@ psycopg2-binary==2.9.10
 
 # ---- PDF 报告导出（服务端生成，替代浏览器 window.print） ----
 reportlab==5.0.0
+
+# ---- 图床（P3-17）：七牛云对象存储上传，live 模式视觉/向量/OCR 服务端公网回源 ----
+qiniu==7.18.0
