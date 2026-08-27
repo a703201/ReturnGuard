@@ -420,6 +420,9 @@
     .src-btn.active{background:#38bdf8;color:#fff}
 
     select,input[type=text],input[type=number],textarea{background:#fff;color:#1e293b;border-color:#cbd5e1}
+    /* entry-form 更高优先级选择器，必须单独覆盖（否则 #0b1220 不被通用规则覆盖） */
+    .entry-form input,.entry-form select,.entry-form textarea{background:#fff;color:#1e293b;border-color:#cbd5e1}
+    .entry-form label{color:#475569}
     .desc,.dt-note,.note{color:#64748b}
     .overlay{background:rgba(148,163,184,.35)}
     .overlay .panel{background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.15)}
@@ -884,15 +887,15 @@
           <h3 style="margin:0">账户 / 租户</h3>
           <button id="authClose" type="button" style="background:none;border:none;color:var(--acc);font-size:20px;cursor:pointer">×</button>
         </div>
-        <p id="authHint" style="font-size:12px;color:#94a3b8;margin:0 0 12px">登录后实际数据按本租户隔离。</p>
+        <p id="authHint" style="font-size:12px;color:var(--txt3);margin:0 0 12px">登录后实际数据按本租户隔离。</p>
         <form id="authForm">
-          <label style="font-size:12px;color:#94a3b8">用户名（租户标识）</label>
-          <input id="authUser" required autocomplete="username" placeholder="如 acme" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0">
-          <label style="font-size:12px;color:#94a3b8">密码（至少 6 位）</label>
-          <input id="authPass" type="password" required autocomplete="current-password" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0">
+          <label style="font-size:12px;color:var(--txt3)">用户名（租户标识）</label>
+          <input id="authUser" required autocomplete="username" placeholder="如 acme" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
+          <label style="font-size:12px;color:var(--txt3)">密码（至少 6 位）</label>
+          <input id="authPass" type="password" required autocomplete="current-password" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
           <div id="authTenantWrap" style="display:none">
-            <label style="font-size:12px;color:#94a3b8">企业/店铺名（选填）</label>
-            <input id="authTenant" placeholder="如 Acme 贸易" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0">
+            <label style="font-size:12px;color:var(--txt3)">企业/店铺名（选填）</label>
+            <input id="authTenant" placeholder="如 Acme 贸易" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
           </div>
           <button id="authSubmit" type="submit" style="width:100%;background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px;cursor:pointer">登录</button>
           <div id="authMsg" style="margin-top:8px;font-size:12px;color:var(--bad)"></div>
