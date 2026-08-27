@@ -46,6 +46,11 @@ def _resolve_secret(raw: str) -> bytes:
     hmac.new 要求 bytes 密钥，直接传 str 在 Python 3.13+ 会抛 TypeError（此前潜在生产缺陷）。"""
     raw = (raw or "").strip()
     if not raw:
+        logger.warning(
+            "AUTH_SECRET 未设置：回退进程内随机密钥。该密钥仅当前进程有效，"
+            "重启/多 worker 部署下已签发令牌将全部失效（登录后被随机踢回 401）。"
+            "生产/多 worker 部署务必设置高熵 AUTH_SECRET。"
+        )
         return os.urandom(32)
     try:
         return bytes.fromhex(raw)
