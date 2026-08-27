@@ -1,8 +1,8 @@
 # ReturnGuard 接口文档（API.md）
 
 > **服务**：ReturnGuard Demo（FastAPI）
-> **最后更新**：2026-08-16
-> **关联文档**：`docs/PRD.md`、`ModelRouter_API.docx`（模型能力参考）
+> **最后更新**：2026-08-27（v1.1.1）
+> **关联文档**：`docs/PRD.md`、`ModelRouter_API.docx`（模型能力参考）、`CHANGELOG.md`（v1.1.1 安全复审闭环）
 
 ---
 
@@ -19,6 +19,8 @@
 - **错误响应**：HTTP 状态码 + FastAPI 默认 `{ "detail": "..." }`。
 - **live 回退**：live 模式失败时**不报 5xx**，返回 `200` 并带 `mode="mock(fallback)"` 与 `error` 字段，保证前端不中断。
 - **兼容键**：`/api/insights` 始终返回 `total_cases` / `sku_ranking` / `defect_distribution`，前端无需按模式分支。
+- **鉴权（v1.1.1 起强制）**：写接口（`POST /api/analyze`、`POST/DELETE /api/cases`、`POST /api/import_csv`）须携带登录会话；管理端点（`POST /api/calibrate`、`GET /metrics`）须 `ADMIN_API_KEY` 或登录会话。令牌经 `Authorization: Bearer <token>` 或 `X-Token: <token>` 头传递（**不再支持 `?token=` 查询参数**，SEC-4）。未携带 → `401`。
+- **多租户**：`real` 源案件按 `tenant_id` 隔离；`public` 基准共享；`demo` 源为共享演示库。数据变更接口均须登录态，禁止匿名写入。
 
 ---
 
@@ -30,6 +32,7 @@
 ---
 
 ### 3.2 `POST /api/analyze` —— 阶段 A 个案举证
+**鉴权**：须登录会话（`Authorization: Bearer <token>` 或 `X-Token`），匿名 → `401`（SEC-1）。
 **Content-Type**：`multipart/form-data`
 
 **请求参数**
@@ -117,12 +120,51 @@ curl "http://localhost:8000/api/insights?mode=live&category=3C"
 
 ---
 
-### 3.4 `GET /api/cases` —— 案件库
+### 3.4 账户与鉴权接口（v1.1.0+）
+| 方法 / 路径 | 说明 | 鉴权 |
+|---|---|---|
+| `POST /api/auth/register` | 注册新账户（受 `REGISTRATION_ENABLED` / `REGISTRATION_INVITE_CODE` 约束） | 公开（公网演示默认关闭） |
+| `POST /api/auth/login` | 登录，返回 HMAC 签名令牌（7 天过期）；密码 pbkdf2 60 万轮 | 公开 |
+| `GET /api/auth/me` | 返回当前登录用户名 / 租户 | 登录会话 |
+| `POST /api/auth/logout` | 登出（令牌版本自增，已签发令牌立即失效） | 登录会话 |
+
+登录示例：
+```bash
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo","password":"demo123"}'
+# → {"token":"<jwt-like>","username":"demo"}
+```
+失败登录按 `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN` 触发滑动窗口封禁（返回 `429`，SEC-12 共享状态）。
+
+### 3.5 `GET /api/cases` —— 案件库
 返回已沉淀案件数组（`application/json`），用于调试 / 演示验证。
 
 ```bash
 curl http://localhost:8000/api/cases
 ```
+
+### 3.6 `POST /api/cases` · `DELETE /api/cases/{id}` —— 网页端录入 / 删除（v1.1.0+）
+- **`POST /api/cases`**：按 `schemas.ManualCase` 契约写入一条案件，生成 `RG-<hex>` id；须登录会话（匿名 → `401`）。
+- **`DELETE /api/cases/{id}`**：删除指定案件（仅当前租户可删自己写入的；跨租户删除 → `403`/`404`）；须登录会话。
+- 两接口仅落**当前数据源**（`?source=demo|real`，前端顶栏开关透传），不污染另一源。
+
+### 3.7 `GET /api/file/{sig}` —— 上传图签名短链（v1.1.1 · SEC-8）
+退货图（PII）不再经 `/uploads` 公开挂载，改为 HMAC 签名 + TTL 短链：
+```
+/api/file/{sig}?f=<filename>&e=<exp_unix>
+```
+- `sig = HMAC(filename|exp, AUTH_SECRET)[:32]`，`e` 为过期 Unix 时间戳（`UPLOAD_URL_TTL` 默认 3600s）。
+- 服务端校验：签名一致 + 未过期 + 路径穿越防护 → `200 FileResponse`；否则 `404`（不泄露文件是否存在）。
+- 伪造签名 / 过期时间戳 → `404`；匿名直接访问旧 `/uploads/...` → `404`（挂载已移除）。
+- OSS / 七牛 / `PUBLIC_IMAGE_BASE` 公网 URL 不经此路由，不受影响。
+
+### 3.8 `POST /api/calibrate` · `GET /metrics` —— 管理端点（v1.1.1 · SEC-1/7）
+- **`POST /api/calibrate`**：用真同款/调包样本按 Youden J 标定相似度阈值（`CalibrateRequest`）；须 `ADMIN_API_KEY` 或登录会话，匿名 → `401`。
+- **`GET /metrics`**：运行指标（`requests` / `latency_ms_sum` / `errors` / `analyze_count` 等）；须 `ADMIN_API_KEY` 或登录会话，匿名 → `401`。
+
+### 3.9 `POST /api/import_csv` —— 真实数据批量回流（v1.1.0+）
+CSV 批量导入真实退货数据（列名映射 / 类型转换 / 中文表头不敏感），须登录会话；`csv_file` 可选（`File`），缺失时按 `RG_AUTO_IMPORT_CSV` 启动自动导入（幂等去重）。
 
 ---
 
@@ -230,3 +272,20 @@ build_insights_live(aggregated):
 - live 模式需在运行环境注入 `MODEL_ROUTER_API_KEY` 与 `PUBLIC_IMAGE_BASE`（Docker 见 `docker/.env.example`）。
 - 图片须置于对象存储（如阿里云 OSS）并配置公网可读地址；localhost 图片 Model Router 无法回源。
 - 无 Key / 无图床时，接口自动以 mock 模式运行，功能演示不中断。
+
+---
+
+## 6. 安全（v1.1.1 安全复审闭环）
+
+公网部署语境下，安全发现项 **SEC-1 ~ SEC-12 已全部清零**。设计要点：
+
+- **鉴权**：写接口须登录会话（`_require_session`）；管理端点须 `ADMIN_API_KEY` 或登录（`_require_admin`）。令牌为无状态 HMAC 签名（7 天过期），经 `Authorization: Bearer` / `X-Token` 头传递；`?token=` 查询参数已停用（SEC-4）。
+- **令牌密钥**：`AUTH_SECRET` 从 `.env` 加载（修复 dotenv 顺序 bug，SEC-2）；生产必设，否则每次重启令牌失效。支持 `secrets.token_hex(32)` 配置。
+- **PII 收敛（SEC-8）**：客户退货图不再经 `/uploads` 公开挂载，改为 HMAC 签名 + TTL 短链 `/api/file/{sig}`；伪造/过期/枚举均返回 `404`，不泄露文件是否存在。OSS/七牛公网 URL 不受影响。
+- **CSP（SEC-9）**：首页每请求生成 nonce 并注入内联 `<script>`，`script-src 'self' 'nonce-…'` 去除 `unsafe-inline`；另含 `default-src 'self'`、`img-src 'self' data: https:`、`object-src 'none'`、`base-uri 'self'`、`frame-ancestors 'none'`、`X-Content-Type-Options: nosniff`、`Referrer-Policy` 等响应头。
+- **限流 / 防爆破（SEC-3/12）**：按客户端真实 IP（Cloudflare Tunnel 取 `CF-Connecting-IP`）限流；登录失败按滑动窗口封禁（`LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN`）。限流与登录锁状态外置为独立 SQLite（`rg_state.db`，`shared_state.py`），**多 worker 下一致**。
+- **口令存储（SEC-10）**：pbkdf2 提至 **60 万轮**；未知用户也跑等代价哈希，消除用户枚举时序差；存量账户登录时渐进 rehash 升级。
+- **密钥比较（SEC-11）**：API Key / 管理员密钥比较改用 `hmac.compare_digest`（常量时间）。
+- **多 worker（SEC-12）**：聚合代际计数落库 `rg_kv`；限流/登录锁外置 `shared_state`。单 worker 演示零配置即可；多实例部署状态不再割裂。
+
+> 实测：匿名写接口 → `401`；`/metrics` 匿名 → `401`（带 `ADMIN_API_KEY` → `200`）；匿名 `/uploads/任意` → `404`；签名短链有效 → `200`、伪造/过期 → `404`；5 次错密码 → 第 6 次 `429` 且锁定期内正确密码亦 `429`。详见 `docs/CODE_REVIEW.md` 第八~十节。

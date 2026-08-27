@@ -40,8 +40,38 @@
 
 ### 已知限制（Known Issues）
 - live 视觉/向量/OCR/TTS 仍依赖 Model Router gateway 开通对应模型；未开通自动回退 mock 并逐能力标记（演示不中断，开通即生效）。
-- openGauss 多 worker 部署下聚合缓存为进程内（SQLite/单 worker 演示足够；生产多 worker 建议上层加 Redis 共享缓存，非阻断）。
-- `/uploads` 为演示态静态可读；生产对外应改签名 URL + 短期过期（已在 `_cleanup_old_uploads` 注释标注）。
+- openGauss 多 worker 部署：聚合代际计数与限流/登录锁已在 v1.1.1 外置为独立 SQLite（`shared_state.py` / `rg_kv`，SEC-12），单进程缓存陈旧问题已根治；生产多实例仍建议上层 Redis 共享其余指标（非阻断）。
+- `/uploads` 公开挂载已在 v1.1.1 改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），退货 PII 图不再长期公开可读。
+
+---
+
+## [1.1.1] — 2026-08-27
+
+> 安全复审全量闭环（公网部署语境）：第八节安全专项复审发现项 SEC-1 ~ SEC-12 **全部清零**。测试 65 → 85，安全面由 A- 提升至 A 区间。
+
+### 安全加固（Security · SEC-1 ~ SEC-12）
+- **SEC-1 写接口鉴权全开**：新增 `_require_session`（写接口须登录会话）+ `_require_admin`（`/api/calibrate`、`/metrics` 须 `ADMIN_API_KEY` 或登录）；`/api/analyze`、`POST/DELETE /api/cases`、`/api/import_csv` 收口。匿名写接口 → **401**（公网实测一致）。
+- **SEC-2 `AUTH_SECRET` 静默忽略**：`auth.py` 顶部补 `load_dotenv()`（pytest 守卫），`_SECRET` 统一转 bytes，支持 `secrets.token_hex(32)` 配置；令牌跨重启可验。
+- **SEC-3 代理 IP 误判**：`get_client_ip` 优先采纳 `CF-Connecting-IP`（Cloudflare Tunnel），部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`；限流/防爆破在多 worker 下生效。
+- **SEC-4 停用 `?token=` 传令牌**：仅读 `Authorization: Bearer` / `X-Token` 头，避免令牌经 URL/日志泄露。
+- **SEC-5 数据变更须登录**：写接口统一 `_require_session`，`public` 基准亦须登录态。
+- **SEC-6 公网关注册**：`REGISTRATION_ENABLED=false`（评委用内置 demo/demo123），保留可选 `REGISTRATION_INVITE_CODE`。
+- **SEC-7 `/metrics` 收口**：纳入 `_require_admin`（匿名 401）；`/api/config` 保留开放（仅透出非敏感常量）。
+- **SEC-8 上传图签名短链（PII 收敛）**：删除 `/uploads` 静态公开挂载；本地兜底 URL 改由 `storage.sign_upload_url()` 生成 HMAC 签名 + TTL 短链 `/api/file/{sig}?f=&e=`，含路径穿越防护；OSS/七牛公网 URL 不受影响。匿名 `/uploads/任意` → **404**；有效签名 → **200**，伪造/过期 → **404**。
+- **SEC-9 CSP nonce 硬化**：首页每请求生成 `secrets.token_urlsafe(16)` nonce 注入内联 `<script>`，CSP `script-src 'self' 'nonce-…'` 去 `unsafe-inline`（style-src 保留 unsafe-inline 为已知权衡）。
+- **SEC-10 登录侧信道 / KDF 轮数**：未知用户也跑等代价 pbkdf2（消用户枚举时序差）；pbkdf2 10 万轮 → **60 万轮**，存量账户 rehash-on-login 渐进升级。
+- **SEC-11 API Key 常量时间比较**：`_require_api_key`/`_require_admin` 改用 `hmac.compare_digest`。
+- **SEC-12 多 worker 共享状态外置**：新增 `shared_state.py`（独立 SQLite `rg_state.db` 存限流/登录锁，滑动窗口防爆破）；`db.py` 代际计数落库 `rg_kv` 表，根治多 worker 陈旧缓存。
+
+### 修复（Fixes）
+- 修 `storage` 密钥导入期捕获漂移（改动态 `auth._SECRET`）。
+- 修安全回归测试 Windows 文件锁 flaky（`unlink` 5 次重试）。
+- `*.db`（含 `rg_state.db` / `users.db` / `cases.db`）全部 `.gitignore` 不入库。
+
+### 文档（Docs）
+- `docs/CODE_REVIEW.md` 第八~十节：安全专项复审 + SEC-1~12 全量修复记录（含公网实测）。
+- `docs/API.md`：补全鉴权、签名 URL、限流/防爆破、CSP、管理端点等章节。
+- `README.md` / `demo/README.md` / `openGauss部署指南.md`：同步安全现状与 `/uploads` 改为签名短链。
 
 ---
 

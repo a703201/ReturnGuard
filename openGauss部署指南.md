@@ -98,5 +98,5 @@ curl "http://localhost:8000/api/cases?source=real&slim=1" | python -c "import sy
 ## 6. 注意事项
 
 - openGauss 与 SQLite 双源**物理隔离**：demo 永远来自种子，real 来自录入/导入，切换零代码（`?source=demo|real` 或前端顶栏）。
-- 多 worker 部署（gunicorn -w N）下，结果缓存为进程内（SQLite 演示足够）；openGauss 生产多 worker 建议上层加 Redis 共享缓存（后续优化项，非阻断）。
-- 上传图 `/uploads` 为演示态静态可读；生产对外应改签名 URL + 短期过期（已在 `_cleanup_old_uploads` 注释标注）。
+- 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已在 v1.1.1 外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
+- 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（v1.1.1 · SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。

@@ -1,6 +1,6 @@
 # ReturnGuard 数据库表结构（SCHEMA）
 
-> 适用版本：V1.0.0（仓库根 `VERSION` 为单一来源）
+> 适用版本：V1.1.1（仓库根 `VERSION` 为单一来源）
 > 对应代码：`demo/db.py` 的 `Case` 模型（ORM 单一来源）
 > 本文件与 `demo/schema.sql` 互为镜像：本文档给人看，`.sql` 给数据库用。
 
