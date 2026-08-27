@@ -17,7 +17,7 @@ import logging
 import re
 import uuid
 
-from db import load_cases, save_case
+from db import load_cases, save_case, get_case, delete_case
 from schemas import ManualCase
 
 logger = logging.getLogger("returnguard.importer")
@@ -163,3 +163,105 @@ def import_from_connector(connector, source: str = "real") -> dict:
             errors.append(f"第{i}行落库失败: {e}")
     logger.info("连接器导入完成 source=%s imported=%d skipped=%d", source, imported, skipped)
     return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# 文件导入（数据集 xlsx/csv）+ 按 case_id 去重 upsert
+# ---------------------------------------------------------------------------
+def _norm_date_key(d) -> str | None:
+    """把日期归一为 YYYY-MM-DD 字符串；无法解析返回 None。"""
+    import datetime
+    if d is None:
+        return None
+    if isinstance(d, (datetime.date, datetime.datetime)):
+        return d.strftime("%Y-%m-%d")
+    s = str(d).strip()
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", s)
+    return m.group(1) if m else (s[:10] if len(s) >= 10 else s or None)
+
+
+def _cmp_date(a, b) -> int:
+    """a 比 b 新 → >0；b 更新 → <0；相等或一方未知 → 0。"""
+    ka, kb = _norm_date_key(a), _norm_date_key(b)
+    if ka is None or kb is None:
+        return 0  # 未知日期按「相等」处理，保留已有记录（最新）
+    return (ka > kb) - (ka < kb)
+
+
+def _upsert_case(case: dict, source: str, tenant_id: str | None) -> str:
+    """按 case_id upsert 单条案件，返回 imported / updated / skipped。
+
+    去重策略（用户要求）：相同案件（同 case_id）
+      - 同日（日期相等）→ 跳过（skipped）
+      - 异日 → 保留最新记录、删除旧记录（updated）；若上传记录更旧则保留库中最新（skipped）
+    """
+    cid = case.get("case_id")
+    existing = get_case(source, cid, tenant_id) if cid else None
+    if existing is None:
+        save_case(source, case, tenant_id=tenant_id)
+        return "imported"
+    cmp = _cmp_date(case.get("date"), existing.get("date"))
+    if cmp == 0:
+        return "skipped"  # 同日 → 跳过
+    if cmp > 0:  # 上传更新 → 删旧存新
+        delete_case(source, cid, tenant_id=tenant_id)
+        save_case(source, case, tenant_id=tenant_id)
+        return "updated"
+    return "skipped"  # 上传更旧 → 保留库中最新
+
+
+def import_file(
+    filename: str, content, source: str = "real", tenant_id: str | None = None, dedupe: bool = True
+) -> dict:
+    """解析上传的数据集文件（xlsx/csv）→ 按 case_id 去重 upsert 到 source。
+
+    content：.csv 为 str（已解码）；.xlsx 为 bytes。
+    返回 {ok, detected, imported, updated, skipped, file_duplicates, errors}。
+    - file_duplicates：同一文件内重复案件（同 case_id）去重计数（保留最新）。
+    - imported/updated/skipped：与库内已有案件比对后的落库结果。
+    """
+    from dataset_parse import parse_file
+
+    try:
+        cases, detected = parse_file(filename, content)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("文件解析失败: %s", e, exc_info=True)
+        return {"ok": False, "error": f"文件解析失败: {e}", "detected": None,
+                "imported": 0, "updated": 0, "skipped": 0, "file_duplicates": 0, "errors": [str(e)]}
+
+    imported = updated = skipped = file_dup = 0
+    errors: list[str] = []
+
+    # 文件内去重：同 case_id 仅保留最新（按日期）一条，其余计为 file_duplicates
+    seen: dict[str, dict] = {}
+    for c in cases:
+        cid = c.get("case_id")
+        if not cid:
+            cid = "RG-" + uuid.uuid4().hex[:8].upper()
+            c["case_id"] = cid
+        if dedupe and cid in seen:
+            file_dup += 1
+            if _cmp_date(c.get("date"), seen[cid].get("date")) > 0:
+                seen[cid] = c  # 保留更新的
+        else:
+            seen[cid] = c
+
+    for cid, c in seen.items():
+        try:
+            r = _upsert_case(c, source, tenant_id)
+            if r == "imported":
+                imported += 1
+            elif r == "updated":
+                updated += 1
+            else:
+                skipped += 1
+        except Exception as e:  # noqa: BLE001
+            skipped += 1
+            errors.append(f"{cid} 落库失败: {e}")
+
+    logger.info(
+        "文件导入完成 file=%s type=%s source=%s imported=%d updated=%d skipped=%d file_dup=%d",
+        filename, detected, source, imported, updated, skipped, file_dup,
+    )
+    return {"ok": True, "detected": detected, "imported": imported, "updated": updated,
+            "skipped": skipped, "file_duplicates": file_dup, "errors": errors}
