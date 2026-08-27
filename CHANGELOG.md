@@ -4,6 +4,25 @@
 
 ---
 
+## [1.1.2] — 2026-08-27
+
+> Live 合规清单 + 平台规则出处核验 + 复赛交付物总览；并根治「official profile 模型标识错配」导致无法一键切官方 Model Router 的缺陷。
+
+### Live 合规（对齐官方 Model Router_API.docx）
+- **模型标识 profile 化**：`_MODEL_ROUTER_PROFILES` 新增 `models` 字典，文本/VL/OCR/向量/rerank/TTS 标识随 profile 固化并由 `MODELS[...]` 统一下发，杜绝 base_url 与模型名错配。
+- **修复 official 错配**：旧代码在 official profile 下仍向官方端点发无前缀模型名（`qwen3.7-max` / `qwen-audio-3.0-tts-plus` / `qwen3-rerank`），官方会 404。现 official 用 `qwen/qwen3.7-max` / `qwen/qwen3-tts-instruct-flash` / `qwen/qwen3-rerank`。
+- **文本模型前缀补齐**：official 下若 `.env` 遗留 tokenplan 风格无前缀命名，自动补 `qwen/` 前缀，保证「改一个 `MODEL_ROUTER_PROFILE` 即一键切官方」。
+- 新增交付物：`docs/LIVE_COMPLIANCE.md`（逐项核对表 + 一键切换步骤 + 评委风险）、`docs/PLATFORM_SOURCES.md`（四大平台官方政策 URL 核验 + 准确性判定）、`docs/复赛交付物总览.md`（提交清单 + 阶段成果 + 体验指引 + GitCode 镜像说明）。
+- README 顶部新增「一分钟速览」（体验地址 / 测试账号 / 版本 / live 合规指针）。
+
+### [1.1.1] — 2026-08-27
+> 评委体验优化 + 安全复审收尾（SEC-1~12 全清零，测试 65→85）。
+- 前端：金额配色提亮、胜诉率环图还原、评委引导横幅、空态文案优化。
+- 安全：写接口鉴权收敛、签名短链 PII 收敛、CSP nonce 硬化、多 worker 共享状态外置、KDF 60 万轮、Key 常量时间比较；SQLite WAL + busy_timeout 抗并发。
+- XSS 测试数据清理（`<script>` 占位行删除 + 测试自清理）。
+
+---
+
 ## [1.1.0] — 2026-08-21
 
 > 复赛冲刺版本：A 组「假能力变真」、B 组「数据闭环」、C 组「多租户 + 合规 + 国产化部署」全部落地；测试 30 → 65，lint 门禁清零。
