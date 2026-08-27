@@ -344,26 +344,59 @@
   .entry-del:hover{background:rgba(248,113,113,.12)}
   @media (max-width:900px){ .entry-wrap{grid-template-columns:1fr} }
 
-  /* 手机/小屏：允许整页上下滚动，卡片自然堆叠 */
+  /* 手机/小屏：允许整页上下滚动，卡片自然堆叠（取证 / 看板统一打磨） */
   @media (max-width:640px){
-    body{overflow-y:auto}
+    body{overflow-y:auto;overflow-x:hidden}
     .app{height:auto;min-height:100dvh}
     .topbar{position:static}
     .content{flex:none;overflow:visible;height:auto;padding:10px 12px}
     .tabpane{height:auto}
     .tabpane.active{height:auto}
-    .board{height:auto;grid-template-columns:1fr;grid-template-rows:none}
+    .board{height:auto;grid-template-columns:1fr;grid-template-rows:none;overflow:visible}
     .card{min-height:auto;height:auto;overflow:visible;margin-bottom:10px}
     .tabs{flex-wrap:wrap}
-    .tabs button{flex:1 1 auto;font-size:12px;padding:6px 10px}
+    .tabs button{flex:1 1 auto;font-size:12px;padding:8px 10px;min-height:40px}
     .kpis{gap:8px}
-    .kpi{flex:1 1 calc(50% - 8px);min-width:auto;padding:8px 10px}
-    .kpi-win{flex-direction:row;gap:6px}
-    .hrow1,.hrow2{gap:8px}
-    .bar-top{gap:6px}
-    select,input[type=text],input[type=number],textarea{font-size:14px}
+    .kpi{flex:1 1 calc(50% - 8px);min-width:auto;padding:10px}
+    .kpi .v{font-size:22px}
+    .kpi .l{white-space:normal;font-size:11px}   /* 胜诉率等标签允许换行，避免 50% 卡片内溢出 */
+    .kpi-win{flex-direction:column;gap:4px;align-items:center}
+    .kpi-win .donut{margin:0 auto}
+    /* 顶栏两行在窄屏纵向堆叠，筛选器占满整行更易点按 */
+    .hrow1,.hrow2{gap:10px;flex-direction:column;align-items:stretch}
+    .hrow1 .brand{width:100%}
+    .bar-top{gap:8px;flex-direction:column;align-items:stretch}
+    .bar-top .src-toggle{flex:1 1 100%}
+    .bar-top .src-btn{flex:1 1 0;min-height:38px}
+    .bar-top select{flex:1 1 100%;max-width:none;min-width:0;min-height:40px;width:100%}
+    .bar-top button#loadIns{flex:1 1 100%;min-height:40px}
+    .bar-top .pill{align-self:flex-start;margin:2px 0}
+    /* 16px 输入字号：避免 iOS 聚焦时整页缩放；触摸点按区加大 */
+    select,input[type=text],input[type=number],textarea{font-size:16px}
     .scrollpane,.sup-view{height:auto;overflow:visible}
-    .forensic-wrap{height:auto}
+    .forensic-wrap{height:auto;grid-template-columns:1fr}
+    /* —— 单案取证：上传组件移动端打磨 —— */
+    /* accept=image/* 在手机上原生「先调相机、再选相册」，已满足相机优先 + 文件可用；
+       此处仅把输入框铺满、虚线描边、加大点按区，让取证上传在手机上更好点 */
+    #f input[type=file]{width:100%;min-height:48px;padding:12px 10px;border:1px dashed #475569;background:#0b1220;border-radius:10px;color:#cbd5e1;font-size:15px;cursor:pointer}
+    #f input[type=text],#f input[type=number],#f textarea,#f select{width:100%;min-height:44px;font-size:16px}
+    #f button[type=submit]{width:100%;min-height:48px;font-size:16px;margin-top:8px}
+    #f label{font-size:13px;margin:14px 0 5px}
+    /* 红框标注区在手机上铺满卡片、清晰可读 */
+    .annot-wrap{display:block;width:100%}
+    #annot{width:100%;max-width:100%;border-radius:8px}
+    .annot-note{font-size:12px}
+    /* 多模型编排链路：窄屏不横向溢出（wrap 已足够，给面板兜底不裁切） */
+    .orch{overflow:hidden}
+    .orch-chain{flex-wrap:wrap}
+    /* 数据录入：行内两列在手机上堆叠为单列，更易点按 */
+    .entry-form .row2{grid-template-columns:1fr}
+    .entry-form input,.entry-form select,.entry-form textarea{min-height:44px;font-size:16px}
+    .entry-actions{flex-direction:column;align-items:stretch}
+    .entry-actions button{width:100%;min-height:46px}
+    /* 看板宽表格（SKU 排名等）手机上略缩字号；展开卡片后卡内横向滚动，不撑破整页 */
+    .card table{font-size:12px}
+    .card th,.card td{padding:6px 6px}
   }
 </style>
 </head>
@@ -1166,7 +1199,7 @@ function renderAnnot(boxes, imgUrl, boxLive){
   }
   const img=new Image();
   img.onload=()=>{
-    const W=Math.min(420, img.width||420), H=Math.round(img.height*W/(img.width||1));
+    const W=Math.min(640, Math.max(480, img.width||640)), H=Math.round(img.height*W/(img.width||1));
     cv.width=W; cv.height=H; cv.style.display='block';
     const ctx=cv.getContext('2d');
     ctx.drawImage(img,0,0,W,H);
