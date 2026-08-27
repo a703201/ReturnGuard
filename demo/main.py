@@ -20,6 +20,7 @@ import hmac
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 import uuid
@@ -28,6 +29,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 import auth  # C组：账户体系 + 多租户隔离
+import shared_state  # SEC-12：跨 worker 共享状态（限流 / 登录封禁）
 from calibration import get_active_threshold, save_calibration, suggest_threshold  # B组：阈值自标定
 from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     DEFAULT_SOURCE,
@@ -38,8 +40,8 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     load_cases,
     save_case,
 )
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from importer import import_csv_text  # B组：真实数据回流（CSV 导入）
 from pdf_report import default_filename, generate_insights_pdf
@@ -75,8 +77,8 @@ _metrics["start_time"] = int(time.time())
 
 # ---- 写接口限流（P2-8）：演示态默认开启；环境 ANALYZE_RATE_LIMIT=0 关闭 ----
 _RATE_LIMIT = int(os.environ.get("ANALYZE_RATE_LIMIT", "60"))  # 每客户端每分钟上限
-_rate_window: dict[str, list[float]] = {}  # key = f"{scope}:{ip}"
-# 线程安全锁（P3-⑧）：uvicorn 默认线程池跑同步端点，_metrics / _rate_window 为进程内共享可变结构
+# 限流/登录封禁状态已外置到 shared_state（SEC-12：跨 worker 共享），不再用进程内 dict。
+# 线程安全锁（P3-⑧）：uvicorn 默认线程池跑同步端点，_metrics 为进程内共享可变结构
 _state_lock = threading.Lock()
 
 # ---- 认证安全加固（防 spam / 防攻击）----
@@ -92,9 +94,7 @@ _AUTH_TRUSTED_PROXIES = [p.strip() for p in os.environ.get("AUTH_TRUSTED_PROXIES
 # 公网部署跨域白名单（逗号分隔具体域名；默认空=不挂 CORS，同源）；禁止 "*"
 _CORS_ALLOW_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
 
-# 登录失败计数（按用户名）：用于靶向爆破封禁；进程内结构，需 _state_lock 保护
-_login_fails: dict[str, list[float]] = {}
-_login_lock_until: dict[str, float] = {}  # username -> 解锁时间戳
+# 登录失败计数 / 封禁（按用户名）：靶向爆破防护，已外置到 shared_state（SEC-12 跨 worker 共享）。
 
 # 演示态可选鉴权：设置 ANALYZE_API_KEY 后，/api/analyze 须带 X-API-Key 头或 ?key=
 _API_KEY = os.environ.get("ANALYZE_API_KEY", "")
@@ -141,9 +141,8 @@ def _validate_image(upload: UploadFile) -> bytes:
 def _cleanup_old_uploads(max_age_hours: float = 24) -> None:
     """P2-1：清理上传目录中超过阈值的孤立图片，避免退货照片（PII）无限堆积。
 
-    说明：/uploads 当前为演示态静态托管；复赛若对外，应改为签名 URL + 短期过期，
-    而非长期静态可读。此处先消除磁盘无限增长风险。
-    """
+    上传图已改为签名短链（/api/file/{sig}，SEC-8），但仍落盘于 UPLOAD_DIR，
+    此处按 mtime 清理过期文件，消除磁盘无限增长风险（双保险）。"""
     try:
         cutoff = time.time() - max_age_hours * 3600
         removed = 0
@@ -163,20 +162,13 @@ def _cleanup_old_uploads(max_age_hours: float = 24) -> None:
 
 
 def _check_rate_limit(client_ip: str, scope: str = "analyze", limit: int | None = None) -> bool:
-    """P2-8：按 scope 分桶的固定窗口限流（默认 analyze 用 _RATE_LIMIT）。返回 True=放行。"""
+    """P2-8：按 scope 分桶的固定窗口限流（默认 analyze 用 _RATE_LIMIT）。返回 True=放行。
+
+    SEC-12：计数外置到 shared_state（rg_state.db），多 worker 同一主机共享，避免限流被绕过。"""
     cap = limit if limit is not None else _RATE_LIMIT
     if cap <= 0:
         return True
-    now = time.time()
-    key = f"{scope}:{client_ip}"
-    with _state_lock:
-        hits = [t for t in _rate_window.get(key, []) if now - t < 60]
-        if len(hits) >= cap:
-            _rate_window[key] = hits
-            return False
-        hits.append(now)
-        _rate_window[key] = hits
-    return True
+    return shared_state.rate_check(f"{scope}:{client_ip}", cap, 60)
 
 
 def _ip_in_set(ip: str, nets: list[str]) -> bool:
@@ -325,9 +317,8 @@ async def lifespan(app):
 app = FastAPI(title="ReturnGuard Demo", lifespan=lifespan)
 # 把 static 目录挂成 /static，前端可加载其中的资源
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
-# 上传目录静态挂载：便于 live 模式下由 PUBLIC_IMAGE_BASE 指向本服务的 /uploads 提供图片
-# （注意：live 仍需图片可被 Model Router 服务端公网回源，纯内网部署需配对象存储）
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# 上传目录不再公开静态挂载（SEC-8）：图片经签名 + 短期过期的 /api/file/{sig} 提供，
+# 杜绝退货图（PII）被匿名长期拉取。live 模式仍由 PUBLIC_IMAGE_BASE / 对象存储公网回源。
 
 # 公网部署跨域白名单（可选）：仅当设置 CORS_ALLOW_ORIGINS 才挂，禁止 "*"
 if _CORS_ALLOW_ORIGINS:
@@ -391,9 +382,41 @@ async def security_headers(request: Request, call_next):
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    """返回「退货情报站」前端页面。"""
+    """返回「退货情报站」前端页面（SEC-9：每请求生成 nonce 注入 CSP，阻断内联脚本注入执行）。"""
+    nonce = secrets.token_urlsafe(16)
     with open(INDEX, encoding="utf-8") as f:
-        return f.read()
+        html = f.read()
+    # 仅一个内联 <script>（index.html:909），注入 nonce 使其被 CSP 放行；
+    # <style> 块及大量 HTML 属性 style="..." 无法 nonce，style-src 保留 'unsafe-inline'
+    # （CSS 注入无脚本执行能力，危害低），记为已知权衡。
+    html = html.replace("<script>", f'<script nonce="{nonce}">', 1)
+    csp = (
+        "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
+        f"style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{nonce}'; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    )
+    return HTMLResponse(content=html, headers={"Content-Security-Policy": csp})
+
+
+@app.get("/api/file/{sig}")
+async def serve_upload(sig: str, f: str = Query(...), e: int = Query(...)):
+    """SEC-8：签名 + 过期的上传图访问（退货图 PII 不可匿名长期拉取）。
+
+    签名 = HMAC(filename|exp, AUTH_SECRET)，URL 带 ?f=<文件名>&e=<过期时间戳>。
+    校验失败 / 过期 / 越界 → 404（不泄露文件是否存在）。"""
+    now = int(time.time())
+    if e < now:
+        raise HTTPException(status_code=404, detail="not found")
+    expected = hmac.new(auth._SECRET, f"{f}|{e}".encode("utf-8"), "sha256").hexdigest()[:32]
+    if not hmac.compare_digest(sig, expected):
+        raise HTTPException(status_code=404, detail="not found")
+    safe = _safe_name(f)
+    path = os.path.join(UPLOAD_DIR, safe)
+    abs_path = os.path.abspath(path)
+    abs_dir = os.path.abspath(UPLOAD_DIR)
+    if not abs_path.startswith(abs_dir + os.sep) or not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(abs_path)
 
 
 @app.get("/health")
@@ -796,32 +819,24 @@ def register_api(req: RegisterRequest, request: Request):
 def login_api(req: LoginRequest, request: Request):
     """登录，返回 HMAC 签名令牌（无状态，7 天有效）。
 
-    防爆破：按 IP 限流 + 按用户名连续失败计数封禁（LOGIN_MAX_FAILS / LOGIN_LOCK_MIN）。"""
+    防爆破：按 IP 限流 + 按用户名连续失败计数封禁（LOGIN_MAX_FAILS / LOGIN_LOCK_MIN）。
+    SEC-12：限流/封禁状态外置到 shared_state，跨 worker 共享，避免单进程绕过。"""
     client_ip = get_client_ip(request)
     if not _check_rate_limit(client_ip, scope="login", limit=_AUTH_LOGIN_IP_LIMIT):
         raise HTTPException(status_code=429, detail="登录过于频繁，请稍后再试")
     # 用户名级临时封禁（靶向爆破防护）
-    now = time.time()
-    with _state_lock:
-        if _login_lock_until.get(req.username, 0) > now:
-            raise HTTPException(status_code=429, detail="该账户已被临时锁定，请稍后再试")
+    if shared_state.login_locked(req.username):
+        raise HTTPException(status_code=429, detail="该账户已被临时锁定，请稍后再试")
     token = auth.authenticate(req.username, req.password)
     if not token:
         # 失败审计 + 计数封禁
         logger.warning("登录失败 ip=%s user=%s reason=invalid_credentials", client_ip, req.username)
         with _state_lock:
             _metrics["auth_fail"] += 1
-            fails = _login_fails.get(req.username, [])
-            fails = [t for t in fails if now - t < _LOGIN_LOCK_SEC]
-            fails.append(now)
-            _login_fails[req.username] = fails
-            if len(fails) >= _LOGIN_MAX_FAILS:
-                _login_lock_until[req.username] = now + _LOGIN_LOCK_SEC
+        shared_state.login_lock_register(req.username, _LOGIN_MAX_FAILS, _LOGIN_LOCK_SEC)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     # 成功：清空该用户名失败计数
-    with _state_lock:
-        _login_fails.pop(req.username, None)
-        _login_lock_until.pop(req.username, None)
+    shared_state.login_clear(req.username)
     return {"ok": True, "token": token, "username": req.username}
 
 

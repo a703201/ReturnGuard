@@ -3,7 +3,18 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import shared_state  # SEC-12：限流/封禁落库，需每测试隔离
 from main import app
+
+
+@pytest.fixture(autouse=True)
+def _isolate_shared_state():
+    """每个测试前清空共享状态（rg_state.db 的限流/封禁计数），避免跨测试累积导致误 429。
+
+    原进程内 dict 虽也跨测试共享，但秒级窗口内几乎不超限；落库后跨测试/跨运行持久化，
+    必须显式重置以保证用例独立。"""
+    shared_state.reset_state()
+    yield
 
 
 @pytest.fixture(scope="session")

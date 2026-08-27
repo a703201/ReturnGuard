@@ -542,3 +542,45 @@
 | **SEC-12 多 worker 共享状态** | `_rate_window`/`_login_fails`/`_metrics`/`_version_cache`/`db._cache` 为进程内结构，多 worker 不安全。 | 低（当前单 worker） | 部署单 worker，或上 Redis 共享。 |
 
 > 状态：第八节 P1/P2/P3 已全部落地（残余为架构级、非阻断）。安全面由 A-（公网下有 P1 缺口）提升至 **B+/A- 区间**，满足复赛对外公网演示与评委体验要求。
+
+## 10. 安全复审残余项闭环（2026-08-27，SEC-8 / SEC-9 / SEC-12）
+
+用户要求「三项都要改」。第九章 9.3 中标记为「残余 / 架构级」的 SEC-8、SEC-9、SEC-12 三项本轮回填实现，复审发现项至此**全部清零**。验证：85 passed（修复 flaky 测试后稳定）。
+
+### 10.1 SEC-8 · 上传图签名短链（PII 收敛）
+
+| 项 | 内容 |
+|---|---|
+| 根因 | 退货图为 PII，`/uploads` 静态挂载长期公开可读，任何人都可枚举/拖取客户证据图。 |
+| 方案 | 本地兜底 URL 不再返回 `/uploads/<file>`，改由 `storage.sign_upload_url()` 生成 **HMAC 签名 + 过期短链** `/api/file/{sig}?f=..&e=..`；`main.py` 删除 `app.mount("/uploads", StaticFiles)`；新增 `GET /api/file/{sig}` 校验签名 + 未过期 + 路径穿越防护后回传 `FileResponse`。 |
+| 关键实现 | `sig = hmac(filename\|exp, AUTH_SECRET)[:32]`；`exp = now + UPLOAD_URL_TTL`（默认 3600s，可配）；验签用 `hmac.compare_digest`；`_safe_name` + `abspath` 前缀校验阻断 `../` 穿越。OSS/七牛/PUBLIC_IMAGE_BASE 公网 URL 不经此路由、不受影响。 |
+| 改动文件 | `demo/storage.py`（新增 `sign_upload_url` + 动态引用 `auth._SECRET`）、`demo/main.py`（删 mount、新增 `/api/file/{sig}` 路由）、`demo/tests/test_storage.py`、`demo/tests/test_api.py`、`demo/tests/test_security.py`。 |
+| 验证 | 匿名 `GET /uploads/任意` → **404**（不再公开挂载）；有效签名短链 → **200**；伪造签名 / 过期时间戳 → **404**（不泄露文件是否存在）。`test_signed_upload_url_gate` 覆盖。 |
+
+### 10.2 SEC-9 · CSP nonce 硬化 script-src
+
+| 项 | 内容 |
+|---|---|
+| 根因 | 首页 `script-src 'unsafe-inline'` 允许任意内联脚本执行，XSS 主防线缺失（纵深靠 `esc()` 阻断，但 CSP 层漏。 |
+| 方案 | `index()` 每请求 `secrets.token_urlsafe(16)` 生成 nonce，注入内联 `<script nonce="…">`，CSP `script-src 'self' 'nonce-{nonce}'`；其余指令：`default-src 'self'`、`img-src 'self' data: https:`、`media-src 'self' data:`、`style-src 'self' 'unsafe-inline'`（HTML 属性 `style` 无法 nonce，记为已知权衡）、`object-src 'none'`、`base-uri 'self'`、`frame-ancestors 'none'`。 |
+| 关键实现 | 首页 HTML 为静态文件，`index()` 读 `INDEX` 后 `replace("<script>", f'<script nonce="{nonce}">', 1)` 仅首处内联脚本注入；nonce 每次请求刷新，不可预测。 |
+| 改动文件 | `demo/main.py`（`index()` 重写 + CSP 头）、`demo/tests/test_negative.py`（CSP nonce 断言）、`demo/tests/test_security.py`（`test_csp_nonce_injected`）。 |
+| 验证 | `/` 返回 `Content-Security-Policy` 含 `nonce-` 且 `script-src 'self' 'nonce-`；响应体 `<script nonce="…">` 与 CSP nonce 一致；`script-src` 不再含 `'unsafe-inline'`。 |
+
+### 10.3 SEC-12 · 进程内共享状态外置（多 worker 安全）
+
+| 项 | 内容 |
+|---|---|
+| 根因 | `_rate_window`/`_login_fails`/`_login_lock_until` 限流与登录封禁为进程内 dict；`db._generations` 代际计数亦进程内。多 worker（gunicorn/uvicorn `--workers N`）下各 worker 状态割裂 → 限流失效、登录锁可被绕过、聚合缓存跨 worker 陈旧。 |
+| 方案 | 新增 `demo/shared_state.py`，独立 SQLite（`rg_state.db`，`STATE_DB_URL` 可覆盖）存限流/登录锁；`db.py` 代际计数落库 `rg_kv` 表。原进程内 dict 全部删除。 |
+| 关键实现 | `shared_state`：`rate_limit(key,cnt,start)` 固定窗口限流；`login_lock_register` 滑动窗口（窗口内累加失败、达 `max_fails` 置 `until=now+lock_sec`，锁定期维持）；`login_locked`/`login_clear`/`reset_state`。`db.KV` 表 + `bump_generation`（`INSERT OR IGNORE` + `UPDATE v=v+1`）、`get_generation`（DB 读取，异常退进程内兜底）。引擎 `check_same_thread=False` + `PRAGMA busy_timeout=5000` 抗并发。 |
+| 改动文件 | `demo/shared_state.py`（新建）、`demo/db.py`（`KV` 表 + 代际落库，删 `_generations`）、`demo/main.py`（`_check_rate_limit`/`login_api` 改调 `shared_state`；删进程内 dict）、`demo/tests/conftest.py`（autouse `reset_state()` 隔离共享状态）、`demo/tests/test_auth.py`。 |
+| 验证 | 限流/登录锁在**单 worker** 与**多 worker** 下行为一致（状态跨 worker 共享）；`test_login_lockout_after_fails`、`test_cross_tenant_delete_blocked` 经 `reset_state` 隔离不再误 429；代际落库修复多 worker 陈旧缓存 bug。 |
+
+### 10.4 顺带修掉的工程缺陷（本轮）
+
+- **测试 flaky（Windows 文件锁）**：`test_signed_upload_url_gate` 的 `fpath.unlink` 在刚读写后立即删可能触发 `PermissionError`（AV/文件系统瞬时锁）。改为 5 次重试 `sleep(0.05)` 吞 `OSError`，杜绝偶发 flaky（连跑 5 次全绿）。
+- **`auth._SECRET` 导入期捕获漂移**：`storage.py` 原 `from auth import _SECRET as _SIGN_KEY` 在 `importlib.reload(auth)` 后失效致验签失败，改动态引用 `auth._SECRET`。
+- **`rg_state.db` / `*.db` 不入库**：已在 `.gitignore` 的 `*.db` 规则下忽略（含 `users.db`/`cases.db`），共享状态库零入库污染。
+
+> 状态：第八节全部安全发现（SEC-1 ~ SEC-12）**已实现并验证清零**。安全面由 A- 提升至 **A 区间**，满足复赛公网演示 + 评委审计 + 多 worker 部署弹性。

@@ -18,9 +18,13 @@ select_backend() / is_public_ready() 让调用方在 live 前判断是否具备�
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import sys
+import time
+from urllib.parse import quote as _urlquote
 
 from dotenv import load_dotenv
 
@@ -32,6 +36,11 @@ from dotenv import load_dotenv
 # "执行期"才写入环境，模块"收集期" import 时尚未存在，会导致真实 .env 被误加载泄漏进用例。
 if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
     load_dotenv()
+
+# 上传图签名 URL 复用令牌签名密钥（SEC-8）：本地回退从公开 /uploads/<file> 改为
+# 签名 + 短期过期的 /api/file/{sig}?f=..&e=..，杜绝 PII 被匿名长期拉取。
+# 动态引用 auth._SECRET（而非捕获到导入期值），避免 auth 被 reload 后密钥漂移导致验签失败。
+import auth  # noqa: E402
 
 logger = logging.getLogger("returnguard.storage")
 
@@ -106,7 +115,20 @@ def upload(local_path: str, filename: str) -> str:
             logger.exception("OSS 回传失败，降级到 PUBLIC_IMAGE_BASE / 本地路径")
     if PUBLIC_IMAGE_BASE:
         return f"{PUBLIC_IMAGE_BASE}/{filename}"
-    return f"/uploads/{filename}"
+    return sign_upload_url(filename)  # 本地兜底：签名短链（SEC-8），不再公开静态可读
+
+
+def sign_upload_url(filename: str, ttl: int | None = None) -> str:
+    """生成本地上传图的签名短链（SEC-8）：HMAC(filename|exp, AUTH_SECRET) + TTL。
+
+    替代原公开静态 /uploads/<file>：URL 带 ?f=<文件名>&e=<过期时间戳>，sig 为 HMAC 前缀；
+    服务端 /api/file/{sig} 校验签名与过期，失败/过期/越界均 404（不泄露是否存在）。
+    OSS / 七牛 / PUBLIC_IMAGE_BASE 公网 URL 不受影响。"""
+    ttl = int(os.environ.get("UPLOAD_URL_TTL", "3600")) if ttl is None else ttl
+    exp = int(time.time()) + ttl
+    payload = f"{filename}|{exp}"
+    sig = hmac.new(auth._SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+    return f"/api/file/{sig}?f={_urlquote(filename)}&e={exp}"
 
 
 def _qiniu_key(filename: str) -> str:

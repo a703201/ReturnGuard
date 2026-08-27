@@ -29,7 +29,9 @@ def _reload(monkeypatch, envs: dict) -> None:
 def test_local_fallback(monkeypatch):
     _reload(monkeypatch, {})
     assert storage.backend_name() == "local"
-    assert storage.upload("/tmp/x.png", "a.png") == "/uploads/a.png"
+    # 本地兜底改为签名短链（SEC-8），不再公开 /uploads/<file>
+    url = storage.upload("/tmp/x.png", "a.png")
+    assert url.startswith("/api/file/") and "f=a.png" in url
     assert storage.is_public_ready() is False
 
 

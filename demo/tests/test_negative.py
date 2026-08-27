@@ -104,6 +104,10 @@ def test_security_headers_present():
     with TestClient(app) as c:
         h = c.get("/").headers
         assert "Content-Security-Policy" in h
+        csp = h["Content-Security-Policy"]
+        # SEC-9：script-src 改用 per-request nonce，不再放行 'unsafe-inline'（阻断内联脚本注入执行）
+        assert "nonce-" in csp, "script-src 应含 nonce"
+        assert "script-src 'self' 'nonce-" in csp
         assert h.get("X-Content-Type-Options") == "nosniff"
         assert h.get("Referrer-Policy") == "no-referrer"
 

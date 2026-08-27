@@ -42,8 +42,8 @@ def test_analyze_mock(auth_headers):
         assert r.status_code == 200
         d = r.json()
         assert "similarity" in d and "defect_boxes" in d
-        # P3-5：退回图用 URL 访问，不再内联整图 base64
-        assert d["returned_image_url"].startswith("/uploads/"), "退回图应回传可访问 URL"
+        # P3-5 + SEC-8：退回图用签名短链访问，不再内联 base64、不再公开 /uploads/
+        assert d["returned_image_url"].startswith("/api/file/"), "退回图应回传签名短链 URL"
 
 
 def test_analyze_persists_dimensions(auth_headers):
