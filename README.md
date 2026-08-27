@@ -39,7 +39,9 @@ flowchart TB
   BE <--> D[数据层 对象存储+案例库+阈值样本]
 ```
 
-## 复赛冲刺能力（v1.1.0）
+## 复赛冲刺能力（v1.1.1）
+
+> 安全复审全量闭环（v1.1.1）：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。测试 65 → 85，安全面达 A 区间。
 - **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**图床抽象**（OSS / `PUBLIC_IMAGE_BASE` / 本地回退）供模型服务端回源；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
 - **B 组 · 数据闭环**：时间序列 + 次月预测预警；CSV 批量导入真实退货数据（`POST /api/import_csv`）+ 平台连接器位；相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
 - **C 组 · 多租户 + 合规 + 国产化**：注册/登录/令牌（一个用户=一个租户），real 源案件按租户隔离（私有严格隔离 + `public` 公共基准）；XSS 全量转义 + CSP 防御纵深；负向/一致性测试补齐；region/season 维度下钻；**openGauss 部署 + 启动自动导入**（`RG_AUTO_IMPORT_CSV`，幂等）。
@@ -54,6 +56,14 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - 开发期默认 SQLite（demo 种子 + real 空库），零配置起跑。
 - 部署 openGauss：设 `REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
 - 可选环境变量：`ANALYZE_API_KEY`（写接口鉴权）、`AUTH_SECRET`（令牌签名，生产必设）、`FORCE_RESEED=1`（重置 demo 种子）。
+- 安全相关环境变量（公网部署必设）：
+  - `AUTH_SECRET`：令牌 HMAC 签名密钥（`secrets.token_hex(32)` 生成，生产必设，否则每次重启令牌失效）。
+  - `AUTH_TRUSTED_PROXIES`：可信任的反代网段（Cloudflare Tunnel 部署设 `127.0.0.1`，使限流/防爆破按真实客户端 IP 生效）。
+  - `ADMIN_API_KEY`：`/api/calibrate`、`/metrics` 管理端点密钥（不设置则仅登录会话可访问）。
+  - `REGISTRATION_ENABLED`：公网演示设 `false`（用内置 demo/demo123）；可选 `REGISTRATION_INVITE_CODE` 邀请制。
+  - `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN`：登录防爆破阈值与锁定时长（分钟）。
+  - `UPLOAD_URL_TTL`：上传图签名短链有效期（秒，默认 3600）。
+- 上传图不再经 `/uploads` 公开挂载，改为 HMAC 签名短链 `/api/file/{sig}`（PII 收敛，详见 `docs/API.md` §3.6 与 `CHANGELOG.md` v1.1.1 / SEC-8）。
 
 ## 验证脚本
 `verify_api.py`：纯标准库、零依赖，验证两项关键能力是否真能跑通：
@@ -73,7 +83,7 @@ python verify_api.py
 ## 目录
 - `verify_api.py` — 关键 API 验证脚本
 - `README.md` — 本文件
-- `CHANGELOG.md` — 版本变更记录（v1.0.0 → v1.1.0）
+- `CHANGELOG.md` — 版本变更记录（v1.0.0 → v1.1.1）
 - `openGauss部署指南.md` — openGauss 真实部署 + 真实数据自动导入
 - `demo/` — FastAPI 应用：`main.py`（入口）、`pipeline.py`（取证/洞察）、`models_router.py`（真实模型 + 逐能力回退）、`auth.py`（账户/多租户）、`calibration.py`（阈值自标定）、`importer.py`（CSV 回流）、`storage.py`（图床）、`seed_real.csv`（自动导入样例）
 - （完整方案 / 表单文案在项目根目录 `ReturnGuard_方案.md`、`ReturnGuard_表单提交文案.md`）

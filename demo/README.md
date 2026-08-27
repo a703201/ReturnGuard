@@ -5,12 +5,15 @@
 ## 目录
 ```
 demo/
-  main.py            # FastAPI 入口（/ 首页, /api/analyze, /api/insights, /api/cases）
+  main.py            # FastAPI 入口（/ 首页, /api/analyze, /api/insights, /api/cases, /api/auth/*, /api/calibrate, /api/import_csv, /api/file/{sig}, /metrics, /api/config）
   pipeline.py        # 取证+洞察流水线（mock / live 双模式）
   models_router.py   # Model Router 实时调用（live 模式）
+  auth.py            # 账户/多租户（pbkdf2 60 万轮 + HMAC 签名令牌）
+  shared_state.py    # 限流/登录锁外置 SQLite（多 worker 安全，SEC-12）
+  storage.py         # 图床抽象 + 上传图签名短链（SEC-8）
   requirements.txt
   cases.json         # 案例库（运行时写入）
-  uploads/           # 上传图片落盘
+  uploads/           # 上传图片落盘（经 HMAC 签名短链 /api/file/{sig} 访问，不再公开挂载）
   static/index.html  # 单页前端（取证 + 洞察看板）
 ```
 
@@ -27,7 +30,7 @@ python main.py
 
 ## live 模式（接真实 Model Router）
 需先准备：
-1. 可公网访问的图片地址（生产用对象存储，如阿里云 OSS），把 `uploads/` 同步到该 base URL。
+1. 可公网访问的图片地址（生产用对象存储，如阿里云 OSS），把 `uploads/` 同步到该 base URL（live 回源用；本地回退图经签名短链 `/api/file/{sig}` 访问，详见 `docs/API.md` §3.7）。
 2. 环境变量：
 ```bash
 export MODEL_ROUTER_API_KEY=sk-xxx
