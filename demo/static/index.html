@@ -210,6 +210,27 @@
   .dash-toolbar .dt-note{color:#94a3b8;font-size:12px}
   .dash-toolbar #btnReport{margin-left:auto;background:transparent;border:1px solid rgba(52,211,153,.45);color:var(--ok);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s ease;white-space:nowrap}
   .dash-toolbar #btnReport:hover{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.2)}
+  /* 评委体验指引横幅（P0-2）：首屏醒目、可关闭、亮/暗主题均清晰 */
+  .judge-guide{display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;padding:10px 14px;border-radius:10px;
+    background:linear-gradient(90deg, rgba(56,189,248,.16), rgba(52,211,153,.12));
+    border:1px solid rgba(56,189,248,.5);box-shadow:0 2px 12px rgba(56,189,248,.18);animation:fadeInUp .4s ease both}
+  .judge-guide .jg-text{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:13px;line-height:1.5;color:var(--txt)}
+  .judge-guide strong{color:var(--acc);font-size:14px;font-weight:800;letter-spacing:.5px;flex:none}
+  .judge-guide .jg-steps{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
+  .judge-guide .jg-steps b{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;
+    background:var(--acc);color:#04121f;font-size:12px;font-weight:800;flex:none}
+  .judge-guide .jg-steps .jg-step{cursor:pointer;color:var(--txt);border-bottom:1px dashed var(--acc);padding-bottom:1px;transition:color .15s ease}
+  .judge-guide .jg-steps .jg-step:hover{color:var(--acc)}
+  .judge-guide code{background:#0b1220;border:1px solid #334155;border-radius:5px;padding:1px 6px;font-size:12px;color:#fbbf24}
+  .judge-guide #jgClose{flex:none;margin-left:auto;background:transparent;border:0;color:#94a3b8;font-size:20px;line-height:1;cursor:pointer;padding:0 4px}
+  .judge-guide #jgClose:hover{color:var(--bad)}
+  /* 亮色主题：保持暖色背景 + 深色文字，避免被浅底吞掉 */
+  body.light .judge-guide{background:linear-gradient(90deg, rgba(14,165,233,.14), rgba(16,185,129,.12));border-color:#0ea5e9}
+  body.light .judge-guide .jg-text{color:#0f172a}
+  body.light .judge-guide strong{color:#0369a1}
+  body.light .judge-guide .jg-steps .jg-step{color:#0f172a;border-bottom-color:#0369a1}
+  body.light .judge-guide .jg-steps .jg-step:hover{color:#0369a1}
+  body.light .judge-guide code{background:#fff;border-color:#cbd5e1;color:#b45309}
   /* 大屏隐藏与下拉重复的冗余 scope pill，顶栏更干净（整合） */
   @media (min-width:641px){ #scopeTag{display:none} }
   .report{padding:4px 2px}
@@ -582,6 +603,17 @@
     <main class="content">
       <!-- 标签页 1：市场洞察看板（核心，占满一屏，仅卡内滚动） -->
       <section id="tab-dash" class="tabpane active">
+        <div id="judgeGuide" class="judge-guide">
+          <div class="jg-text">
+            <strong>评委体验指引</strong>
+            <span class="jg-steps">
+              <span><b>1</b> 右上角登录 <code>demo / demo123</code></span>
+              <span class="jg-step" data-go="forensic"><b>2</b> 切「单案取证」上传退货图+主图，看 AI 红框 / OCR / 语音取证</span>
+              <span><b>3</b> 回本看板看数据 +1 与洞察实时更新</span>
+            </span>
+          </div>
+          <button id="jgClose" type="button" aria-label="关闭指引" title="关闭">×</button>
+        </div>
         <div class="dash-toolbar">
           <span class="dt-note">看板随顶部「品类 / 平台 / 洞察模式」筛选实时刷新 · 一键导出本期洞察</span>
           <button id="btnReport" type="button">导出洞察报告</button>
@@ -631,37 +663,7 @@
           </div>
           <div class="col" data-col="2">
             <div class="card" data-card="c2-1" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">② 退货为什么发生</h3>
-              <div class="card-body">
-                <p class="desc">把退货原因归到几大类，告诉你最该先治哪一环。</p>
-                <div id="rootDist"></div>
-                <pre id="rootCause" style="margin-top:10px"></pre>
-              </div>
-            </div>
-            <div class="card" data-card="c2-2" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑤ 最近暴增的退货</h3>
-              <div class="card-body">
-                <p class="desc">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
-                <div id="alerts"><span class="note">暂无异常。</span></div>
-              </div>
-            </div>
-            <div class="card" data-card="c2-3" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑧ 下一步怎么做</h3>
-              <div class="card-body">
-                <p class="desc">落到动作的选品避坑与品控建议。</p>
-                <div id="advice"></div>
-              </div>
-            </div>
-            <div class="card" data-card="c2-4" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑭ 退货季节趋势</h3>
-              <div class="card-body">
-                <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
-                <div id="seasonBars" class="chart"></div>
-                <table id="seasonTbl"><thead><tr><th>季节</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
-              </div>
-            </div>
-            <div class="card" data-card="c2-5" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑰ 退货预测预警</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">⑰ 退货预测预警</h3>
               <div class="card-body">
                 <p class="desc">基于历史月度序列做线性外推，预测未来 3 个月退货量与退款，并给出上行预警。</p>
                 <div id="forecastKpis" class="chart"></div>
@@ -669,9 +671,46 @@
                 <div id="forecastAlerts"></div>
               </div>
             </div>
+            <div class="card" data-card="c2-2" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">② 退货为什么发生</h3>
+              <div class="card-body">
+                <p class="desc">把退货原因归到几大类，告诉你最该先治哪一环。</p>
+                <div id="rootDist"></div>
+                <pre id="rootCause" style="margin-top:10px"></pre>
+              </div>
+            </div>
+            <div class="card" data-card="c2-3" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑤ 最近暴增的退货</h3>
+              <div class="card-body">
+                <p class="desc">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
+                <div id="alerts"><span class="note">本期无异常（近 30 天增量未超阈值）。</span></div>
+              </div>
+            </div>
+            <div class="card" data-card="c2-4" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑧ 下一步怎么做</h3>
+              <div class="card-body">
+                <p class="desc">落到动作的选品避坑与品控建议。</p>
+                <div id="advice"></div>
+              </div>
+            </div>
+            <div class="card" data-card="c2-5" data-col="2">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑭ 退货季节趋势</h3>
+              <div class="card-body">
+                <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
+                <div id="seasonBars" class="chart"></div>
+                <table id="seasonTbl"><thead><tr><th>季节</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
           </div>
           <div class="col" data-col="3">
             <div class="card" data-card="c3-1" data-col="3">
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">⑱ 选品避坑闭环 · 可执行清单</h3>
+              <div class="card-body">
+                <p class="desc">把退货证据收敛成可直接落地的动作项（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控），按严重度排序。拿到就能做决策。</p>
+                <div id="sourcingLoop"></div>
+              </div>
+            </div>
+            <div class="card" data-card="c3-2" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">③ 哪些供应商最该换</h3>
               <div class="card-body">
                 <p class="desc">按缺陷率与胜诉率打质量分。黑榜=高风险建议换，红榜=可长期合作。</p>
@@ -680,33 +719,26 @@
                 <div id="supRed" style="margin-top:8px"></div>
               </div>
             </div>
-            <div class="card" data-card="c3-2" data-col="3">
+            <div class="card" data-card="c3-3" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑥ 最烧钱的退货商品</h3>
               <div class="card-body">
                 <p class="desc">按退款金额排的退货商品（卡内可滚动）。点开看高发问题。</p>
                 <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
-            <div class="card" data-card="c3-3" data-col="3">
+            <div class="card" data-card="c3-4" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑩ 平台 × 供应商 维权交叉</h3>
               <div class="card-body">
                 <p class="desc">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
                 <div id="matrixHeat" class="chart scrollx"></div>
               </div>
             </div>
-            <div class="card" data-card="c3-4" data-col="3">
+            <div class="card" data-card="c3-5" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑮ 退货成本 & 供应商黑名单</h3>
               <div class="card-body">
                 <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出质量分&lt;50 的高风险供应商与可解释理由。</p>
                 <div id="costKpis" class="chart"></div>
                 <div id="blacklist"></div>
-              </div>
-            </div>
-            <div class="card" data-card="c3-5" data-col="3">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">⑱ 选品避坑闭环 · 可执行清单</h3>
-              <div class="card-body">
-                <p class="desc">把退货证据收敛成可直接落地的动作项（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控），按严重度排序。拿到就能做决策。</p>
-                <div id="sourcingLoop"></div>
               </div>
             </div>
           </div>
@@ -971,6 +1003,20 @@ function switchTab(name){
   }
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+
+// 评委体验指引横幅（P0-2）：可关闭（记忆），步骤 2 可点击跳转取证页
+(function initJudgeGuide(){
+  const guide=document.getElementById('judgeGuide');
+  if(!guide) return;
+  try{ if(localStorage.getItem('rg_jguide_closed')==='1') guide.style.display='none'; }catch(e){}
+  const close=document.getElementById('jgClose');
+  if(close) close.addEventListener('click',()=>{
+    guide.style.display='none';
+    try{ localStorage.setItem('rg_jguide_closed','1'); }catch(e){}
+  });
+  guide.querySelectorAll('.jg-step[data-go]').forEach(s=>s.addEventListener('click',()=>switchTab(s.dataset.go)));
+})();
+
 
 // 胜诉率环形图（带动画）
 function renderDonut(svg, rate){
@@ -1485,7 +1531,7 @@ async function loadInsights(){
     const div=document.createElement('div'); div.className='alert';
     div.textContent='⚠ '+a.reason; al.appendChild(div);
   });
-  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">未检测到近期退货突然增多。</span>';
+  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">本期无异常（近 30 天增量未超阈值）。</span>';
 
   // ⑥ SKU 明细
   const st=$('#skuTbl').querySelector('tbody'); st.innerHTML='';
