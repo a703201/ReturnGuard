@@ -211,35 +211,40 @@
   .dash-toolbar #btnReport{margin-left:auto;background:transparent;border:1px solid rgba(52,211,153,.45);color:var(--ok);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s ease;white-space:nowrap}
   .dash-toolbar #btnReport:hover{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.2)}
   /* 评委体验指引横幅（P0-2）：首屏醒目、可关闭、亮/暗主题均清晰 */
-  .judge-guide{display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;padding:10px 14px;border-radius:10px;
-    background:linear-gradient(90deg, rgba(56,189,248,.16), rgba(52,211,153,.12));
-    border:1px solid rgba(56,189,248,.5);box-shadow:0 2px 12px rgba(56,189,248,.18);animation:fadeInUp .4s ease both}
-  .judge-guide .jg-text{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:13px;line-height:1.5;color:var(--txt)}
-  .judge-guide strong{color:var(--acc);font-size:14px;font-weight:800;letter-spacing:.5px;flex:none}
-  .judge-guide .jg-steps{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
-  .judge-guide .jg-steps b{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;
-    background:var(--acc);color:#04121f;font-size:12px;font-weight:800;flex:none}
-  .judge-guide .jg-steps .jg-step{cursor:pointer;color:var(--txt);border-bottom:1px dashed var(--acc);padding-bottom:1px;transition:color .15s ease}
-  .judge-guide .jg-steps .jg-step:hover{color:var(--acc)}
-  .judge-guide code{background:#0b1220;border:1px solid #334155;border-radius:5px;padding:1px 6px;font-size:12px;color:#fbbf24}
-  .judge-guide #jgClose{flex:none;margin-left:auto;background:transparent;border:0;color:#94a3b8;font-size:20px;line-height:1;cursor:pointer;padding:0 4px}
-  .judge-guide #jgClose:hover{color:var(--bad)}
-  /* 亮色主题：保持暖色背景 + 深色文字，避免被浅底吞掉 */
-  body.light .judge-guide{background:linear-gradient(90deg, rgba(14,165,233,.14), rgba(16,185,129,.12));border-color:#0ea5e9}
-  body.light .judge-guide .jg-text{color:#0f172a}
-  body.light .judge-guide strong{color:#0369a1}
-  body.light .judge-guide .jg-steps .jg-step{color:#0f172a;border-bottom-color:#0369a1}
-  body.light .judge-guide .jg-steps .jg-step:hover{color:#0369a1}
-  body.light .judge-guide code{background:#fff;border-color:#cbd5e1;color:#b45309}
-  /* 诚实声明：供应商为合成维度 */
-  .judge-guide .jg-note{margin-top:8px;font-size:12px;line-height:1.6;color:var(--txt2);background:var(--bg2);
-    border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+  /* 评委指引 + 诚实声明：浮动提示框（不占看板布局） */
+  .judge-guide{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:90;
+    max-width:720px;width:calc(100% - 24px);display:flex;flex-direction:column;gap:8px;
+    padding:12px 16px;border-radius:12px;
+    background:rgba(15,23,42,.96);backdrop-filter:blur(12px);
+    border:1px solid rgba(56,189,248,.45);box-shadow:0 8px 32px rgba(0,0,0,.35),0 0 0 1px rgba(56,189,248,.15);
+    animation:jgSlideDown .35s ease both}
+  @keyframes jgSlideDown{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+  .judge-guide .jg-head{display:flex;align-items:center;gap:8px}
+  .judge-guide .jg-head strong{color:var(--acc);font-size:13.5px;font-weight:800;letter-spacing:.3px;white-space:nowrap}
+  .judge-guide #jgClose{margin-left:auto;background:transparent;border:0;color:#94a3b8;font-size:18px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:4px;flex:none}
+  .judge-guide #jgClose:hover{color:var(--bad);background:rgba(239,68,68,.12)}
+  .judge-guide .jg-body{font-size:12.5px;line-height:1.65;color:var(--txt)}
+  .judge-guide .jg-steps{display:flex;flex-wrap:wrap;align-items:center;gap:5px 12px;margin-bottom:4px}
+  .judge-guide .jg-steps b{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;
+    background:var(--acc);color:#04121f;font-size:11px;font-weight:800;flex:none}
+  .judge-guide .jg-steps .jg-step{cursor:pointer;color:var(--acc);text-decoration:underline;text-decoration-style:dashed;text-underline-offset:3px;transition:color .15s}
+  .judge-guide .jg-steps .jg-step:hover{color:#38bdf8}
+  .judge-guide code{background:#0b1220;border:1px solid #334155;border-radius:5px;padding:1px 6px;font-size:11.5px;color:#fbbf24}
+  /* 诚实说明条 */
+  .judge-guide .jg-note{margin-top:4px;font-size:11.5px;line-height:1.6;color:var(--txt2);
+    background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.25);border-radius:7px;padding:7px 10px}
   .judge-guide .jg-note b{color:var(--warn,#f59e0b)}
-  .dash-foot{margin:16px 2px 4px;font-size:12px;line-height:1.75;color:var(--txt2);
-    border-top:1px dashed var(--border);padding-top:10px}
-  .dash-foot b{color:var(--warn,#f59e0b)}
-  body.light .judge-guide .jg-note, body.light .dash-foot{color:#475569}
-  body.light .judge-guide .jg-note b, body.light .dash-foot b{color:#b45309}
+  /* 关闭后隐藏 */
+  .judge-guide.hidden{display:none}
+  /* 亮色主题 */
+  body.light .judge-guide{background:rgba(255,255,255,.97);border-color:rgba(14,165,233,.45);
+    box-shadow:0 8px 32px rgba(0,0,0,.12),0 0 0 1px rgba(14,165,233,.1)}
+  body.light .judge-guide .jg-body{color:#334155}
+  body.light .judge-guide .jg-head strong{color:#0369a1}
+  body.light .judge-guide .jg-steps .jg-step{color:#0369a1}
+  body.light .judge-guide .jg-steps .jg-step:hover{color:#0ea5e9}
+  body.light .judge-guide code{background:#fff;border-color:#cbd5e1;color:#b45309}
+  body.light .judge-guide .jg-note{background:rgba(180,83,9,.06);border-color:rgba(180,83,9,.22);color:#475569}
   /* 大屏隐藏与下拉重复的冗余 scope pill，顶栏更干净（整合） */
   @media (min-width:641px){ #scopeTag{display:none} }
   .report{padding:4px 2px}
@@ -622,16 +627,18 @@
       <!-- 标签页 1：市场洞察看板（核心，占满一屏，仅卡内滚动） -->
       <section id="tab-dash" class="tabpane active">
         <div id="judgeGuide" class="judge-guide">
-          <div class="jg-text">
-            <strong>评委体验指引</strong>
-            <span class="jg-steps">
+          <div class="jg-head">
+            <strong>📋 评委体验指引</strong>
+            <button id="jgClose" type="button" aria-label="关闭指引" title="关闭">×</button>
+          </div>
+          <div class="jg-body">
+            <div class="jg-steps">
               <span><b>1</b> 右上角登录 <code>demo / demo123</code></span>
               <span class="jg-step" data-go="entry"><b>2</b> 切「数据录入」导入真实数据集（xlsx / csv）或手动录入</span>
               <span><b>3</b> 回本看板看数据 +1 与洞察实时更新</span>
-            </span>
+            </div>
             <div class="jg-note">⚠️ 诚实说明：看板中的 <b>平台（Amazon / UCI-Retail / TheLook）、退货原因、品类、胜诉分布</b> 均来自公开真实数据集；<b>供应商代号 S1–S8 及名称是演示合成维度</b>（按退货缺陷信号反推品控），不代表真实工商主体。接入真实 ERP / 供货记录后即可替换为真实供应商。</div>
           </div>
-          <button id="jgClose" type="button" aria-label="关闭指引" title="关闭">×</button>
         </div>
         <div class="dash-toolbar">
           <span class="dt-note">看板随顶部「品类 / 平台 / 洞察模式」筛选实时刷新 · 一键导出本期洞察</span>
@@ -770,7 +777,6 @@
               <button id="loginGateBtn" type="button" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
             </div>
           </div>
-          <div class="dash-foot">※ 数据来源声明：本看板的「平台 / 退货原因 / 品类 / 胜诉分布」源自 Amazon、UCI Online Retail、TheLook 三份公开电商数据集（<b>真实</b>）；「供应商代号 S1–S8 及名称」为 <b>演示合成维度</b>，仅用于演示"退货信号 → 品控归因"闭环，非真实供应商。真实供货记录接入后可一键替换。ReturnGuard V1.0</div>
         </div>
       </section>
       <section id="tab-plat" class="tabpane">
