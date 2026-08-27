@@ -43,7 +43,7 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from importer import import_csv_text  # B组：真实数据回流（CSV 导入）
+from importer import import_csv_text, import_file  # B组：真实数据回流（CSV / 数据集文件导入）
 from pdf_report import default_filename, generate_insights_pdf
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
@@ -941,6 +941,40 @@ async def import_csv(
     tenant_id = _resolve_tenant(request) or "public"
     res = import_csv_text(text, source, tenant_id=tenant_id)
     return {"ok": True, "source": source, "tenant": tenant_id or "public", **res}
+
+
+@app.post("/api/import_file")
+async def import_file_api(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """数据导入区·文件导入：把卖家真实数据集文件（.xlsx/.csv，类型同 Dataset/ 三大数据集）
+    批量导入 real 源，并按 case_id 去重（同日跳过、异日保留最新删旧）。
+
+    支持：Amazon 退货 xlsx / UCI Online Retail xlsx / TheLook 订单 csv（returned_at 非空）/
+    RG 格式 csv（含 sku 等列）。写接口：需登录会话（_require_session）。返回
+    {ok, detected, imported, updated, skipped, file_duplicates, errors}。
+    """
+    _require_session(request)
+    # 文件导入强制落到 real 源，避免污染演示种子库
+    source = "real"
+    raw = await file.read()
+    fname = file.filename or "upload"
+    try:
+        if fname.lower().endswith(".csv"):
+            text = raw.decode("utf-8-sig")
+        else:
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("gbk", errors="replace")
+    except Exception:  # noqa: BLE001
+        text = raw.decode("latin-1", errors="replace")
+    # xlsx 直接传 bytes；csv 传解码后的文本
+    content = raw if fname.lower().endswith(".xlsx") else text
+    tenant_id = _resolve_tenant(request) or "public"
+    res = import_file(fname, content, source, tenant_id=tenant_id)
+    return {"ok": res.get("ok", False), "source": source, "tenant": tenant_id or "public", **res}
 
 
 if __name__ == "__main__":

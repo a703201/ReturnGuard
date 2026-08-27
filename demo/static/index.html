@@ -363,6 +363,15 @@
   .entry-list th{color:#94a3b8;position:sticky;top:0;background:var(--card);z-index:2;box-shadow:0 1px 0 #334155}
   .entry-del{background:transparent;border:1px solid #334155;color:#f87171;border-radius:6px;padding:2px 8px;cursor:pointer;font-size:11px}
   .entry-del:hover{background:rgba(248,113,113,.12)}
+  .import-file .row2{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end}
+  .import-file input[type=file]{width:100%;padding:9px 10px;border:1px dashed #475569;background:#0b1220;border-radius:8px;color:#cbd5e1;font-size:13px;cursor:pointer;box-sizing:border-box}
+  .import-file #importBtn{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:13px;white-space:nowrap}
+  .import-result{font-size:13px;margin-top:10px;line-height:1.7}
+  .import-result .k{color:#94a3b8}
+  .import-result .v{color:var(--ok);font-weight:600}
+  .import-result .v.upd{color:#facc15}
+  .import-result .v.skip{color:#94a3b8}
+  @media (max-width:640px){ .import-file .row2{grid-template-columns:1fr} .import-file #importBtn{width:100%;min-height:46px} }
   @media (max-width:900px){ .entry-wrap{grid-template-columns:1fr} }
 
   /* 手机/小屏：允许整页上下滚动，卡片自然堆叠（取证 / 看板统一打磨） */
@@ -849,6 +858,22 @@
       <section id="tab-entry" class="tabpane">
         <div class="src-banner" id="entryBanner"></div>
         <div class="entry-wrap">
+          <div class="card import-file" style="grid-column:1 / -1">
+            <h3>⑬ 批量文件导入（真实数据集）</h3>
+            <p class="desc">导入卖家真实退货数据集（.xlsx/.csv，类型同三大数据集：Amazon 退货 / UCI Online Retail / TheLook 订单，或 RG 格式 CSV）。
+              相同案件按案件号去重：<b>同日跳过</b>、<b>异日保留最新记录并删除旧记录</b>。导入落入「当前数据源」（实际数据）。</p>
+            <div class="row2">
+              <div>
+                <label>选择数据集文件</label>
+                <input type="file" id="importFile" accept=".xlsx,.csv">
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:10px">
+                <button type="button" id="importBtn">导入并去重</button>
+              </div>
+            </div>
+            <div class="entry-msg" id="importMsg"></div>
+            <div id="importResult" class="import-result"></div>
+          </div>
           <div class="card entry-form">
             <h3>⑫ 添加实际退货案件</h3>
             <p class="desc">手动录入一条真实退货案件，落入「当前数据源」（顶部开关切换）。不强制传图，填字段即可。提交后对应看板实时刷新。</p>
@@ -1838,6 +1863,31 @@ async function submitEntry(e){
   finally{ btn.disabled=false; btn.textContent='添加到当前数据源'; }
 }
 
+// 文件导入（数据集 xlsx/csv）→ 按 case_id 去重 upsert 到「当前数据源」
+async function submitImport(){
+  const btn=$('#importBtn'); const f=$('#importFile'); const msg=$('#importMsg'); const res=$('#importResult');
+  msg.textContent=''; msg.className='entry-msg'; res.innerHTML='';
+  if(!f.files || !f.files.length){ msg.textContent='请先选择数据集文件（.xlsx/.csv）'; msg.className='entry-msg err'; return; }
+  btn.disabled=true; btn.textContent='导入中…';
+  try{
+    const fd=new FormData();
+    fd.append('file', f.files[0]);
+    const r=await apiFetch('/api/import_file',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!r.ok || !d.ok) throw new Error(d.error||d.detail||'导入失败');
+    res.innerHTML =
+      '<div>识别类型：<span class="v">'+esc(d.detected||'未知')+'</span></div>'+
+      '<div><span class="k">新增</span> <span class="v">'+d.imported+'</span>　'+
+      '<span class="k">更新(删旧留新)</span> <span class="v upd">'+d.updated+'</span>　'+
+      '<span class="k">跳过(同日/更旧)</span> <span class="v skip">'+d.skipped+'</span>　'+
+      '<span class="k">文件内重复</span> <span class="v skip">'+d.file_duplicates+'</span></div>';
+    if(d.errors && d.errors.length){ res.innerHTML += '<div class="k">提示：'+esc(d.errors.slice(0,5).join('；'))+'</div>'; }
+    msg.textContent='✓ 导入完成（实际数据），看板已刷新。'; msg.className='entry-msg ok';
+    loadInsights(); loadEntryList();
+  }catch(err){ msg.textContent='错误：'+err.message; msg.className='entry-msg err'; }
+  finally{ btn.disabled=false; btn.textContent='导入并去重'; }
+}
+
 // 初始化：拉取后端常量（P2-4）→ 设定数据源 UI → 加载看板/筛选/举证包
 (async function init(){
   try{
@@ -1864,6 +1914,7 @@ $('#f').addEventListener('submit',doAnalyze);
 $('#copyDossier').addEventListener('click',copyDossier);
 $('#btnReport').addEventListener('click',exportReport);
 $('#entryForm').addEventListener('submit',submitEntry);
+$('#importBtn').addEventListener('click',submitImport);
 $('#loadIns').addEventListener('click',loadInsights);
 $('#catSel').addEventListener('change',loadInsights);
 $('#platSel').addEventListener('change',loadInsights);
