@@ -37,6 +37,10 @@
   button:active:not(:disabled){transform:scale(.97)}
   button:disabled{opacity:.65;cursor:not-allowed}
   .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;transition:background .2s ease,color .2s ease}
+  /* 租户 badge：白色卡片风格（与 KPI 统一） */
+  #userTag{background:var(--card) !important;border:1px solid var(--border,#334155);
+    border-radius:10px !important;padding:6px 14px !important;box-shadow:0 2px 8px rgba(0,0,0,.15);
+    color:var(--txt);font-size:12.5px;font-weight:700}
   .err{color:var(--bad);font-size:12px;margin-top:8px}
   .loading{animation:pulse 1.2s ease-in-out infinite}
 
@@ -53,14 +57,14 @@
 
   /* KPI 紧凑条 */
   .kpis{display:flex;gap:10px;flex-wrap:wrap}
-  .kpi{background:linear-gradient(135deg,#10b981,#059669);border-radius:999px;padding:8px 18px;display:flex;flex-direction:column;align-items:center;min-width:104px;transition:transform .2s ease,box-shadow .2s ease;border:1px solid rgba(16,185,129,.35);animation:fadeInUp .4s ease both;box-shadow:0 2px 10px rgba(16,185,129,.2)}
+  .kpi{background:var(--card);border-radius:10px;padding:8px 14px;display:flex;flex-direction:column;align-items:center;min-width:104px;transition:transform .2s ease,box-shadow .2s ease;border:1px solid transparent;animation:fadeInUp .4s ease both}
   .kpi:nth-child(1){animation-delay:0ms}
   .kpi:nth-child(2){animation-delay:60ms}
   .kpi:nth-child(3){animation-delay:120ms}
   .kpi:nth-child(4){animation-delay:180ms}
-  .kpi:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(16,185,129,.35);border-color:rgba(52,211,153,.5)}
-  .kpi .v{font-size:clamp(16px,1.9vw,26px);font-weight:800;line-height:1.1;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.15)}
-  .kpi .l{font-size:clamp(10px,.9vw,12px);color:rgba(255,255,255,.85);margin-top:2px;white-space:nowrap;font-weight:500}
+  .kpi:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.3);border-color:rgba(56,189,248,.18)}
+  .kpi .v{font-size:clamp(16px,1.9vw,26px);font-weight:700;line-height:1.1}
+  .kpi .l{font-size:clamp(10px,.9vw,12px);color:#94a3b8;margin-top:2px;white-space:nowrap}
   .kpi .h{font-size:9.5px;color:#64748b;margin-top:2px;text-align:center;cursor:help}
   .kpi-win{flex-direction:row;gap:8px;align-items:center}
   .donut{display:block;flex:none}
@@ -451,7 +455,7 @@
     body{color:var(--txt)}
     .topbar{background:linear-gradient(135deg,#f8fafc,#e2e8f0);border-bottom-color:#cbd5e1}
     .brand h1{color:#0f172a}.brand .sub{color:#475569}
-    .kpi{background:linear-gradient(135deg,#10b981,#059669);border-color:rgba(16,185,129,.4);box-shadow:0 2px 10px rgba(16,185,129,.25)}
+    .kpi{background:var(--card);border-color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
     .card{background:var(--card);border-color:#e2e8f0;box-shadow:0 2px 12px rgba(0,0,0,.06)}
 
     /* Tab 栏（截图③：深色背景→浅色） */
@@ -463,6 +467,7 @@
     /* 状态 pill（截图②：加载中/就绪/筛选标签深色→浅色） */
     #insStatus,#scopeTag{background:#e2e8f0 !important;color:#475569 !important;border-color:#cbd5e1 !important}
     .pill{font-size:11px}
+    #userTag{background:#fff !important;border-color:#e2e8f0 !important;box-shadow:0 2px 8px rgba(0,0,0,.08);color:#0f172a}
     .src-btn{background:transparent;color:#475569;border-color:#cbd5e1}
     .src-btn.active{background:#38bdf8;color:#fff}
 
