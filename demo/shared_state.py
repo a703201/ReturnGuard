@@ -35,6 +35,7 @@ _engine = create_engine(_STATE_URL, connect_args={"check_same_thread": False})
 try:
     with _engine.connect() as _c:
         _c.exec_driver_sql("PRAGMA busy_timeout=5000")  # 多 worker 并发写时自动退避，避免 SQLITE_BUSY
+        _c.exec_driver_sql("PRAGMA journal_mode=WAL")    # WAL：降低读写互斥，避免“database is locked”
 except Exception:  # pragma: no cover - 仅非 sqlite 后端可能无 PRAGMA
     pass
 
@@ -74,19 +75,29 @@ _migrate()
 def rate_check(key: str, limit: int, window: int = 60) -> bool:
     """按 key 的固定窗口限流（默认 60s）。返回 True=放行。
 
-    窗口过期（now - start >= window）即重置计数，避免计数无限累积。"""
+    窗口过期（now - start >= window）即重置计数，避免计数无限累积。
+    使用原子 UPSERT 规避并发读-改-写导致的主键冲突（IntegrityError → 500）。"""
     now = time.time()
     with _engine.begin() as conn:
+        # 原子 upsert：过期则重置为 1，否则自增 1（单语句，事务内持写锁，并发安全）
+        conn.execute(
+            text(
+                "INSERT INTO rate_limit(key,cnt,start) VALUES(:k,1,:now) "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "  cnt = CASE WHEN :now - rate_limit.start >= :window THEN 1 "
+                "            ELSE rate_limit.cnt + 1 END, "
+                "  start = CASE WHEN :now - rate_limit.start >= :window THEN :now "
+                "            ELSE rate_limit.start END"
+            ),
+            {"k": key, "now": now, "window": window},
+        )
         row = conn.execute(_t_rl.select().where(_t_rl.c.key == key)).first()
-        if row is None or now - row.start >= window:
-            if row is None:
-                conn.execute(_t_rl.insert().values(key=key, cnt=1, start=now))
-            else:
-                conn.execute(_t_rl.update().where(_t_rl.c.key == key).values(cnt=1, start=now))
-            return True
-        if row.cnt >= limit:
+        if row.cnt > limit:
+            # 超限：撤销本次自增，保持计数原值（避免透支，并发下仍准确）
+            conn.execute(
+                _t_rl.update().where(_t_rl.c.key == key).values(cnt=row.cnt - 1)
+            )
             return False
-        conn.execute(_t_rl.update().where(_t_rl.c.key == key).values(cnt=row.cnt + 1))
         return True
 
 
@@ -94,30 +105,28 @@ def login_lock_register(username: str, max_fails: int, lock_sec: int) -> bool:
     """记录一次登录失败；返回当前是否已进入封禁（until > now）。
 
     滑动窗口：同一窗口（now - start < lock_sec）内失败次数累加；达 max_fails 即锁定 lock_sec 秒。
-    锁定期间（until > now）维持锁定；窗口过期后从头计数。"""
+    锁定期间（until > now）维持锁定；窗口过期后从头计数。
+    使用原子 UPSERT 规避并发读-改-写主键冲突。"""
     now = time.time()
     with _engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO login_lock(username,fails,start,until) VALUES(:u,1,:now,0) "
+                "ON CONFLICT(username) DO UPDATE SET "
+                "  fails = CASE WHEN login_lock.until > :now THEN login_lock.fails "
+                "            WHEN :now - login_lock.start < :lock THEN login_lock.fails + 1 "
+                "            ELSE 1 END, "
+                "  start = CASE WHEN login_lock.until > :now THEN login_lock.start "
+                "            WHEN :now - login_lock.start < :lock THEN login_lock.start "
+                "            ELSE :now END, "
+                "  until = CASE WHEN login_lock.until > :now THEN login_lock.until "
+                "            WHEN login_lock.fails + 1 >= :mf THEN :now + :lock "
+                "            ELSE 0.0 END"
+            ),
+            {"u": username, "now": now, "lock": lock_sec, "mf": max_fails},
+        )
         row = conn.execute(_t_lock.select().where(_t_lock.c.username == username)).first()
-        if row and row.until > now:
-            return True  # 锁定期内，维持锁定
-        if row and row.start and now - row.start < lock_sec:
-            fails = row.fails + 1
-            start = row.start
-        else:
-            fails = 1
-            start = now
-        until = now + lock_sec if fails >= max_fails else 0.0
-        if row is None:
-            conn.execute(
-                _t_lock.insert().values(username=username, fails=fails, start=start, until=until)
-            )
-        else:
-            conn.execute(
-                _t_lock.update()
-                .where(_t_lock.c.username == username)
-                .values(fails=fails, start=start, until=until)
-            )
-        return until > now
+        return bool(row and row.until > now)
 
 
 def login_locked(username: str) -> bool:

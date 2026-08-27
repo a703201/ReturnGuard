@@ -44,6 +44,7 @@ from sqlalchemy import (
     create_engine,
     text,
 )
+from sqlalchemy import event
 from sqlalchemy.dialects.postgresql.base import PGDialect
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -130,6 +131,17 @@ def get_engine(source: str = DEFAULT_SOURCE):
             future=True,
             pool_pre_ping=True,
         )
+        # SQLite 并发加固：busy_timeout 抗 SQLITE_BUSY（多 worker/线程池写交替），
+        # WAL 降低读写互斥（避免“database is locked”）。openGauss/PG 不在此列。
+        if url.startswith("sqlite"):
+
+            @event.listens_for(_engines[source], "connect")
+            def _set_sqlite_pragmas(dbapi_conn, _record):
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA busy_timeout=5000")
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.close()
+
         return _engines[source]
 
 
