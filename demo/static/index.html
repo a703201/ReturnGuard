@@ -398,6 +398,49 @@
     .card table{font-size:12px}
     .card th,.card td{padding:6px 6px}
   }
+  /* 浅色模式适配：跟随系统 prefers-color-scheme 自动切换 */
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f1f5f9;--card:#ffffff;--txt:#1e293b}
+    body{color:var(--txt)}
+    .topbar{background:linear-gradient(135deg,#f8fafc,#e2e8f0);border-bottom-color:#cbd5e1}
+    .brand h1{color:#0f172a}.brand .sub{color:#475569}
+    .kpi{background:var(--card);border-color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+    .card{background:var(--card);border-color:#e2e8f0;box-shadow:0 2px 12px rgba(0,0,0,.06)}
+    .tabs button{color:#475569;border-bottom-color:#e2e8f0}
+    .tabs button.active{color:#0369a1;background:#e0f2fe;border-bottom-color:#38bdf8}
+    .src-btn{background:transparent;color:#475569;border-color:#cbd5e1}
+    .src-btn.active{background:#38bdf8;color:#fff}
+    select,input[type=text],input[type=number],textarea{background:#fff;color:#1e293b;border-color:#cbd5e1}
+    .desc,.dt-note,.note{color:#64748b}
+    .overlay{background:rgba(148,163,184,.35)}
+    .overlay .panel{background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.15)}
+    .loginGate,.computingHint>.card{background:var(--card)}
+    #appVer{border-color:#cbd5e1;color:#64748b}
+    .pill{font-size:11px}
+    .badge.mock{background:rgba(56,189,248,.1);color:#0369a1;border-color:rgba(56,189,248,.3)}
+    .badge.live{background:rgba(52,211,153,.1);color:#059669;border-color:rgba(52,211,153,.3)}
+    .donut circle:nth-child(2){stroke:#e2e8f0}
+    .sup-card{background:var(--card);border-left-color:#cbd5e1;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+    .entry-list th{background:#f8fafc;color:#64748b;box-shadow:0 1px 0 #e2e8f0}
+    .forensic-wrap .card{background:var(--card);border-color:#e2e8f0}
+    .dossier-head{border-bottom-color:#e2e8f0;color:#334155}
+    pre{background:#f8fafc;color:#334155;border-color:#e2e8f0}
+    .err{background:#fef2f2;color:#991b1b;border-color:#fecaca}
+    .scrollx::-webkit-scrollbar-thumb{background:#cbd5e1}
+    .barh .fill{border-color:rgba(255,255,255,.5);box-shadow:0 0 8px rgba(56,189,248,.3)}
+    .report{background:var(--card);color:#334155}
+    .report h3,.report h4{color:#0f172a;border-bottom-color:#e2e8f0}
+    .r-meta{color:#64748b}
+    .plat-acc.open{border-color:#bfdbfe;background:rgba(56,189,248,.04);box-shadow:0 0 0 1px rgba(56,189,248,.12),0 8px 24px rgba(0,0,0,.08)}
+    .plat-head{color:#0369a1}
+    .ev.cap li b{color:#0369a1}
+    .orch-title{color:#0f172a}
+    .orch-hint{color:#64748b}
+    .box-badge{background:rgba(255,255,255,.92);color:#334155;border-color:#e2e8f0;box-shadow:0 2px 10px rgba(0,0,0,.1)}
+    .annot-note{color:#64748b}
+    #authBtn{color:#1e293b !important;border-color:#93c5fd}
+    #authBtn.authed{color:#059669 !important;border-color:#6ee7b7}
+  }
 </style>
 </head>
 <body>
@@ -415,6 +458,7 @@
           <div class="kpi kpi-win"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="60" height="60" viewBox="0 0 92 92"></svg><div class="l">维权胜诉率</div></div>
           <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">货不对板嫌疑率</div><div class="h" id="kDispNote" title="">代理指标 ⓘ</div></div>
         </div>
+        <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：实际数据按租户隔离"></span>
       </div>
       <div class="hrow2">
         <div class="bar-top">
@@ -441,8 +485,7 @@
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
           <span id="insStatus" class="pill" style="background:#334155">就绪</span>
-          <span id="userTag" class="pill" style="background:var(--ok);display:none" title="当前租户：实际数据按租户隔离"></span>
-          <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer">登录</button>
+          <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:#1e293b;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer">登录</button>
         </div>
         <nav class="tabs">
           <button data-tab="dash" class="active">市场洞察</button>
@@ -1243,15 +1286,43 @@ async function loadInsights(){
   const r=await apiFetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error('洞察接口 '+r.status);
   const d=await r.json();
   _ins = d;  // 供供应商下钻本地计算
-  // C组：实际数据(real)未登录时显示登录门，其他卡片隐藏
+  // C组：实际数据(real)未登录时显示登录门；已登录但 AI 仍在计算时显示加载态
   const _board=document.querySelector('.board');
   if(d.requires_login){
+    // 已有令牌说明用户已登录，API 仍返回 requires_login 说明 AI 正在计算（或租户初始化中）→ 显示加载态而非登录门
+    if(authToken()){
+      if(_board){ _board.classList.remove('gated'); }
+      const _lgm=document.getElementById('loginGateMsg');
+      if(_lgm){ _lgm.textContent='AI 正在计算洞察结果，请稍候…'; }
+      status.textContent='计算中…'; status.classList.add('loading');
+      // 显示加载卡片而非登录门
+      const _gate=document.getElementById('loginGate');
+      if(_gate){ _gate.style.display='none'; }
+      // 显示一个全宽加载提示
+      let _load=document.getElementById('computingHint');
+      if(!_load){
+        _load=document.createElement('div'); _load.id='computingHint';
+        _load.className='card';
+        _load.innerHTML='<div style="text-align:center;padding:40px 20px"><div class="analyzing" style="display:inline-flex;justify-content:center;margin-bottom:14px"><span class="spin"></span><span>AI 正在计算洞察结果</span></div><p class="desc" style="margin:0">首次切换到实际数据需要运行 AI 聚类分析，通常需要 10–30 秒。</p></div>';
+        _load.style.display='';
+        const _b=document.querySelector('.board');
+        if(_b) _b.insertBefore(_load, _b.firstChild);
+      } else { _load.style.display=''; }
+      return;
+    }
+    // 未登录 → 显示登录门
     if(_board) _board.classList.add('gated');
     const _lgm=document.getElementById('loginGateMsg');
     if(_lgm) _lgm.textContent=d.message||'请登录后查看实际数据';
     status.textContent='请登录'; status.classList.remove('loading');
+    // 隐藏加载提示
+    const _load=document.getElementById('computingHint');
+    if(_load) _load.style.display='none';
     return;
   }
+  // 隐藏加载提示（正常返回数据时）
+  const _load=document.getElementById('computingHint');
+  if(_load) _load.style.display='none';
   if(_board) _board.classList.remove('gated');
   // 实际数据为空时给出引导（演示数据默认有种子，不会空）
   const emptyHint=$('#scopeTag');
@@ -1259,9 +1330,11 @@ async function loadInsights(){
     emptyHint.textContent='实际数据为空 · 去「数据录入」添加';
     emptyHint.style.background='var(--warn)';
   }
-  const modeLabel=(d.mode||mode)==='live'?'AI 实算':'演示数据';
-  $('#insModeTag').textContent=modeLabel+(d.error?' (已切回演示)':'');
-  $('#insModeTag').style.background=(d.mode==='live')?'var(--ok)':'var(--warn)';
+  // 模式标签：实际数据源统一显示"AI 实算"（表示该源走 AI 计算链路，无论当前是否已回退 mock）
+  const isRealSource = CURRENT_SOURCE==='real';
+  const modeLabel= isRealSource ? 'AI 实算' : '演示数据';
+  $('#insModeTag').textContent=modeLabel+(d.error&&!isRealSource?' (已切回演示)':'');
+  $('#insModeTag').style.background=isRealSource?'var(--ok)':'var(--warn)';
   $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台')+(reg?' / '+reg:'')+(seas?' / '+seas:'');
 
   // KPI（带动画）
