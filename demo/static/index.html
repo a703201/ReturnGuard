@@ -231,6 +231,15 @@
   body.light .judge-guide .jg-steps .jg-step{color:#0f172a;border-bottom-color:#0369a1}
   body.light .judge-guide .jg-steps .jg-step:hover{color:#0369a1}
   body.light .judge-guide code{background:#fff;border-color:#cbd5e1;color:#b45309}
+  /* 诚实声明：供应商为合成维度 */
+  .judge-guide .jg-note{margin-top:8px;font-size:12px;line-height:1.6;color:var(--txt2);background:var(--bg2);
+    border:1px solid var(--border);border-radius:8px;padding:8px 10px}
+  .judge-guide .jg-note b{color:var(--warn,#f59e0b)}
+  .dash-foot{margin:16px 2px 4px;font-size:12px;line-height:1.75;color:var(--txt2);
+    border-top:1px dashed var(--border);padding-top:10px}
+  .dash-foot b{color:var(--warn,#f59e0b)}
+  body.light .judge-guide .jg-note, body.light .dash-foot{color:#475569}
+  body.light .judge-guide .jg-note b, body.light .dash-foot b{color:#b45309}
   /* 大屏隐藏与下拉重复的冗余 scope pill，顶栏更干净（整合） */
   @media (min-width:641px){ #scopeTag{display:none} }
   .report{padding:4px 2px}
@@ -620,6 +629,7 @@
               <span class="jg-step" data-go="entry"><b>2</b> 切「数据录入」导入真实数据集（xlsx / csv）或手动录入</span>
               <span><b>3</b> 回本看板看数据 +1 与洞察实时更新</span>
             </span>
+            <div class="jg-note">⚠️ 诚实说明：看板中的 <b>平台（Amazon / UCI-Retail / TheLook）、退货原因、品类、胜诉分布</b> 均来自公开真实数据集；<b>供应商代号 S1–S8 及名称是演示合成维度</b>（按退货缺陷信号反推品控），不代表真实工商主体。接入真实 ERP / 供货记录后即可替换为真实供应商。</div>
           </div>
           <button id="jgClose" type="button" aria-label="关闭指引" title="关闭">×</button>
         </div>
@@ -760,10 +770,9 @@
               <button id="loginGateBtn" type="button" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
             </div>
           </div>
+          <div class="dash-foot">※ 数据来源声明：本看板的「平台 / 退货原因 / 品类 / 胜诉分布」源自 Amazon、UCI Online Retail、TheLook 三份公开电商数据集（<b>真实</b>）；「供应商代号 S1–S8 及名称」为 <b>演示合成维度</b>，仅用于演示"退货信号 → 品控归因"闭环，非真实供应商。真实供货记录接入后可一键替换。ReturnGuard V1.0</div>
         </div>
       </section>
-
-      <!-- 标签页 2：平台举证包（交付物 A，整页滚动） -->
       <section id="tab-plat" class="tabpane">
         <div class="scrollpane">
           <div class="card" style="margin-bottom:12px">
