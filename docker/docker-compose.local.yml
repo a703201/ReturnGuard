@@ -41,11 +41,14 @@ services:
       ANALYZE_API_KEY: ""
       ANALYZE_RATE_LIMIT: "60"
       # 安全加固默认值（演示态宽松，生产收紧）
-      REGISTRATION_ENABLED: "true"
+      # 公网体验地址关闭开放注册，评委用内置 demo/demo123；需要自注册时改 true 并建议配 REGISTRATION_INVITE_CODE
+      REGISTRATION_ENABLED: "false"
       AUTH_REGISTER_LIMIT: "10"
       AUTH_LOGIN_IP_LIMIT: "30"
       LOGIN_MAX_FAILS: "5"
       LOGIN_LOCK_MIN: "15"
+      # 经 Cloudflare Tunnel / 反代部署时须设 127.0.0.1，否则按 IP 限流/防爆破会坍缩成全局单桶（SEC-3）
+      AUTH_TRUSTED_PROXIES: "127.0.0.1"
     ports:
       - "8000:8000"
     # 开发期绑定挂载源码：改动即时生效，免重建镜像

@@ -1,29 +1,21 @@
-"""pytest 会话级配置：把 DATABASE_URL 指向临时 SQLite，避免污染开发库 cases.db。
-
-必须在导入 main/db 之前设置环境变量（db.py 在 import 期读取 DATABASE_URL），
-因此放在 conftest 顶层（conftest 先于测试模块被导入）。
-"""
-
-import os
-import sys
-import tempfile
+"""共享测试夹具：安全复审后，写接口要求登录会话，提供 demo/demo123 的令牌夹具。"""
 
 import pytest
+from fastapi.testclient import TestClient
 
-# 把 demo/ 加入模块搜索路径，使测试可 import 同目录的 main / pipeline / db
-_DEMO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _DEMO_DIR not in sys.path:
-    sys.path.insert(0, _DEMO_DIR)
-
-_tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-_tmp.close()
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmp.name}"
+from main import app
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _cleanup_db():
-    yield
-    try:
-        os.unlink(_tmp.name)
-    except OSError:
-        pass
+@pytest.fixture(scope="session")
+def demo_token() -> str:
+    """登录内置 demo/demo123，返回有效 Bearer 令牌（写接口鉴权用）。"""
+    with TestClient(app) as c:
+        r = c.post("/api/auth/login", json={"username": "demo", "password": "demo123"})
+        assert r.status_code == 200, "demo 测试账号登录失败"
+        return r.json()["token"]
+
+
+@pytest.fixture
+def auth_headers(demo_token: str) -> dict:
+    """已登录 demo 账户的请求头（Authorization: Bearer）。"""
+    return {"Authorization": f"Bearer {demo_token}"}

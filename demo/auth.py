@@ -15,18 +15,52 @@ import hashlib
 import hmac
 import os
 import re
+import sys
 import threading
 import time
 from datetime import datetime
 
+from dotenv import load_dotenv
 from sqlalchemy import Column, DateTime, Integer, String, create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+
+# 必须在读取 AUTH_SECRET 等环境变量之前加载 demo/.env：本模块被 main.py 最早 import，
+# 早于 models_router / storage 内的 load_dotenv；若不在此显式加载，.env 配置的 AUTH_SECRET
+# 会被静默忽略、回退成每进程随机密钥（SEC-2：重启令牌全失效、多 worker 登录直接坏）。
+# 测试环境跳过：pytest 在启动期注入 sys.modules，用 PYTEST_CURRENT_TEST 判断不可靠
+# （收集期尚未写入），故同时用 sys.modules.get("pytest") 守卫，避免真实密钥泄漏进用例。
+if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
+    load_dotenv()
 
 logger = __import__("logging").getLogger("returnguard.auth")
 
 # ---- 令牌签名密钥：生产必须设 AUTH_SECRET；未设则用进程内随机值（演示态，重启即失效）----
-_SECRET = os.environ.get("AUTH_SECRET", os.urandom(32))
+# 注意：load_dotenv() 已在本文件顶部执行，故 .env 中的 AUTH_SECRET 现在可被正确读取。
+def _resolve_secret(raw: str) -> bytes:
+    """把 AUTH_SECRET 环境值解析为 hmac 所需的 bytes 密钥。
+
+    - 推荐写法：``python -c "import secrets;print(secrets.token_hex(32))"`` 产生的 64 位
+      十六进制串，按字节解码回 32 字节高熵密钥（与文档示例一致）。
+    - 兼容任意高熵字符串：非法十六进制时按 UTF-8 编码。
+    - 空值：回退进程内随机字节（仅演示态，重启令牌即失效）。
+    hmac.new 要求 bytes 密钥，直接传 str 在 Python 3.13+ 会抛 TypeError（此前潜在生产缺陷）。"""
+    raw = (raw or "").strip()
+    if not raw:
+        return os.urandom(32)
+    try:
+        return bytes.fromhex(raw)
+    except ValueError:
+        return raw.encode("utf-8")
+
+
+_SECRET = _resolve_secret(os.environ.get("AUTH_SECRET", ""))
 _TOKEN_TTL = int(os.environ.get("AUTH_TOKEN_TTL", str(3600 * 24 * 7)))  # 默认 7 天
+
+# ---- 口令 KDF 强度（P3）：OWASP 建议 pbkdf2 约 60 万轮；旧默认 10 万轮偏低，已提至 60 万。
+# 历史账户（迁移前）沿用其落库时的轮数校验，登录成功时就地升级到当前轮数（rehash-on-login），
+# 因此对存量库无破坏、且自动渐进加固。_LEGACY_PBKDF2_ITERS 仅用于 ALTER 补列默认值与回退。
+CURRENT_PBKDF2_ITERS = 600_000
+_LEGACY_PBKDF2_ITERS = 100_000
 
 # ---- 用户库引擎（与案件库解耦，可独立指向 openGauss）----
 # 懒初始化：首用创建，便于测试用 AUTH_DATABASE_URL 注入独立内存/临时库（与 db.get_engine 同思路）
@@ -51,6 +85,7 @@ class User(AuthBase):
     username = Column(String(64), unique=True, index=True, nullable=False)
     pw_hash = Column(String(128), nullable=False)
     pw_salt = Column(String(64), nullable=False)
+    pw_iters = Column(Integer, default=CURRENT_PBKDF2_ITERS, nullable=False)  # 落库时的 KDF 轮数（rehash-on-login 渐进升级）
     tenant_name = Column(String(128), default="")  # 展示用企业/店铺名
     created_at = Column(DateTime, default=datetime.utcnow)
     token_version = Column(Integer, default=0, nullable=False)  # 令牌吊销/登出：自增即令旧 token 失效
@@ -71,14 +106,18 @@ def get_auth_engine():
 
 def init_auth_db() -> None:
     AuthBase.metadata.create_all(get_auth_engine())
-    # 非破坏迁移：旧库缺 token_version 列时补列（保留现有账号，含演示账号）
-    try:
-        with _auth_engine.begin() as conn:
-            conn.execute(
-                text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
-            )
-    except Exception:  # noqa: BLE001
-        pass  # 列已存在 / 方言不支持（如某些 openGauss 变体），忽略
+    # 非破坏迁移：旧库缺列时补列（保留现有账号，含演示账号）。
+    # token_version 默认 0；pw_iters 默认沿用旧轮数 _LEGACY_PBKDF2_ITERS（注意：不可写成
+    # CURRENT_PBKDF2_ITERS，否则存量账号会用「新轮数 + 旧哈希」校验失败、登录直接坏）。
+    for col, ddl in (
+        ("token_version", "INTEGER NOT NULL DEFAULT 0"),
+        ("pw_iters", f"INTEGER NOT NULL DEFAULT {_LEGACY_PBKDF2_ITERS}"),
+    ):
+        try:
+            with _auth_engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
+        except Exception:  # noqa: BLE001
+            pass  # 列已存在 / 方言不支持（如某些 openGauss 变体），忽略
 
 
 def _auth_session():
@@ -86,8 +125,8 @@ def _auth_session():
     return sessionmaker(bind=get_auth_engine(), expire_on_commit=False)()
 
 
-def _hash_password(pw: str, salt: bytes) -> str:
-    return hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, 100_000).hex()
+def _hash_password(pw: str, salt: bytes, iters: int = CURRENT_PBKDF2_ITERS) -> str:
+    return hashlib.pbkdf2_hmac("sha256", pw.encode("utf-8"), salt, iters).hex()
 
 
 def register(username: str, password: str, tenant_name: str = "") -> tuple[bool, str]:
@@ -104,6 +143,7 @@ def register(username: str, password: str, tenant_name: str = "") -> tuple[bool,
             username=username,
             pw_salt=salt.hex(),
             pw_hash=_hash_password(password, salt),
+            pw_iters=CURRENT_PBKDF2_ITERS,
             tenant_name=tenant_name or username,
         )
         s.add(u)
@@ -113,14 +153,39 @@ def register(username: str, password: str, tenant_name: str = "") -> tuple[bool,
 
 
 def authenticate(username: str, password: str) -> str | None:
-    """校验凭证，成功返回令牌，失败返回 None。"""
+    """校验凭证，成功返回令牌，失败返回 None。
+
+    安全加固（P3）：
+    - 时序侧信道消除：用户名不存在时也执行一次等代价 pbkdf2，避免「用户枚举」时序差异。
+    - 轮数兼容：用该账户落库时的 pw_iters 校验（存量账户可能低于当前值）。
+    - rehash-on-login：校验通过但轮数低于当前值时，成功登录后就地升级到 CURRENT_PBKDF2_ITERS，
+      渐进加固所有存量账户，无需一次性迁移。
+    """
     with _auth_session() as s:
         u = s.query(User).filter_by(username=username).first()
-        if not u:
-            return None
-        salt = bytes.fromhex(u.pw_salt)
-        if not hmac.compare_digest(u.pw_hash, _hash_password(password, salt)):
-            return None
+    if u is None:
+        # 时序均衡：不存在的用户也跑一次满代价哈希，使「用户不存在」与「密码错」耗时不可区分
+        _hash_password(password or "x", os.urandom(16))
+        return None
+    iters = getattr(u, "pw_iters", None) or _LEGACY_PBKDF2_ITERS
+    salt = bytes.fromhex(u.pw_salt)
+    if not hmac.compare_digest(u.pw_hash, _hash_password(password, salt, iters)):
+        return None
+    # 登录成功：若历史轮数偏低，就地升级哈希到当前强度（不影响本次登录）
+    if iters < CURRENT_PBKDF2_ITERS:
+        try:
+            ns = os.urandom(16)
+            new_hash = _hash_password(password, ns)
+            with _auth_session() as s:
+                row = s.query(User).filter_by(username=username).first()
+                if row is not None:
+                    row.pw_salt = ns.hex()
+                    row.pw_hash = new_hash
+                    row.pw_iters = CURRENT_PBKDF2_ITERS
+                    s.commit()
+            logger.info("账户口令哈希已升级到 %d 轮：%s", CURRENT_PBKDF2_ITERS, username)
+        except Exception:  # noqa: BLE001
+            logger.warning("口令哈希升级失败（不影响本次登录）", exc_info=True)
     return issue_token(username)
 
 

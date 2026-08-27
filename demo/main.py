@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import ipaddress
+import hmac
 import logging
 import os
 import re
@@ -195,11 +196,18 @@ def _ip_in_set(ip: str, nets: list[str]) -> bool:
 
 
 def get_client_ip(request: Request) -> str:
-    """代理感知客户端 IP：仅当直连客户端属于可信代理时才采纳 X-Forwarded-For / X-Real-IP。
+    """代理感知客户端 IP：仅当直连客户端属于可信代理时才采纳转发头。
 
-    未配置 AUTH_TRUSTED_PROXIES 时一律使用直连 IP，避免伪造转发头绕过限流。"""
+    - Cloudflare Tunnel 等反向代理优先采用其下发的 CF-Connecting-IP（最权威的真实客户端 IP）；
+    - 其次 X-Forwarded-For 首段 / X-Real-IP。
+    未配置 AUTH_TRUSTED_PROXIES 时一律使用直连 IP，避免伪造转发头绕过限流（SEC-3）。
+    部署在 Cloudflare Tunnel 后，直连 IP 恒为 127.0.0.1，须把 AUTH_TRUSTED_PROXIES 设为
+    127.0.0.1 才能正确还原真实访客 IP（否则按 IP 限流/防爆破会坍缩成全局单桶）。"""
     direct = request.client.host if request.client else "unknown"
     if _AUTH_TRUSTED_PROXIES and _ip_in_set(direct, _AUTH_TRUSTED_PROXIES):
+        cf = request.headers.get("CF-Connecting-IP", "").strip()
+        if cf:
+            return cf
         xff = request.headers.get("X-Forwarded-For", "").strip()
         if xff:
             return xff.split(",")[0].strip()
@@ -216,13 +224,16 @@ def _resolve_source(request: Request) -> str:
 
 
 def _resolve_tenant(request: Request) -> str | None:
-    """从 Authorization: Bearer / X-Token 头或 ?token= 解析当前租户（=用户名）。
-    无令牌（匿名）返回 None → 数据归 public 租户；demo 源忽略租户（共享演示库）。"""
+    """从 Authorization: Bearer / X-Token 头解析当前租户（=用户名）。
+
+    仅信任请求头（Bearer / X-Token），不再接受 ?token= 查询参数（P2：避免令牌经
+    URL/Referer/代理日志泄露）。无令牌（匿名）返回 None → 数据归 public 租户；
+    demo 源忽略租户（共享演示库）。"""
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         token = auth_header[len("Bearer ") :].strip()
     else:
-        token = request.headers.get("X-Token") or request.query_params.get("token")
+        token = request.headers.get("X-Token", "")
     return auth.verify_token(token)
 
 
@@ -230,12 +241,47 @@ def _require_api_key(request: Request) -> None:
     """写接口可选鉴权：设置 ANALYZE_API_KEY 后，所有写接口
     （/api/analyze、POST /api/cases、DELETE /api/cases/{id}）须携带
     `X-API-Key` 请求头或 `?key=` 查询参数；未设置密钥时退化为免鉴权（演示态）。
-    统一收口，避免各写接口重复散落鉴权逻辑。"""
+    统一收口，避免各写接口重复散落鉴权逻辑。密钥比较使用常量时间，避免时序侧信道（P3）。"""
     if not _API_KEY:
         return
     provided = request.headers.get("X-API-Key", "") or request.query_params.get("key", "")
-    if provided != _API_KEY:
+    # 常量时间比较：即便 provided 为空（未带 Key）也不会因长度差异泄露信息
+    if not hmac.compare_digest(provided, _API_KEY):
         raise HTTPException(status_code=401, detail="需要有效的 API Key")
+
+
+def _require_session(request: Request) -> str:
+    """写接口会话鉴权（SEC-1）：要求已登录（持有有效令牌），返回 tenant(=username)。
+
+    公网部署下所有数据写入（取证沉淀 / 案件录入 / CSV 导入）必须登录，
+    避免匿名写入、数据污染与资源滥用。匿名请求返回 401 并提示登录。"""
+    username = _resolve_tenant(request)
+    if not username:
+        raise HTTPException(status_code=401, detail="请先登录后再操作")
+    return username
+
+
+# 管理动作密钥（独立变量，与 ANALYZE_API_KEY 解耦）：用于 /api/calibrate 等管理动作。
+# 设了 ADMIN_API_KEY 则必须携带 X-Admin-Key 头或 admin_key 查询参数；未设则退化为要求登录，
+# 确保匿名仍无法执行管理动作。
+_ADMIN_KEY = os.environ.get("ADMIN_API_KEY", "")
+
+
+def _require_admin(request: Request) -> None:
+    """管理动作鉴权（SEC-1）：阈值自标定 /api/calibrate 等会改写全局判定逻辑的动作。
+
+    - 配置了 ADMIN_API_KEY：必须携带匹配的管理密钥（常量时间比较）；
+    - 未配置：退化为要求登录会话，至少杜绝匿名篡改。
+    该接口此前演示态默认可调，任何人可覆写胜诉率判定阈值，属高危写面，必须收口。"""
+    if _ADMIN_KEY:
+        provided = request.headers.get("X-Admin-Key", "") or request.query_params.get(
+            "admin_key", ""
+        )
+        if not hmac.compare_digest(provided, _ADMIN_KEY):
+            raise HTTPException(status_code=401, detail="需要有效的管理员密钥")
+        return
+    if not _resolve_tenant(request):
+        raise HTTPException(status_code=401, detail="请先登录后再操作")
 
 
 @asynccontextmanager
@@ -379,8 +425,8 @@ async def analyze(
     source(=demo|real)：取证结果沉淀到对应数据库（默认 demo）。
     """
     source = _resolve_source(request)
-    # P2-8 演示态可选鉴权：写接口统一校验（设置 ANALYZE_API_KEY 后必须携带）
-    _require_api_key(request)
+    # SEC-1 写接口会话鉴权：取证沉淀必须登录，避免匿名写入与资源滥用
+    _require_session(request)
     # P2-8 限流：按客户端 IP 固定窗口
     client_ip = get_client_ip(request)
     if not _check_rate_limit(client_ip):
@@ -499,8 +545,12 @@ def api_config():
 
 
 @app.get("/metrics")
-def metrics():
-    """P2-9：基础运行指标（请求量 / 平均耗时 / 错误数 / 取证·洞察调用量）。"""
+def metrics(request: Request):
+    """P2-9：基础运行指标（请求量 / 平均耗时 / 错误数 / 取证·洞察调用量）。
+
+    管理端点：需管理员密钥（ADMIN_API_KEY）或登录会话（_require_admin），
+    避免匿名暴露内部运行指标（P2 信息泄露面收敛）。"""
+    _require_admin(request)
     uptime = int(time.time()) - int(_metrics["start_time"])
     avg = (_metrics["latency_ms_sum"] / _metrics["requests"]) if _metrics["requests"] else 0
     return {
@@ -679,7 +729,7 @@ def add_case(c: ManualCase, request: Request):
     写接口：设置 ANALYZE_API_KEY 后需携带 API Key（_require_api_key）。
     """
     source = _resolve_source(request)
-    _require_api_key(request)
+    _require_session(request)
     tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
     data = c.model_dump()
     data["case_id"] = "RG-" + uuid.uuid4().hex[:8].upper()
@@ -699,7 +749,7 @@ def delete_case_api(case_id: str, request: Request):
     """删除指定 source 下的一条案件（实际数据管理用）。写接口：需 API Key（_require_api_key）。
     real 源仅能删除当前租户（或 public 匿名）的案件，跨租户不可见不可删。"""
     source = _resolve_source(request)
-    _require_api_key(request)
+    _require_session(request)
     tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
     n = delete_case(source, case_id, tenant_id=tenant_id)
     return {"ok": True, "source": source, "deleted": n}
@@ -821,8 +871,8 @@ def calibrate_get():
 def calibrate_post(req: CalibrateRequest, request: Request):
     """用历史「真同款 / 真调包」样本标定 SAME_ITEM_THRESHOLD（Youden J 最优分离点），并落盘。
     样本不足（缺任一类）返回默认经验值，不覆盖既有标定（避免无意义回写）。
-    管理动作：设了 ANALYZE_API_KEY 则需携带，演示态默认可调。"""
-    _require_api_key(request)
+    管理动作：需管理员密钥（ADMIN_API_KEY）或登录会话（_require_admin），演示态/公网均不可匿名篡改。"""
+    _require_admin(request)
     t = suggest_threshold(req.same_sims, req.diff_sims)
     if not req.same_sims or not req.diff_sims:
         return {
@@ -854,9 +904,9 @@ async def import_csv(
 
     两种入参（二选一）：上传 csv_file，或直接贴 csv_text。字段映射见 importer._COL_MAP
     （sku/品类/供应商/平台/地区/金额/日期/相似度/结果/缺陷 等，大小写与中文列名不敏感）。
-    写接口：设置 ANALYZE_API_KEY 后需携带 API Key。返回 {imported, skipped, errors}。
+    写接口：需登录会话（_require_session）。返回 {imported, skipped, errors}。
     """
-    _require_api_key(request)
+    _require_session(request)
     source = _resolve_source(request)
     text = ""
     if csv_file is not None and csv_file.filename:

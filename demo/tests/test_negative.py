@@ -42,13 +42,13 @@ def test_blank_category_rejected():
         assert c.get("/api/insights", params={"mode": "mock", "category": "   "}).status_code == 400
 
 
-def test_analyze_bad_file_type_rejected():
+def test_analyze_bad_file_type_rejected(auth_headers):
     with TestClient(app) as c:
         files = {
             "returned_image": ("ret.txt", b"not an image", "text/plain"),
             "product_image": ("prod.png", _png(), "image/png"),
         }
-        r = c.post("/api/analyze", files=files, data={"mode": "mock"})
+        r = c.post("/api/analyze", files=files, data={"mode": "mock"}, headers=auth_headers)
         assert r.status_code == 400
 
 
@@ -63,16 +63,16 @@ def test_import_csv_missing_sku_skipped():
     assert any("缺 sku" in e for e in res["errors"])
 
 
-def test_import_csv_empty_rejected():
+def test_import_csv_empty_rejected(auth_headers):
     with TestClient(app) as c:
-        r = c.post("/api/import_csv", data={"csv_text": "   "})
+        r = c.post("/api/import_csv", data={"csv_text": "   "}, headers=auth_headers)
         assert r.status_code == 400
 
 
 # ---------------- 一致性：相同输入 → 相同输出（mock 确定性） ----------------
 
 
-def test_mock_analyze_deterministic():
+def test_mock_analyze_deterministic(auth_headers):
     """同一对图片 + 同一 SKU，两次 mock 取证应得到完全相同的相似度与缺陷标签（确定性、可复现）。"""
     with TestClient(app) as c:
         files = {
@@ -80,8 +80,8 @@ def test_mock_analyze_deterministic():
             "product_image": ("prod.png", _png(), "image/png"),
         }
         data = {"sku": "SKU-DET", "amount": "120", "mode": "mock"}
-        r1 = c.post("/api/analyze", files=dict(files), data=data).json()
-        r2 = c.post("/api/analyze", files=dict(files), data=data).json()
+        r1 = c.post("/api/analyze", files=dict(files), data=data, headers=auth_headers).json()
+        r2 = c.post("/api/analyze", files=dict(files), data=data, headers=auth_headers).json()
         assert r1["similarity"] == r2["similarity"]
         assert r1["defect_tags"] == r2["defect_tags"]
         assert r1["same_item"] == r2["same_item"]
@@ -108,7 +108,7 @@ def test_security_headers_present():
         assert h.get("Referrer-Policy") == "no-referrer"
 
 
-def test_xss_payload_stored_not_executed():
+def test_xss_payload_stored_not_executed(auth_headers):
     """恶意 SKU（含 <script>）可被正常录入（后端 JSON 安全转义，无注入执行）；
     前端已用 esc() 转义渲染；此处验证接口不崩且原样（安全）存返。"""
     with TestClient(app) as c:
@@ -116,6 +116,7 @@ def test_xss_payload_stored_not_executed():
         r = c.post(
             "/api/cases",
             json={"sku": payload, "category": "3C数码", "supplier": "S3"},
+            headers=auth_headers,
         )
         assert r.status_code == 200
         # 取回列表，确认后端未做危险处理（JSON 本身是安全载体）
@@ -126,19 +127,23 @@ def test_xss_payload_stored_not_executed():
 # ---------------- 鉴权：写接口在设 Key 后必须校验 ----------------
 
 
-def test_write_requires_api_key_when_set(monkeypatch):
-    monkeypatch.setattr("main._API_KEY", "secret-key")
+def test_calibrate_requires_admin_key(monkeypatch):
+    """安全复审 SEC-1：/api/calibrate 这类会改写全局判定阈值的管理动作，必须管理员密钥。
+
+    设了 ADMIN_API_KEY 后，匿名（无密钥）→ 401；带 X-Admin-Key → 通过（样本不足则不落盘）。
+    避免任何人匿名覆写胜诉率判定逻辑。"""
+    monkeypatch.setattr(main, "_ADMIN_KEY", "admin-secret")
     with TestClient(app) as c:
-        # 无 Key → 401
-        r1 = c.post("/api/cases", json={"sku": "SKU-AUTH", "category": "饰品配件"})
+        # 匿名（无 ADMIN_KEY）→ 401
+        r1 = c.post("/api/calibrate", json={"same_sims": [0.9], "diff_sims": [0.2]})
         assert r1.status_code == 401
-        # 带 Key → 通过
+        # 带 ADMIN_KEY → 通过（样本不足 → saved=False，不落盘、不污染既有标定）
         r2 = c.post(
-            "/api/cases",
-            json={"sku": "SKU-AUTH2", "category": "饰品配件"},
-            headers={"X-API-Key": "secret-key"},
+            "/api/calibrate",
+            json={"same_sims": [], "diff_sims": []},
+            headers={"X-Admin-Key": "admin-secret"},
         )
-        assert r2.status_code == 200
+        assert r2.status_code == 200 and r2.json()["saved"] is False
 
 
 # ---------------- 防御纵深：代理感知 IP / 去枚举 ----------------

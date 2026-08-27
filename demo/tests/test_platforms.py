@@ -1,5 +1,6 @@
 """平台适配举证包单测：规则引擎 + /api/platforms + analyze 关联 + insights 维度筛选。"""
 
+import pytest
 from fastapi.testclient import TestClient
 from main import app
 from platforms import CAPABILITY_KEYS, PLATFORM_KEYS, get_platform_spec, list_platforms
@@ -45,7 +46,7 @@ def test_api_platforms_endpoint():
         assert all("key" in p for p in ps), "每个平台规格都应带稳定 key 字段"
 
 
-def test_analyze_attaches_platform_evidence():
+def test_analyze_attaches_platform_evidence(auth_headers):
     with TestClient(app) as c:
         files = {
             "returned_image": ("ret.png", b"\x89PNG\r\n\x1a\n x", "image/png"),
@@ -55,6 +56,7 @@ def test_analyze_attaches_platform_evidence():
             "/api/analyze",
             files=files,
             data={"sku": "SKU-PT", "amount": "120", "platform": "Amazon", "mode": "mock"},
+            headers=auth_headers,
         )
         assert r.status_code == 200
         d = r.json()
@@ -62,7 +64,7 @@ def test_analyze_attaches_platform_evidence():
         assert d["platform_evidence"], "应随单返回该平台必备举证材料清单"
 
 
-def test_analyze_invalid_platform_400():
+def test_analyze_invalid_platform_400(auth_headers):
     with TestClient(app) as c:
         files = {
             "returned_image": ("ret.png", b"\x89PNG\r\n\x1a\n x", "image/png"),
@@ -72,6 +74,7 @@ def test_analyze_invalid_platform_400():
             "/api/analyze",
             files=files,
             data={"sku": "SKU-PT", "platform": "不存在的平台", "mode": "mock"},
+            headers=auth_headers,
         )
         assert r.status_code == 400
 
