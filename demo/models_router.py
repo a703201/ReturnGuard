@@ -1,6 +1,7 @@
-"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼 Token Plan 专属网关调用）
+"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼网关调用，支持 Token Plan 测试网关 / 赛事指定 Model Router 双 profile 一键切换）
 
 本文件把「方案文档」里规划的模型能力封装成可调用函数，供 pipeline 在 live 模式下调取。
+切换网关只需改 MODEL_ROUTER_PROFILE（tokenplan / official），详见下方「双 profile」配置块。
 当前网关（Token Plan，OpenAI 兼容协议）开通能力以「文本推理 / 图像生成 / TTS 语音」为主：
 
     能力                  模型（新网关命名，无 qwen/ 前缀）          本文件函数
@@ -51,7 +52,7 @@ from prompts import (
 
 logger = logging.getLogger("returnguard.models_router")
 
-# ---- 阿里云百炼 Token Plan 专属网关（OpenAI 兼容协议）----
+# ---- 阿里云百炼网关（双 profile 一键切换，OpenAI 兼容协议）----
 # 密钥 / 基地址优先从 demo/.env 读取（.env 不入 git，见根与 demo 两层 .gitignore），
 # 也支持外部环境变量覆盖（如 docker compose 注入）。
 # 读取 demo/.env（本地敏感配置：API Key、网关地址等）。
@@ -62,15 +63,39 @@ logger = logging.getLogger("returnguard.models_router")
 if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
     load_dotenv()
 
-API_BASE = os.environ.get(
-    "MODEL_ROUTER_BASE_URL",
-    "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-).rstrip("/")
-API_KEY = os.environ.get("MODEL_ROUTER_API_KEY", "")
+# 双 profile：tokenplan=本地测试（Token Plan 专属网关）/ official=赛事指定「阿里云百炼 Model Router」。
+# 切换只需改 MODEL_ROUTER_PROFILE 一个变量，避免 base_url 与 key 错配；各 profile 的
+# base_url 有默认值，仅 official 的 key（MODEL_ROUTER_OFFICIAL_KEY=组委会发放）需单独配置。
+_MODEL_ROUTER_PROFILES = {
+    "tokenplan": {
+        "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        "key_env": "MODEL_ROUTER_API_KEY",
+    },
+    "official": {
+        "base_url": "https://model-router.edu-aliyun.com/v1",
+        "key_env": "MODEL_ROUTER_OFFICIAL_KEY",
+    },
+}
+MODEL_ROUTER_PROFILE = os.environ.get("MODEL_ROUTER_PROFILE", "tokenplan")
+_PROFILE = _MODEL_ROUTER_PROFILES.get(MODEL_ROUTER_PROFILE, _MODEL_ROUTER_PROFILES["tokenplan"])
+# base_url 解析规则（避免 tokenplan 的 .env 默认值把 official 端点错配成 Token Plan 地址）：
+#   - tokenplan profile：允许用 MODEL_ROUTER_BASE_URL 覆盖（本地反向代理 / 自定义地址）；否则取 Token Plan 专属默认。
+#   - official profile：固定用赛事指定端点；如需覆盖用 MODEL_ROUTER_OFFICIAL_BASE_URL（一般不改）。
+#     ⚠️ 不读 MODEL_ROUTER_BASE_URL，避免切换 profile 时 base_url 与 key 错配（用 Token Plan 地址 + 组委会 Key）。
+if MODEL_ROUTER_PROFILE == "official":
+    API_BASE = os.environ.get("MODEL_ROUTER_OFFICIAL_BASE_URL", _PROFILE["base_url"]).rstrip("/")
+else:
+    API_BASE = os.environ.get("MODEL_ROUTER_BASE_URL", _PROFILE["base_url"]).rstrip("/")
+API_KEY = os.environ.get(_PROFILE["key_env"], "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
 # 默认文本推理模型：可用 MODEL_ROUTER_TEXT_MODEL 覆盖（demo/.env 配置）。
 # 演示/速度优先时可切 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等（对比结论见 compare_models.py）。
 TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", "qwen3.7-max")
+
+logger.info(
+    "模型网关已加载 profile=%s endpoint=%s key_set=%s",
+    MODEL_ROUTER_PROFILE, API_BASE, bool(API_KEY),
+)
 
 
 def _headers():
@@ -378,7 +403,7 @@ def live_analyze(
     缺省时按 PUBLIC_IMAGE_BASE + 文件名拼装（保持旧行为）。
     """
     if not API_KEY:
-        raise RuntimeError("未配置 MODEL_ROUTER_API_KEY")
+        raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
     ret_url = returned_url or (
         f"{PUBLIC_IMAGE_BASE}/{os.path.basename(returned_path)}" if PUBLIC_IMAGE_BASE else None
     )
@@ -479,7 +504,7 @@ def build_insights_live(aggregated: dict) -> dict:
     注意：本函数只负责「推理」，所有数值统计由 pipeline 算好再喂进来，保证可溯源。
     """
     if not API_KEY:
-        raise RuntimeError("未配置 MODEL_ROUTER_API_KEY")
+        raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
     prompt = build_insights_prompt(aggregated)
     out = llm_json(prompt, model=TEXT_MODEL)
     if not out:
