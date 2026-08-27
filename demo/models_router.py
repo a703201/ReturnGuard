@@ -2,20 +2,19 @@
 
 本文件把「方案文档」里规划的模型能力封装成可调用函数，供 pipeline 在 live 模式下调取。
 切换网关只需改 MODEL_ROUTER_PROFILE（tokenplan / official），详见下方「双 profile」配置块。
-当前网关（Token Plan，OpenAI 兼容协议）开通能力以「文本推理 / 图像生成 / TTS 语音」为主：
+各能力的模型标识随 profile 固化在 _MODEL_ROUTER_PROFILES[...]["models"]，统一由 MODELS[...] 下发。
 
-    能力                  模型（新网关命名，无 qwen/ 前缀）          本文件函数
-    ──────────────────  ──────────────────────────────────────    ──────────────
-    ④ 文本生成 / 聚类归因  qwen3.7-max（也可 qwen3.6-flash 等）       llm / llm_json / build_insights_live
-    ⑥ 母语语音陈述        qwen-audio-3.0-tts-plus                   tts
+    profile      能力(④文本/⑥TTS)            其余(①向量/②VL/③OCR/⑤rerank)
+    ──────────  ──────────────────────────  ──────────────────────────────────
+    tokenplan    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen/qwen3-vl-plus 等
+    official     qwen/qwen3.7-max / qwen/qwen3-tts-instruct-flash   qwen/qwen3-vl-plus 等
 
-以下能力当前网关的「团队版模型列表」未开通（保持原模型名占位，调用会报错并由
-pipeline 自动回退 mock，保证演示不中断）：
-    ① 同款一致性比对（图像向量）    tongyi-embedding-vision-plus → embed_image + cosine
-    ② 瑕疵视觉识别（多模态理解）    qwen3-vl-plus               → vl_chat
-    ③ listing 承诺提取（OCR）       qwen-vl-ocr                 → ocr
-    ⑤ 案件优先级排序（重排）        qwen3-rerank                → rerank
-若网关后续开通视觉/向量能力，只需把对应函数里的 model 改成网关下发的模型名即可。
+⚠️ 两个网关「模型命名」不同：Token Plan 文本/TTS 为无 qwen/ 前缀旧名；赛事指定 Model Router
+（model-router.edu-aliyun.com）全部模型必须带 qwen/ 前缀（见 ModelRouter_API.docx）。切换 profile
+时 base_url + key + 模型标识三者一并切换，避免 404/模型不存在。
+
+Token Plan 当前开通以「文本推理 / TTS 语音」为主；视觉/向量/rerank 在团队版模型列表未开通，
+调用会报错并由 pipeline 自动回退 mock（保持原模型名占位），保证演示不中断——网关渐进开通即生效。
 
 运行前提（live 模式必须）：
     - demo/.env 或环境变量 MODEL_ROUTER_API_KEY：Token Plan 专属 API Key
@@ -66,18 +65,44 @@ if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ
 # 双 profile：tokenplan=本地测试（Token Plan 专属网关）/ official=赛事指定「阿里云百炼 Model Router」。
 # 切换只需改 MODEL_ROUTER_PROFILE 一个变量，避免 base_url 与 key 错配；各 profile 的
 # base_url 有默认值，仅 official 的 key（MODEL_ROUTER_OFFICIAL_KEY=组委会发放）需单独配置。
+#
+# ⚠️ 关键差异：两个网关的「模型标识命名」不同！
+#   - Token Plan 网关：文本/TTS 用「无 qwen/ 前缀」旧命名（qwen3.7-max / qwen-audio-3.0-tts-plus），
+#     视觉/OCR/向量沿用 qwen/ 前缀。
+#   - 赛事指定 Model Router（model-router.edu-aliyun.com）：全部模型「必须带 qwen/ 前缀」
+#     （如 qwen/qwen3.7-max、qwen/qwen3-tts-instruct-flash、qwen/qwen3-rerank）。
+#   因此 base_url 切换的同时，模型标识也必须随 profile 切换，否则会 404/模型不存在。
+#   下方 models 字典把每个能力的模型标识按 profile 固化，统一由 MODELS[...] 下发，杜绝错配。
 _MODEL_ROUTER_PROFILES = {
     "tokenplan": {
         "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
         "key_env": "MODEL_ROUTER_API_KEY",
+        "models": {
+            "text": "qwen3.7-max",
+            "tts": "qwen-audio-3.0-tts-plus",
+            "vl": "qwen/qwen3-vl-plus",
+            "ocr": "qwen/qwen-vl-ocr",
+            "embed": "qwen/tongyi-embedding-vision-plus",
+            "rerank": "qwen3-rerank",
+        },
     },
     "official": {
         "base_url": "https://model-router.edu-aliyun.com/v1",
         "key_env": "MODEL_ROUTER_OFFICIAL_KEY",
+        "models": {
+            "text": "qwen/qwen3.7-max",
+            "tts": "qwen/qwen3-tts-instruct-flash",
+            "vl": "qwen/qwen3-vl-plus",
+            "ocr": "qwen/qwen-vl-ocr",
+            "embed": "qwen/tongyi-embedding-vision-plus",
+            "rerank": "qwen/qwen3-rerank",
+        },
     },
 }
 MODEL_ROUTER_PROFILE = os.environ.get("MODEL_ROUTER_PROFILE", "tokenplan")
 _PROFILE = _MODEL_ROUTER_PROFILES.get(MODEL_ROUTER_PROFILE, _MODEL_ROUTER_PROFILES["tokenplan"])
+# 当前 profile 的模型标识字典（随 profile 切换，杜绝 base_url/base_key/模型名错配）。
+MODELS = _PROFILE["models"]
 # base_url 解析规则（避免 tokenplan 的 .env 默认值把 official 端点错配成 Token Plan 地址）：
 #   - tokenplan profile：允许用 MODEL_ROUTER_BASE_URL 覆盖（本地反向代理 / 自定义地址）；否则取 Token Plan 专属默认。
 #   - official profile：固定用赛事指定端点；如需覆盖用 MODEL_ROUTER_OFFICIAL_BASE_URL（一般不改）。
@@ -88,9 +113,14 @@ else:
     API_BASE = os.environ.get("MODEL_ROUTER_BASE_URL", _PROFILE["base_url"]).rstrip("/")
 API_KEY = os.environ.get(_PROFILE["key_env"], "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
-# 默认文本推理模型：可用 MODEL_ROUTER_TEXT_MODEL 覆盖（demo/.env 配置）。
-# 演示/速度优先时可切 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等（对比结论见 compare_models.py）。
-TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", "qwen3.7-max")
+# 默认文本推理模型：随 profile 取对应命名（official=qwen/qwen3.7-max，tokenplan=qwen3.7-max）；
+# 可用 MODEL_ROUTER_TEXT_MODEL 覆盖（演示求快可切 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等，
+# 但 official profile 下覆盖值也必须带 qwen/ 前缀才生效，对比结论见 compare_models.py）。
+TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", MODELS["text"])
+# 赛事指定 Model Router 的全部模型必须带 qwen/ 前缀；若 .env 遗留 tokenplan 风格的无前缀命名
+# （如 qwen3.7-max），在 official profile 下自动补齐前缀，避免 404/模型不存在，保证一键切换可用。
+if MODEL_ROUTER_PROFILE == "official" and not TEXT_MODEL.startswith("qwen/"):
+    TEXT_MODEL = f"qwen/{TEXT_MODEL}"
 
 logger.info(
     "模型网关已加载 profile=%s endpoint=%s key_set=%s",
@@ -112,7 +142,7 @@ def embed_image(image_url):
     r = requests.post(
         f"{API_BASE}/embeddings",
         headers=_headers(),
-        json={"model": "qwen/tongyi-embedding-vision-plus", "input": {"image": image_url}},
+        json={"model": MODELS["embed"], "input": {"image": image_url}},
         timeout=60,
     )
     r.raise_for_status()
@@ -139,7 +169,7 @@ def vl_chat(image_url, prompt):
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
-            "model": "qwen/qwen3-vl-plus",
+            "model": MODELS["vl"],
             "messages": [
                 {
                     "role": "user",
@@ -166,7 +196,7 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
-            "model": "qwen/qwen3-vl-plus",
+            "model": MODELS["vl"],
             "messages": [
                 {
                     "role": "user",
@@ -223,7 +253,7 @@ def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
-            "model": "qwen/qwen-vl-ocr",
+            "model": MODELS["ocr"],
             "messages": [
                 {
                     "role": "user",
@@ -304,9 +334,11 @@ def llm_json(prompt, model=TEXT_MODEL):
 
 
 # ===================== ⑤ 案件优先级排序（重排）=====================
-def rerank(query, documents, model="qwen3-rerank"):
+def rerank(query, documents, model=None):
     """调用 qwen3-rerank，按「追回价值」对多笔待处理案件重排，把高金额/高胜算排前。
     注：当前网关未开通重排模型，pipeline 会退化为本地公式计算（见 pipeline.analyze_case）。"""
+    if model is None:
+        model = MODELS["rerank"]
     r = requests.post(
         f"{API_BASE}/rerank",
         headers=_headers(),
@@ -319,12 +351,13 @@ def rerank(query, documents, model="qwen3-rerank"):
 
 # ===================== ⑥ 母语语音陈述（TTS）=====================
 def tts(text, voice="Chelsie"):
-    """调用 qwen-audio-3.0-tts-plus 生成语音（base64 编码的音频）。
-    新网关命名 qwen-audio-3.0-tts-plus（OpenAI 兼容 /audio/speech 路径，若网关路径不同需调整）。"""
+    """调用 TTS 模型生成语音（base64 编码的音频）。
+    profile 自适应：official=qwen/qwen3-tts-instruct-flash（voice 用 Chelsie/Ethan/Serena），
+    tokenplan=qwen-audio-3.0-tts-plus。OpenAI 兼容 /audio/speech 路径。"""
     r = requests.post(
         f"{API_BASE}/audio/speech",
         headers=_headers(),
-        json={"model": "qwen-audio-3.0-tts-plus", "input": text, "voice": voice},
+        json={"model": MODELS["tts"], "input": text, "voice": voice},
         timeout=60,
     )
     r.raise_for_status()
