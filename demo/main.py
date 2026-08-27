@@ -482,6 +482,7 @@ async def analyze(
 def api_config():
     """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源、图床状态等。"""
     from constants import SAME_ITEM_THRESHOLD
+    from models_router import MODEL_ROUTER_PROFILE, API_BASE
 
     return {
         "same_item_threshold": SAME_ITEM_THRESHOLD,
@@ -490,6 +491,10 @@ def api_config():
         "default_source": DEFAULT_SOURCE,
         "image_bed": backend_name(),
         "image_bed_public": is_public_ready(),
+        # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=赛事指定 Model Router，
+        # 复赛提交时切到 official 即演示用赛事指定端点（详见 demo/.env.example）。
+        "model_router_profile": MODEL_ROUTER_PROFILE,
+        "model_router_endpoint": API_BASE,
     }
 
 
