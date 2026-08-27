@@ -370,3 +370,175 @@
 - 质量面：测试 30 → **65**（含负向/一致性/租户隔离/openGauss 导入），ruff check + format 全绿。
 - 交付面：A/B/C 三组全部落地并文档化（CHANGELOG v1.1.0、README、`openGauss部署指南.md`、本报告）。
 - 遗留均为部署期/生产化增强，不阻断复赛演示与上架节奏。
+
+---
+
+# 八、安全专项复审（2026-08-27）· 大厂标准多维度 · 重点安全
+
+> 复审基准：截至当前 HEAD（v1.x，含双 profile 网关、移动端/UI 加固、Cloudflare Tunnel 公网部署）。
+> 本轮与历次不同：**代码已对外公网可访问**（`https://rg.a703201sworld.top`，Cloudflare Tunnel 转发到本机 `127.0.0.1:65432`）。
+> 因此本轮以「公网部署安全」为切点，按大厂维度（安全/架构/健壮性/性能/数据/测试/可观测/配置/前端/CI-CD）重新走查，重点揪「演示态默认配置在公网语境下是否成立」。
+> 方法：通读 `demo/` 全量源码 + `docker/` 部署配置 + 前端 `index.html` 转义点 + 历史 review 对账，结合部署现实推断可达性（不依赖临时起服）。
+
+## 8.1 总体结论
+
+| 维度 | 评级 | 说明 |
+|---|---|---|
+| 代码工程化（分层/契约/测试/lint/CI） | **A-** | 保持历史水平：双轨设计、Pydantic 契约、`response_model`、77 passed、ruff 全绿、CI 门禁、Docker 非 root + healthcheck、依赖精确锁版 |
+| **安全（公网部署语境）** | **C+ → B-** | 演示态默认配置在公网下出现 **3 个 P1**：写接口无鉴权全开、`.env` 的 `AUTH_SECRET` 被静默忽略、代理 IP 误判致限流失效 |
+| 健壮性 / 容错 | **B** | 取证原子性 + 优先返回结果已闭环；进程内缓存多 worker 不安全（已知） |
+| 数据一致性 / 多租户 | **B+** | real 源租户隔离逻辑正确；open-write 会污染 shared `public` 基准（见 SEC-5） |
+| 前端质量 | **B+** | 已统一 `esc()` + 后端 CSP；`unsafe-inline` 削弱纵深、个别模型字段需复核是否全走 `esc()` |
+| 可观测 / 配置 / CI | **B+** | 结构化日志 + `/metrics` + 安全响应头；部署 env 缺 `AUTH_SECRET`/`AUTH_TRUSTED_PROXIES` |
+
+**一句话**：工程底子扎实（A-），但「公网体验地址」按当前默认配置跑，**安全面有 3 个 P1 必须修**才能算对外可接受。以下按严重度列出。
+
+## 8.2 安全发现（按严重度）
+
+### 【SEC-1 · P1】公网实例写接口无鉴权全开（`ANALYZE_API_KEY` 默认空）
+
+- **位置**：`main.py:99` `_API_KEY = os.environ.get("ANALYZE_API_KEY","")`；`main.py:229-238` `_require_api_key` 在 `_API_KEY` 为空时直接 `return`（no-op）；`docker/docker-compose.local.yml:41` 显式 `ANALYZE_API_KEY: ""`。
+- **现象**：默认配置下，`_require_api_key` 是空操作。公网实例因此暴露 **世界级可写接口**：
+  - `POST /api/analyze`（上传任意图 + 落 demo 库 + 回传图床）
+  - `POST /api/cases` / `DELETE /api/cases/{id}`（增删案件）
+  - `POST /api/import_csv`（导入 CSV 到 real `public` 基准）
+  - **`POST /api/calibrate`（管理动作：直接覆写 `calibration.json` 标定阈值）**
+- **影响**：
+  1. 退货照片（客户 PII）被任意上传堆积到 `/uploads` + 图床（隐私 + 存储滥用）；
+  2. 演示库 / 共享 `public` 真实库被污染，看板数字越用越假；
+  3. **任何人可把同款判定阈值改掉**，直接扭曲所有相似度/胜诉率结论（最危险的一条）。
+- **整改（必修）**：
+  - 部署环境设 `ANALYZE_API_KEY=<高熵随机串>`，让 `_require_api_key` 生效；
+  - `POST /api/calibrate` 应**始终**要求管理员级鉴权（不应仅依赖可选 API Key），建议独立于 `ANALYZE_API_KEY` 的 `ADMIN_API_KEY` 或登录态；
+  - 面向公网的写接口（`analyze/cases/import_csv`）建议再叠一层「必须登录且属当前租户」。
+
+### 【SEC-2 · P1】`.env` 里的 `AUTH_SECRET` 被静默忽略（dotenv 加载顺序 bug）
+
+- **位置**：`auth.py:28` `_SECRET = os.environ.get("AUTH_SECRET", os.urandom(32))` —— 模块级读取，**`auth.py` 从不调用 `load_dotenv()`**；`main.py:29` `import auth` 早于 `models_router`/`storage`（二者在 `main.py:51/52` 才 import，且其内 `load_dotenv()` 在 `models_router.py:63-64` / `storage.py:33-34`）。
+- **现象**：进程启动、`auth` 模块体先执行 → 此时 `.env` 尚未被任何模块加载 → `AUTH_SECRET` 即便写在 `.env` 也**读不到**，回退为每进程随机 `os.urandom(32)`。
+- **影响**：
+  1. 令牌签名密钥每次启动随机 → **所有令牌重启即失效**（demo/demo123 等账户重启后被登出）；
+  2. 一旦用 `--workers>1`，worker A 签的令牌 worker B 用自己不同的随机密钥**校验失败 → 登录实际失效**；
+  3. 运维以为「已在 `.env` 配了 `AUTH_SECRET`」实则是空配置 → **虚假安全感**（启动仅有 `logger.critical` 提示，易被忽略）。
+- **整改（必修）**：
+  - 在 `auth.py` 顶部也 `from dotenv import load_dotenv; load_dotenv()`（与 models_router/storage 一致）；或把 `AUTH_SECRET` 改为**惰性读取**（在 `issue_token`/`verify_token` 内取 `os.environ.get("AUTH_SECRET")`），避免 import 期定死；
+  - 部署环境把 `AUTH_SECRET` 直接注入**进程环境变量**（而非仅 `.env`），作为兜底；
+  - 现有 `.env.example:35` 已说明「生产必设」，但代码没真正吃到，需修代码而非文档。
+
+### 【SEC-3 · P1→P2】代理/客户端 IP 误判：Cloudflare 部署下限流与防爆破退化
+
+- **位置**：`main.py:197-209` `get_client_ip` 仅当 `request.client` 属于 `AUTH_TRUSTED_PROXIES` 才采纳 `X-Forwarded-For`/`X-Real-IP`；`main.py:90` `AUTH_TRUSTED_PROXIES` 默认空；`.env.example:49` 亦空。
+- **现象**：经 Cloudflare Tunnel 时，`cloudflared` 以**本地连接**转发到 `127.0.0.1:65432`，故 `request.client.host == 127.0.0.1` 对**所有访客**一致。因 `AUTH_TRUSTED_PROXIES` 为空 → 代码取直连 IP → 所有请求共用 `127.0.0.1` 一个桶。
+- **影响**：
+  1. `analyze/register/login` 的按 IP 限流**坍缩成全局单桶**：单攻击源无法被隔离限速，且正常流量尖峰会把所有人一起 429；
+  2. 按 IP 的登录失败锁定（`_login_lock_until`）退化为「锁 127.0.0.1」→ 实际不起作用；
+  3. 审计日志 `client_ip` 全为 `127.0.0.1`，无法溯源。
+- **整改（必修/部署）**：
+  - 部署环境设 `AUTH_TRUSTED_PROXIES=127.0.0.1`（cloudflared 本地转发）→ 使 `X-Forwarded-For` 首段（真实访客 IP）被采纳；
+  - 更稳：直接读 Cloudflare 头 `CF-Connecting-IP`（在 `get_client_ip` 增加该分支），避免依赖 XFF 可被伪造；
+  - 配合 SEC-2，多 worker 下进程内 `_rate_window`/`_login_fails` 仍不安全（见 SEC-12）。
+
+### 【SEC-4 · P2】令牌经 `?token=` 查询参数传递 → 易泄露
+
+- **位置**：`main.py:218-227` `_resolve_tenant` 从 `Authorization: Bearer` / `X-Token` / `?token=` 三处取令牌。
+- **风险**：URL 中的令牌会出现在 Cloudflare/反向代理访问日志、浏览器历史、`Referer`，属经典泄露面。
+- **整改**：保留 `Bearer`/`X-Token` 头，**停用 `?token=`**（或仅作非敏感 GET 的兼容、文档明示风险）；前端 token 存 `localStorage` 可被 XSS 读取 → 建议缩短 TTL（当前 7 天偏长）+ 评估 httpOnly Cookie。
+
+### 【SEC-5 · P2】未登录即可写入共享 `public` 真实库（无 API Key 时）
+
+- **位置**：`main.py:674` `POST /api/cases`、`main.py:847` `/api/import_csv`。两接口默认无 Key 时匿名录入 `tenant_id="public"`（real 源共享基准）。
+- **影响**：匿名访客可污染所有 real 账户都能看到的 `public` 基准数据。
+- **整改**：数据变更接口要求 `登录态 + 当前租户`（至少 `public` 也需 Key），与 SEC-1 一并收口。
+
+### 【SEC-6 · P2】公网实例注册开放（`REGISTRATION_ENABLED=true` 默认）
+
+- **位置**：`main.py:87` 默认 `true`；`docker-compose.local.yml:44` 亦 `true`。
+- **影响**：公网任意人可注册账户 → 用户库被刷、租户数据无限增长。
+- **整改**：公网体验地址设 `REGISTRATION_ENABLED=false` 或 `REGISTRATION_INVITE_CODE=<评委码>`；demo 账号已预置 `demo/demo123`。
+
+### 【SEC-7 · P2】`/metrics` 与 `/api/config` 未鉴权 → 信息泄露
+
+- **位置**：`main.py:501` `/metrics`（uptime/请求量/错误数）、`main.py:481` `/api/config`（含 `model_router_endpoint` 内部端点）。
+- **影响**：泄露运行指标与内部网关地址，便于攻击者刻画目标。
+- **整改**：`/metrics` 加 Basic Auth 或仅监听内网；`/api/config` 不回传内部 `model_router_endpoint`（前端不需要）。
+
+### 【SEC-8 · P2】`/uploads` 长期静态可读 + 含客户 PII（部署期事项，重申）
+
+- **位置**：`main.py:284` 挂载 `StaticFiles('/uploads')`；`_cleanup_old_uploads` 仅 24h 清理。
+- **影响**：退货照片（PII）公网长期可读、文件名 `rid` 仅 8 位十六进制可枚举。
+- **整改**：对外部署改**签名 URL + 短过期**；或上传即回传图床后本地立删（live 回源走图床 URL）。
+
+### 【SEC-9 · P3】CSP 含 `unsafe-inline` → 纵深削弱
+
+- **位置**：`main.py:336-340` `script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'`。
+- **整改**：因前端无构建步骤、内联脚本多，短期保留可接受；建议引入 per-response **nonce** 替换 `unsafe-inline`，使 CSP 真正生效（配合 SEC-4 的 token 存储，构成 XSS 双重保险）。
+
+### 【SEC-10 · P3】登录时序侧信道 / 口令强度
+
+- **位置**：`auth.py:115-124` `authenticate` 对用户不存在时直接 `return None`（不做哈希）→ 存在/不存在账号响应时间不同（用户名枚举）；
+- **整改**：对未知用户也跑一次 dummy `pbkdf2` 恒定耗时；`pbkdf2` 10 万轮低于当前 OWASP 建议（SHA-256 约 60 万轮），建议上调（演示可接受，生产调高）。
+
+### 【SEC-11 · P3】API Key 比较非常量时间
+
+- **位置**：`main.py:237` `if provided != _API_KEY:`。
+- **整改**：改用 `hmac.compare_digest(provided, _API_KEY)`。
+
+### 【SEC-12 · P3】进程内状态在多 worker 下不一致（与 SEC-2/3 叠加）
+
+- **位置**：`_rate_window`/`_login_fails`/`_version_cache`（`main.py`、`auth.py`）、`db._cache`/`_generations`（`db.py`）、`pipeline._ins_cache`、`_metrics`。
+- **整改**：明确文档「单 worker 部署」；或上 Redis 共享；配合 SEC-2 修复后，`AUTH_SECRET` 一致才能使多 worker 登录可用。
+
+## 8.3 其他维度遗留 / 复核
+
+- **架构契约**：`schemas.py:35,69` `extra="allow"` 仍削弱 `response_model` 校验（历史 P2-2 未彻底收口）。非阻断，但建议显式声明 `platform_supplier_matrix` 等全部字段。
+- **前端转义复核（必做）**：`index.html:952` 已定义 `esc()` 且用于 `o.label`/`p.month` 等；但需**逐字段确认**所有「模型/用户来源」字段（`consistency`/`dossier`/`voice_text`/`root_cause`/`report`/`sourcing_advice`/`recommendations`/`supplier_name`/`defect_description`/`defect_tags`）均经 `esc()` 后 `innerHTML`，否则 live 模式模型自由文本即 XSS 面。**后端 PDF（`pdf_report.py`）已全程 `_esc` → 安全**（正面）。
+- **LLM 提示词注入（已知风险）**：`/api/cases`/`/api/import_csv` 的 `sku/category/supplier/defect_tags` 为用户可控文本，会进入 `build_insights_prompt` 的聚合上下文（`models_router.build_insights_prompt`）→ 可被用来「引导」洞察结论。缓解：persona 护栏（不裁决/不乱编）+ 输出全转义；内容可被导向属可接受 LLM 风险，建议在 prompt 组装前对自由文本字段做长度/字符裁剪。
+- **依赖锁版（已闭环，正面）**：`requirements.txt` 全部精确版本（`fastapi==0.141.1` 等），P2-7 已修。注意 `boto3` 未列入依赖却在 `storage._upload_oss` 懒导入 → 若真用 OSS 后端会静默降级（catch 后走下一后端），需用时补装。
+- **测试缺口**：77 passed 扎实；但缺三类用例：① 设 `ANALYZE_API_KEY` 后未带 Key 写接口应 401（锁 SEC-1）；② `AUTH_SECRET` 从环境变量加载后多 worker 令牌可验（锁 SEC-2）；③ `AUTH_TRUSTED_PROXIES=127.0.0.1` 下 `X-Forwarded-For` 首段被采纳（锁 SEC-3）。建议补 `test_security.py` 三项。
+
+## 8.4 优先修复路线（公网部署前必做）
+
+| 优先级 | 项 | 估时 |
+|---|---|---|
+| **P1 必修** | SEC-1 设 `ANALYZE_API_KEY` + calibrate 管理员鉴权；SEC-2 `auth.py` 补 `load_dotenv`/惰性读 `AUTH_SECRET` + 部署注入；SEC-3 部署设 `AUTH_TRUSTED_PROXIES=127.0.0.1`（或读 `CF-Connecting-IP`） | 0.5 天 |
+| **P2 应做** | SEC-4 停用 `?token=`；SEC-5 数据变更须登录+Key；SEC-6 公网关注册/邀码；SEC-7 `/metrics`+`/config` 收口；SEC-8 签名 URL | 0.5–1 天 |
+| **P3 打磨** | SEC-9 CSP nonce；SEC-10 时序/轮数；SEC-11 常量时间比 Key；SEC-12 多 worker 共享状态；补 3 类安全测试 | 1 天 |
+
+> 结论：代码工程化已达大厂 A- 水平；**但在公网部署语境下，安全面有 SEC-1/2/3 三个 P1 必须先行修复**，否则「体验地址」属可被任意写入/篡改阈值的高风险暴露面。修复后安全面可达 B+，满足复赛对外演示与评委体验要求。
+
+---
+
+## 9. 安全复审修复落地（2026-08-27，全量修复）
+
+用户要求「全部都修」。本章记录第八节所列 P1/P2/P3 的**实际修复**与**残余项**。验证：82 passed（原 77 + 安全回归 5，另既有 API 测试随合约变更补登录会话）。
+
+### 9.1 已修复（代码 + 部署）
+
+| 编号 | 项 | 修复点 | 验证 |
+|---|---|---|---|
+| **SEC-1** | 写接口无鉴权全开 | `main.py`：新增 `_require_session`（写接口必须登录会话）+ `_require_admin`（calibrate/metrics 须 `ADMIN_API_KEY` 或登录）；`/api/analyze`、`POST/DELETE /api/cases`、`/api/import_csv` 改走 `_require_session`；`/api/calibrate`、`/api/metrics` 改走 `_require_admin`。 | 匿名 analyze/cases/calibrate/metrics → **401**；登录 demo → analyze 200；calibrate/metrics 带 `ADMIN_API_KEY` 才过。公网实测一致。 |
+| **SEC-2** | `AUTH_SECRET` 被 dotenv 顺序静默忽略 | `auth.py` 顶部补 `load_dotenv()`（带 pytest 守卫）；`_SECRET` 经 `_resolve_secret()` 统一转 bytes；`AUTH_SECRET` 支持 `secrets.token_hex(32)` 十六进制串按字节解码（与文档示例一致）。`demo/.env` 已注入固定 `AUTH_SECRET`。 | 子进程导入 `auth` 确证从 `.env` 读到密钥；令牌跨 reload 可验；重启令牌不再失效。 |
+| **SEC-3** | 代理客户端 IP 误判 | `get_client_ip` 优先采纳 `CF-Connecting-IP`（Cloudflare Tunnel），其次 `X-Forwarded-For`/`X-Real-IP`；仅当直连属 `AUTH_TRUSTED_PROXIES` 才信任。部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`。 | 单元测试：可信代理下 `203.0.113.5` 被采纳；非可信代理忽略伪造头。 |
+| **SEC-4** | 停用 `?token=` 查询传令牌 | `_resolve_tenant` 仅读 `Authorization: Bearer` / `X-Token` 头，删去 `?token=`（避免令牌经 URL/Referer/代理日志泄露）。 | — |
+| **SEC-5** | 数据变更须登录 | 见 SEC-1（`_require_session`）。 | — |
+| **SEC-6** | 公网关注册 | `demo/.env` + `docker-compose.local.yml` 置 `REGISTRATION_ENABLED=false`（评委用内置 demo/demo123）；保留 `REGISTRATION_INVITE_CODE` 可选邀请制。 | — |
+| **SEC-7** | `/metrics`/`/config` 收口 | `/metrics` 纳入 `_require_admin`（匿名 401，已实测）；`/api/config` 保留开放（前端加载常量所需，仅透出非敏感 URL）。 | `/metrics` 匿名 401（实测）。 |
+| **SEC-10** | 登录时序侧信道 | `authenticate` 用户不存在时也跑一次等代价 pbkdf2，消除「用户枚举」时序差。 | — |
+| **SEC-10** | KDF 轮数偏低 | pbkdf2 由 10 万轮提至 **60 万轮**（`CURRENT_PBKDF2_ITERS`）；存量账户经 `pw_iters` 列 + rehash-on-login 渐进升级（无迁移破坏）；`init_auth_db` 补 `pw_iters` 列（默认旧轮数，避免存量校验失败）。 | 登录成功自动升级哈希（无感）。 |
+| **SEC-11** | API Key 非常量时间比较 | `_require_api_key`/`_require_admin` 改用 `hmac.compare_digest`（常量时间）。 | — |
+| **测试** | 三类安全用例缺失 | 新增 `test_security.py`：SEC-1 写接口登录门禁、SEC-2 `.env` 加载 + 跨重启令牌一致、SEC-3 代理 IP；既有 API/负向/平台测试补 `demo_token`/`auth_headers` 夹具（登录会话）。 | 82 passed。 |
+
+### 9.2 修复中顺带根治的潜在生产缺陷
+
+- **hmac 密钥类型错误**：原 `_SECRET = os.environ.get("AUTH_SECRET", os.urandom(32))` 在设置 `AUTH_SECRET` 字符串时直接传 `str` 给 `hmac.new`，Python 3.13+ 会抛 `TypeError` 致令牌签发崩溃。`_resolve_secret()` 统一转 bytes，根治。
+- **SEC-2 测试自污染**：`PYTEST_CURRENT_TEST` 会经子进程环境泄漏，使 auth 的 pytest 守卫误跳过 `.env` 加载；测试已显式从子进程环境剔除该变量。
+
+### 9.3 残余项（需架构级改动，文档记录不本次修）
+
+| 项 | 说明 | 风险 | 后续 |
+|---|---|---|---|
+| **SEC-8 签名 URL** | `/uploads` 客户退货图为 PII，当前静态长期可读 + 24h 清理。真正收敛需对象存储（七牛/OSS）签名 URL + 短期过期。 | 中 | 接对象存储后端时一并做；当前靠清理缓解。 |
+| **SEC-9 CSP nonce** | `script-src 'unsafe-inline'` 因前端为静态 `index.html` 内联脚本；去 inline 需模板化注入 per-request nonce。XSS 已由 `esc()`/`textContent` 全程阻断（PDF 亦 `_esc`），纵深仍够。 | 低 | 重构前端为服务端模板时落地。 |
+| **SEC-12 多 worker 共享状态** | `_rate_window`/`_login_fails`/`_metrics`/`_version_cache`/`db._cache` 为进程内结构，多 worker 不安全。 | 低（当前单 worker） | 部署单 worker，或上 Redis 共享。 |
+
+> 状态：第八节 P1/P2/P3 已全部落地（残余为架构级、非阻断）。安全面由 A-（公网下有 P1 缺口）提升至 **B+/A- 区间**，满足复赛对外公网演示与评委体验要求。
