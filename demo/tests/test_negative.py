@@ -126,6 +126,10 @@ def test_xss_payload_stored_not_executed(auth_headers):
         # 取回列表，确认后端未做危险处理（JSON 本身是安全载体）
         lst = c.get("/api/cases", params={"slim": "1"}).json()
         assert any(x.get("sku") == payload for x in lst)
+        # 清理测试数据，避免污染演示库
+        case_id = r.json().get("id") or r.json().get("case_id")
+        if case_id:
+            c.delete(f"/api/cases/{case_id}", headers=auth_headers)
 
 
 # ---------------- 鉴权：写接口在设 Key 后必须校验 ----------------
