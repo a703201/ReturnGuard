@@ -372,8 +372,21 @@
   .src-btn{background:transparent;color:#94a3b8;border:0;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600;transition:all .2s ease}
   .src-btn:hover{color:#e2e8f0}
   .src-btn.active{background:var(--acc);color:#04121f}
-  .src-banner{display:none;margin:0 0 10px;padding:8px 12px;border-radius:10px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#bae6fd;font-size:12px}
-  .src-banner.show{display:block}
+  /* 数据源提示条 → 浮动面板（与评委指引同款风格） */
+  .src-banner{display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:91;
+    max-width:640px;width:calc(100% - 24px);flex-direction:column;gap:6px;
+    padding:10px 14px;border-radius:12px;
+    background:rgba(15,23,42,.96);backdrop-filter:blur(12px);
+    border:1px solid rgba(56,189,248,.4);box-shadow:0 8px 32px rgba(0,0,0,.35),0 0 0 1px rgba(56,189,248,.12);
+    animation:jgSlideDown .35s ease both}
+  .src-banner.show{display:flex}
+  .src-banner .sb-head{display:flex;align-items:center;gap:8px}
+  .src-banner .sb-head strong{color:#38bdf8;font-size:13px;font-weight:800;letter-spacing:.2px}
+  .src-banner #sbClose{margin-left:auto;background:transparent;border:0;color:#94a3b8;font-size:17px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:4px}
+  .src-banner #sbClose:hover{color:#ef4444;background:rgba(239,68,68,.12)}
+  .src-banner .sb-body{font-size:12px;line-height:1.65;color:var(--txt)}
+  .src-banner code{background:#0b1220;border:1px solid #334155;border-radius:5px;padding:1px 5px;font-size:11px;color:#fbbf24}
+  .src-banner.hidden{display:none}
 
   /* 数据录入表单（实际数据添加接口）*/
   /* 数据录入页：tabpane 本身 flex 占满 content；wrap 占满剩余高度；两列卡片各自内部滚动 */
@@ -486,7 +499,11 @@
     .entry-form input,.entry-form select,.entry-form textarea{background:#fff;color:#1e293b;border-color:#cbd5e1}
     .entry-form label{color:#475569}
     .desc,.dt-note,.note{color:#334155}
-    .src-banner{background:rgba(56,189,248,.08);border-color:rgba(56,189,248,.3);color:#0369a1}
+    .src-banner{background:rgba(255,255,255,.97);backdrop-filter:blur(16px)saturate(1.2);
+      border-color:rgba(56,189,248,.35);box-shadow:0 8px 32px rgba(0,0,0,.12),0 0 0 1px rgba(56,189,248,.08)}
+    .src-banner .sb-head strong{color:#0369a1}
+    .src-banner .sb-body{color:#334155}
+    .src-banner code{background:#f1f5f9;border-color:#e2e8f0;color:#b45309}
     .overlay{background:rgba(148,163,184,.35)}
     .overlay .panel{background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.15)}
     .loginGate,.computingHint>.card{background:var(--card)}
@@ -903,7 +920,13 @@
 
       <!-- 标签页：数据录入（实际数据添加接口）-->
       <section id="tab-entry" class="tabpane">
-        <div class="src-banner" id="entryBanner"></div>
+        <div class="src-banner" id="entryBanner">
+          <div class="sb-head">
+            <strong>📌 数据源提示</strong>
+            <button id="sbClose" type="button" aria-label="关闭提示" title="关闭">×</button>
+          </div>
+          <div class="sb-body"></div>
+        </div>
         <div class="entry-wrap">
           <div class="card import-file" style="grid-column:1 / -1">
             <h3>⑬ 批量文件导入（真实数据集）</h3>
@@ -1054,8 +1077,9 @@ async function setSource(s){
   $('#entryTarget').textContent = '将写入：' + (CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   const banner = $('#entryBanner');
   if(CURRENT_SOURCE==='real'){
-    banner.textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。';
+    banner.querySelector('.sb-body').textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。';
     banner.classList.add('show');
+    banner.classList.remove('hidden');
   } else {
     banner.classList.remove('show');
   }
@@ -1110,6 +1134,17 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
     // 不写 localStorage，刷新页面即重新显示
   });
   guide.querySelectorAll('.jg-step[data-go]').forEach(s=>s.addEventListener('click',()=>switchTab(s.dataset.go)));
+})();
+
+// 数据源提示浮动面板关闭（仅会话内，刷新即重现）
+(function initSrcBanner(){
+  const banner=document.getElementById('entryBanner');
+  if(!banner) return;
+  const close=document.getElementById('sbClose');
+  if(close) close.addEventListener('click',()=>{
+    banner.classList.add('hidden');
+    banner.classList.remove('show');
+  });
 })();
 
 
@@ -1972,7 +2007,7 @@ async function submitImport(){
   document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===CURRENT_SOURCE));
   $('#entryTarget').textContent='将写入：'+(CURRENT_SOURCE==='real'?'实际数据':'演示数据');
   const banner=$('#entryBanner');
-  if(CURRENT_SOURCE==='real'){ banner.textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。'; banner.classList.add('show'); }
+  if(CURRENT_SOURCE==='real'){ banner.querySelector('.sb-body').textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。'; banner.classList.add('show'); banner.classList.remove('hidden'); }
 
   await loadInsights();
   populateFilters();
