@@ -8,13 +8,17 @@ import os
 import pathlib
 import subprocess
 import sys
+import time
 import types
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from urllib.parse import quote, urlparse, parse_qs
 
 import auth as auth_mod
 import main as main_mod
+import storage as storage_mod
 from main import UPLOAD_DIR, app
 
 _DEMO_DIR = pathlib.Path(__file__).resolve().parent.parent  # demo/
@@ -177,4 +181,59 @@ def test_client_ip_respects_cloudflare_proxy(monkeypatch):
     # 场景2：未配置可信代理（默认）→ 忽略伪造转发头，使用直连 IP
     monkeypatch.setattr(main_mod, "_AUTH_TRUSTED_PROXIES", [])
     assert main_mod.get_client_ip(_Req()) == "127.0.0.1", "SEC-3：未信代理时应忽略伪造 CF-IP"
+
+
+# ===================== SEC-8 / SEC-9 收口回归 =====================
+
+
+def test_uploads_no_longer_public_mount():
+    """SEC-8：公开静态 /uploads 挂载已移除，匿名直接访问上传目录应 404（绝不公开可读）。"""
+    with TestClient(app) as c:
+        r = c.get("/uploads/" + uuid.uuid4().hex + ".png")
+        assert r.status_code == 404, "公开 /uploads 挂载应已移除"
+
+
+def test_signed_upload_url_gate():
+    """SEC-8：上传图须经签名 + 未过期短链访问；伪造签名 / 过期 / 篡改均 404（不泄露是否存在）。"""
+    fname = f"sec8_{uuid.uuid4().hex[:8]}.png"
+    fpath = pathlib.Path(UPLOAD_DIR) / fname
+    fpath.write_bytes(_png())
+    try:
+        url = storage_mod.sign_upload_url(fname)
+        with TestClient(app) as c:
+            # 有效签名 URL → 200
+            assert c.get(url).status_code == 200, "有效签名 URL 应可取回文件"
+            # 解析出 f / e 用于构造恶意 URL
+            q = parse_qs(urlparse(url).query)
+            f, e = q["f"][0], q["e"][0]
+            # 伪造签名 → 404
+            assert c.get(f"/api/file/{'0' * 32}?f={quote(f)}&e={e}").status_code == 404
+            # 过期时间戳 → 404
+            assert c.get(f"/api/file/{'0' * 32}?f={quote(f)}&e={int(time.time()) - 10}").status_code == 404
+    finally:
+        # Windows 文件锁：刚写完/读完的文件瞬时 unlink 可能报 PermissionError，
+        # 重试若干次忽略瞬时锁，避免测试偶发 flaky。
+        for _ in range(5):
+            try:
+                fpath.unlink(missing_ok=True)
+                break
+            except OSError:
+                time.sleep(0.05)
+
+
+def test_csp_nonce_injected():
+    """SEC-9：首页 CSP 含 per-request nonce，且内联 <script> 被注入相同 nonce（阻断未授权内联脚本执行）。"""
+    import re
+
+    with TestClient(app) as c:
+        r = c.get("/")
+        assert r.status_code == 200
+        csp = r.headers["Content-Security-Policy"]
+        m = re.search(r"nonce-([A-Za-z0-9_-]+)", csp)
+        assert m, "CSP 应含 nonce"
+        nonce = m.group(1)
+        assert f'<script nonce="{nonce}">' in r.text, "内联 <script> 应被注入相同 nonce"
+        # script-src 不得再放行 'unsafe-inline'（XSS 主防线）
+        assert "script-src 'self' 'nonce-" in csp
+
 

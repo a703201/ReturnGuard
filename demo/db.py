@@ -145,11 +145,23 @@ def get_session(source: str = DEFAULT_SOURCE):
 
 Base = declarative_base()
 
+
+class KV(Base):
+    """共享键值表（SEC-12）：存储跨 worker 需一致的计数（如代际 generation）。
+
+    多 worker 部署下，进程内代际计数会不同步 → 某 worker reseed 后其它 worker 仍返回
+    陈旧缓存洞察。落库后所有 worker 以 DB 为准。按 source 物理隔离（键含 source）。"""
+
+    __tablename__ = "rg_kv"
+    k = Column(String(64), primary_key=True)
+    v = Column(Integer, default=0, nullable=False)
+
+
 # ---- 结果缓存：load_cases 全表扫描较重，按 source 缓存；写入时失效 ----
 _cache: dict = {"demo": None, "real": None}
 
-# 洞察聚合缓存失效用的「代际」计数器（按 source 独立）：每次写库自增；pipeline.build_insights 据此判断缓存是否过期
-_generations: dict = {"demo": 0, "real": 0}
+# 代际计数退化缓存（SEC-12：主存于 DB rg_kv；DB 不可用时进程内兜底，避免崩溃）
+_gen_fallback: dict = {"demo": 0, "real": 0}
 # 缓存/代际的线程安全锁（P3-⑧）
 _cache_lock = threading.Lock()
 
@@ -161,15 +173,35 @@ def _invalidate_cache(source: str = DEFAULT_SOURCE) -> None:
 
 
 def bump_generation(source: str = DEFAULT_SOURCE) -> None:
-    """写库后自增代际，使依赖聚合结果的缓存失效。"""
+    """写库后自增代际，使依赖聚合结果的缓存失效（SEC-12：落库，跨 worker 一致）。"""
     source = _normalize_source(source)
-    with _cache_lock:
-        _generations[source] += 1
+    engine = get_engine(source)
+    key = f"gen:{source}"
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO rg_kv(k,v) VALUES(:k,0) ON CONFLICT(k) DO NOTHING"), {"k": key}
+            )
+            conn.execute(text("UPDATE rg_kv SET v = v + 1 WHERE k = :k"), {"k": key})
+    except Exception:
+        logger.warning("bump_generation 写库失败（退化进程内）", exc_info=True)
+        with _cache_lock:
+            _gen_fallback[source] = _gen_fallback.get(source, 0) + 1
 
 
 def get_generation(source: str = DEFAULT_SOURCE) -> int:
-    with _cache_lock:
-        return _generations[_normalize_source(source)]
+    """返回当前代际；跨 worker 以 DB 为准（SEC-12）。"""
+    source = _normalize_source(source)
+    engine = get_engine(source)
+    key = f"gen:{source}"
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(text("SELECT v FROM rg_kv WHERE k = :k"), {"k": key}).first()
+        return int(row[0]) if row else 0
+    except Exception:
+        logger.warning("get_generation 读库失败（退化进程内）", exc_info=True)
+        with _cache_lock:
+            return _gen_fallback.get(source, 0)
 
 
 class Case(Base):

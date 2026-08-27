@@ -8,6 +8,7 @@ import uuid
 
 import auth  # 用于重置懒引擎，确保用户库隔离
 import main  # 用于 monkeypatch 限流/封禁/注册开关等模块级状态
+import shared_state  # SEC-12：共享状态（限流/封禁）落库，测试需 reset
 import pytest
 from fastapi.testclient import TestClient
 from main import app
@@ -119,10 +120,8 @@ def test_cross_tenant_delete_blocked(client):
 
 
 def _reset_auth_state(monkeypatch):
-    """清空进程内限流/封禁状态，并隔离用户库，保证测试互不干扰。"""
-    monkeypatch.setattr(main, "_rate_window", {})
-    monkeypatch.setattr(main, "_login_fails", {})
-    monkeypatch.setattr(main, "_login_lock_until", {})
+    """清空共享状态（限流/封禁落库，SEC-12），并隔离用户库，保证测试互不干扰。"""
+    shared_state.reset_state()
     monkeypatch.setattr(auth, "_auth_engine", None)
     monkeypatch.setattr(auth, "_version_cache", {})
 
