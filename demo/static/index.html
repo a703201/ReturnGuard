@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <title>退件法医 · 退货情报站（大屏看板）</title>
 <style>
-  :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0}
+  :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0;--border:#334155;--bg2:#0b1220;--txt2:#cbd5e1;--txt3:#94a3b8}
 
   /* 全局细滚动条：细到 5px、半透明、hover 才明显；Firefox 兼容 */
   *{scrollbar-width:thin;scrollbar-color:rgba(148,163,184,.18) transparent}
@@ -400,23 +400,32 @@
   }
   /* 浅色模式适配：跟随系统 prefers-color-scheme 自动切换 */
   @media (prefers-color-scheme: light){
-    :root{--bg:#f1f5f9;--card:#ffffff;--txt:#1e293b}
+    :root{--bg:#f1f5f9;--card:#ffffff;--txt:#1e293b;--border:#e2e8f0;--bg2:#f8fafc;--txt2:#475569;--txt3:#64748b}
     body{color:var(--txt)}
     .topbar{background:linear-gradient(135deg,#f8fafc,#e2e8f0);border-bottom-color:#cbd5e1}
     .brand h1{color:#0f172a}.brand .sub{color:#475569}
     .kpi{background:var(--card);border-color:#e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.08)}
     .card{background:var(--card);border-color:#e2e8f0;box-shadow:0 2px 12px rgba(0,0,0,.06)}
-    .tabs button{color:#475569;border-bottom-color:#e2e8f0}
-    .tabs button.active{color:#0369a1;background:#e0f2fe;border-bottom-color:#38bdf8}
+
+    /* Tab 栏（截图③：深色背景→浅色） */
+    .tabs{background:#e2e8f0;border-color:#cbd5e1}
+    .tabs button{color:#475569}
+    .tabs button:hover{background:rgba(56,189,248,.08);color:#0369a1}
+    .tabs button.active{color:#04121f;background:var(--acc);box-shadow:0 4px 14px rgba(56,189,248,.25)}
+
+    /* 状态 pill（截图②：加载中/就绪/筛选标签深色→浅色） */
+    #insStatus,#scopeTag{background:#e2e8f0 !important;color:#475569 !important;border-color:#cbd5e1 !important}
+    .pill{font-size:11px}
     .src-btn{background:transparent;color:#475569;border-color:#cbd5e1}
     .src-btn.active{background:#38bdf8;color:#fff}
+
     select,input[type=text],input[type=number],textarea{background:#fff;color:#1e293b;border-color:#cbd5e1}
     .desc,.dt-note,.note{color:#64748b}
     .overlay{background:rgba(148,163,184,.35)}
     .overlay .panel{background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.15)}
     .loginGate,.computingHint>.card{background:var(--card)}
     #appVer{border-color:#cbd5e1;color:#64748b}
-    .pill{font-size:11px}
+
     .badge.mock{background:rgba(56,189,248,.1);color:#0369a1;border-color:rgba(56,189,248,.3)}
     .badge.live{background:rgba(52,211,153,.1);color:#059669;border-color:rgba(52,211,153,.3)}
     .donut circle:nth-child(2){stroke:#e2e8f0}
@@ -428,9 +437,12 @@
     .err{background:#fef2f2;color:#991b1b;border-color:#fecaca}
     .scrollx::-webkit-scrollbar-thumb{background:#cbd5e1}
     .barh .fill{border-color:rgba(255,255,255,.5);box-shadow:0 0 8px rgba(56,189,248,.3)}
+
+    /* 报告与举证 */
     .report{background:var(--card);color:#334155}
     .report h3,.report h4{color:#0f172a;border-bottom-color:#e2e8f0}
     .r-meta{color:#64748b}
+    .plat-acc{background:#f8fafc !important;border-color:#e2e8f0 !important}
     .plat-acc.open{border-color:#bfdbfe;background:rgba(56,189,248,.04);box-shadow:0 0 0 1px rgba(56,189,248,.12),0 8px 24px rgba(0,0,0,.08)}
     .plat-head{color:#0369a1}
     .ev.cap li b{color:#0369a1}
@@ -440,6 +452,70 @@
     .annot-note{color:#64748b}
     #authBtn{color:#1e293b !important;border-color:#93c5fd}
     #authBtn.authed{color:#059669 !important;border-color:#6ee7b7}
+
+    /* 看板卡片内部深色元素（截图④⑤：JS 内联 style 用 !important 覆盖） */
+    .tag{background:#f1f5f9 !important;border-color:#e2e8f0 !important;color:#475569 !important}
+    .bar{background:#e2e8f0 !important}
+    .sup{background:#f8fafc !important;border-color:#e2e8f0 !important;color:#334155 !important}
+    .steps .st{background:#f1f5f9 !important;border-color:#cbd5e1 !important;color:#475569 !important}
+    .steps{color:#64748b}
+    .steps i{background:#cbd5e1 !important}
+    label{color:#475569 !important}
+    .matrix th,.matrix td{border-color:#e2e8f0 !important;color:#334155 !important}
+    .report .r-kpi{background:#f8fafc !important;border-color:#e2e8f0 !important}
+    .barh .track{background:#e2e8f0 !important}
+    .barh .lab{color:#475569 !important}
+    .barh .val{color:#64748b !important}
+    .warnbox{background:rgba(248,113,113,.08) !important}
+    .alert{background:rgba(251,191,36,.08) !important}
+
+    /* 登录弹窗内输入框 */
+    #authUser,#authPass,#authTenant{background:#fff !important;color:#1e293b !important;border-color:#cbd5e1 !important}
+    #authTab{color:#0369a1 !important;border-color:#cbd5e1 !important}
+
+    /* 分析中 spinner 区域 */
+    .analyzing{background:rgba(56,189,248,.06) !important;border-color:rgba(56,189,248,.25) !important;color:#0369a1 !important}
+
+    /* 弹窗内 h4 标题（供应商下钻等） */
+    .overlay h4,.overlay [style*="color:#cbd5e1"]{color:#475569 !important}
+
+    /* 举证报告按钮 */
+    .dossier-head button{border-color:#94a3b8;color:#64748b}
+    .dossier-head button:hover{background:rgba(56,189,248,.08);color:#0369a1}
+    .report .r-actions button.ghost{border-color:#94a3b8;color:#64748b}
+    .report .r-actions button.ghost:hover{background:rgba(56,189,248,.08);color:#0369a1}
+    .report .r-foot{color:#94a3b8;border-top-color:#e2e8f0}
+
+    /* 数据录入表单 */
+    .entry-del{border-color:#94a3b8;color:#f87171}
+    .cmp th,.cmp td{border-color:#e2e8f0}
+    .plat{border-color:#e2e8f0}
+    .kv{border-bottom-color:#e2e8f0}
+
+    /* SVG 图表圆环刻度 */
+    svg[viewBox] circle:nth-child(1){stroke:#e2e8f0}
+
+    /* 缺陷条轨道 + 编排面板 */
+    .defbar{background:#e2e8f0 !important}
+    .orch{background:var(--card) !important;border-color:#e2e8f0 !important;color:#334155 !important}
+    .ov-legend span{color:#64748b}
+    .ov-close{color:#64748b}
+    .plat-hint,.plat-arrow{color:#64748b}
+    .kv span{color:#64748b}
+    .cmp th{background:#f8fafc;color:#64748b}
+    .matrix th{background:#f8fafc;color:#64748b}
+    .matrix td.pl{color:#475569}
+    .entry-list th,.entry-list td{border-bottom-color:#e2e8f0;color:#475569}
+    .ev.dim li{color:#64748b}
+
+    /* 上传区域 */
+    #f input[type=file]{border-color:#cbd5e1;background:#f8fafc;color:#475569}
+
+    /* 登录提示文字 */
+    #authHint,label[style*="color:#94a3b8"]{color:#64748b !important}
+
+    /* 顶栏版本徽标内联色 */
+    #appVer{border-color:#cbd5e1;color:#64748b}
   }
 </style>
 </head>
@@ -452,13 +528,13 @@
           <span id="appVer" style="display:inline-block;margin-left:10px;padding:2px 9px;border:1px solid #334155;border-radius:999px;font-size:12px;color:#94a3b8;vertical-align:middle;font-weight:600">V…</span>
           <div class="sub">把每一笔退货变成市场情报 · 大屏实时洞察（左：给老板看的洞察看板；右：取证工具）</div>
         </div>
+        <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：实际数据按租户隔离"></span>
         <div class="kpis">
           <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">已分析退货</div></div>
           <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款¥</div></div>
           <div class="kpi kpi-win"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="60" height="60" viewBox="0 0 92 92"></svg><div class="l">维权胜诉率</div></div>
           <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">货不对板嫌疑率</div><div class="h" id="kDispNote" title="">代理指标 ⓘ</div></div>
         </div>
-        <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：实际数据按租户隔离"></span>
       </div>
       <div class="hrow2">
         <div class="bar-top">
@@ -897,7 +973,7 @@ function renderDonut(svg, rate){
   const col=realColor(v);
   const dash=`${(v*c).toFixed(1)} ${c.toFixed(1)}`;
   svg.style.setProperty('--dash-full', c.toFixed(1));
-  svg.innerHTML=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="#334155" stroke-width="9"/>`
+  svg.innerHTML=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--border)" stroke-width="9"/>`
     +`<circle class="donut-ring" cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" `
     +`stroke-dasharray="${dash}" stroke-dashoffset="${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`;
   // 触发下一帧动画
@@ -958,7 +1034,7 @@ function renderMatrix(el, rows){
       const rc=realColor(r.win_rate);
       const rgba=rc==='#34d399'?'52,211,153':rc==='#fbbf24'?'251,191,36':'248,113,113';
       html+=`<td style="background:rgba(${rgba},.18);color:${rc};font-weight:600">${pct(r.win_rate)}`
-        +`<br><span style="font-size:10px;color:#94a3b8">${r.cases}笔</span></td>`;
+        +`<br><span style="font-size:10px;color:var(--txt3)">${r.cases}笔</span></td>`;
     });
     html+='</tr>';
   });
@@ -1028,8 +1104,8 @@ function renderForecast(kpiEl, listEl, alertEl, forecast, alerts){
     +`<div class="kv"><span>下月预计退款</span><b>¥${Number(forecast.next_month_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`;
   listEl.innerHTML='';
   (forecast.points||[]).forEach(p=>{
-    const div=document.createElement('div'); div.style.cssText='background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;margin-top:6px;font-size:13px;display:flex;justify-content:space-between';
-    div.innerHTML=`<span>${esc(p.month)}</span><span>预计 <b>${p.cases}</b> 笔 · ¥${Number(p.refund).toLocaleString('zh-CN',{maximumFractionDigits:0})}</span>`;
+    const div=document.createElement('div'); div.style.cssText='background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-top:6px;font-size:13px;display:flex;justify-content:space-between';
+    div.innerHTML=`<span style="color:var(--txt)">${esc(p.month)}</span><span style="color:var(--txt)">预计 <b>${p.cases}</b> 笔 · ¥${Number(p.refund).toLocaleString('zh-CN',{maximumFractionDigits:0})}</span>`;
     listEl.appendChild(div);
   });
   alertEl.innerHTML='';
@@ -1047,12 +1123,12 @@ function renderSourcingLoop(el, items){
   const sevColor={'高':'var(--bad)','中':'var(--warn)','低':'var(--ok)'};
   items.forEach(it=>{
     const div=document.createElement('div');
-    div.style.cssText='border:1px solid #334155;border-left:4px solid '+sevColor[it.severity||'低']+';border-radius:8px;padding:9px 11px;margin-top:8px;background:#0b1220';
+    div.style.cssText='border:1px solid var(--border);border-left:4px solid '+sevColor[it.severity||'低']+';border-radius:8px;padding:9px 11px;margin-top:8px;background:var(--bg2)';
     div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <b style="font-size:13px">${esc(it.action)}</b>
+        <b style="font-size:13px;color:var(--txt)">${esc(it.action)}</b>
         <span class="pill" style="background:${sevColor[it.severity||'低']}">${esc(it.severity)}</span></div>
-      <div style="font-size:12px;color:#cbd5e1;margin-top:4px">对象：<b>${esc(it.target)}</b></div>
-      <div style="font-size:12px;color:#94a3b8;margin-top:2px">${esc(it.reason)}</div>`;
+      <div style="font-size:12px;color:var(--txt2);margin-top:4px">对象：<b style="color:var(--txt)">${esc(it.target)}</b></div>
+      <div style="font-size:12px;color:var(--txt3);margin-top:2px">${esc(it.reason)}</div>`;
     el.appendChild(div);
   });
 }
@@ -1112,11 +1188,11 @@ function openSupplier(name){
     +`<div><span class="note">SKU 数</span><b>${sc.sku_count??'-'}</b></div>`
     +`<div><span class="note">平台覆盖</span><b>${sc.platform_count??'-'}</b></div>`
     +`</div>`
-    +`<h4 style="margin:10px 0 4px;font-size:13px;color:#cbd5e1">平台分布（胜诉率）</h4>`
+    +`<h4 style="margin:10px 0 4px;font-size:13px;color:var(--txt2)">平台分布（胜诉率）</h4>`
     +`<table><thead><tr><th>平台</th><th>案件</th><th>胜诉率</th><th>退款</th></tr></thead><tbody>${platsHtml||'<tr><td colspan="4">无</td></tr>'}</tbody></table>`
-    +`<h4 style="margin:12px 0 4px;font-size:13px;color:#cbd5e1">缺陷构成</h4>`
+    +`<h4 style="margin:12px 0 4px;font-size:13px;color:var(--txt2)">缺陷构成</h4>`
     +`${defectsHtml||'<span class="note">无明显缺陷</span>'}`
-    +`<h4 style="margin:12px 0 4px;font-size:13px;color:#cbd5e1">SKU 清单（按退款排序，最多 30）</h4>`
+    +`<h4 style="margin:12px 0 4px;font-size:13px;color:var(--txt2)">SKU 清单（按退款排序，最多 30）</h4>`
     +`<div class="scrollx"><table><thead><tr><th>SKU</th><th>品类</th><th>案件</th><th>退款</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody>${skuRows||'<tr><td colspan="6">无</td></tr>'}</tbody></table></div>`
     +`<div class="annot-note" style="margin-top:10px">※ 仅基于已沉淀退货数据的客观统计，不构成对供应商的最终裁决结论。</div>`;
   $('#overlay').classList.add('show');
@@ -1376,14 +1452,14 @@ async function loadInsights(){
   const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">黑榜 · 高风险，建议换</div>';
   (black.length?black:sc.slice(0,1)).forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
-    div.innerHTML=`<span><b>${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
+    div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
       +`<span class="pill" style="background:var(--bad)">质量分 ${s.quality_score}</span>`;
     sg.appendChild(div);
   });
   const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">红榜 · 优质，可长期合作</div>';
   red.forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--ok)';
-    div.innerHTML=`<span><b>${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:#94a3b8;font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
+    div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
       +`<span class="pill" style="background:var(--ok)">质量分 ${s.quality_score}</span>`;
     sr.appendChild(div);
   });
@@ -1421,7 +1497,7 @@ async function loadInsights(){
   $('#report').textContent=d.report||'-';
   const adv=$('#advice'); adv.innerHTML='';
   (d.sourcing_advice||d.recommendations||[]).forEach(t=>{
-    const div=document.createElement('div'); div.style.cssText='background:#0b1220;border:1px solid #334155;border-radius:8px;padding:10px;margin-top:8px;font-size:13px';
+    const div=document.createElement('div'); div.style.cssText='background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:13px;color:var(--txt)';
     div.textContent='▸ '+t; adv.appendChild(div);
   });
   if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示数据：'+d.error;
@@ -1455,7 +1531,7 @@ async function loadInsights(){
   if(blacks.length){
     blacks.forEach(s=>{
       const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
-      div.innerHTML=`<span><b>${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:#94a3b8;font-size:11px">${esc(s.reason)}</span></span>`
+      div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">${esc(s.reason)}</span></span>`
         +`<span class="pill" style="background:var(--bad)">${s.quality_score}</span>`;
       bl.appendChild(div);
     });
@@ -1510,10 +1586,10 @@ async function loadPlatforms(){
         +`<div class="kv"><span>响应时限</span><b>${esc(p.response_window)}</b></div>`
         +`<div class="kv"><span>运费承担</span><b>${esc(p.shipping_payer)}</b></div>`
         +`<div class="kv"><span>举证偏向</span><b>${esc(p.burden_bias)}</b></div>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:10px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:#94a3b8;margin-top:8px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:10px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
         +`</div></div>`;
     });
     $('#platTmpl').innerHTML=tmpl;
