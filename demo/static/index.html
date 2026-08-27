@@ -216,6 +216,7 @@
   .steps i{width:18px;height:1px;background:#334155}
   /* 分析中提示（live 模式耗时长，需让评委知道在跑而非卡死） */
   .analyzing{display:flex;align-items:center;gap:8px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.35);border-radius:8px;padding:8px 12px;margin-top:10px;font-size:13px;color:var(--acc)}
+  .analyzing.hide{display:none!important}
   .analyzing .spin{width:14px;height:14px;border:2px solid rgba(56,189,248,.3);border-top-color:var(--acc);border-radius:50%;animation:spin .9s linear infinite;flex:none}
   @keyframes spin{to{transform:rotate(360deg)}}
   /* 结果模式徽标：让评委一眼看出是真 AI 还是演示 */
