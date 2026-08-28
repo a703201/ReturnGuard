@@ -8,9 +8,9 @@
 
 - **公网体验地址**：https://rg.a703201sworld.top （Cloudflare Tunnel 固定域名）
 - **测试账号**：`demo` / `demo123`
-- **代码仓库**：GitHub `a703201/ReturnGuard`（Gitea 镜像同步）；GitCode 镜像见 `docs/复赛交付物总览.md`
+- **代码仓库**：GitHub `a703201/ReturnGuard`（Gitea 镜像同步）；GitCode 镜像见 `复赛文档/复赛交付物总览.md`
 - **当前版本**：v1.1.1（安全复审 SEC-1~12 全清零；live 多模态取证 + 群体洞察看板）
-- **Live 合规**：默认 `tokenplan` 网关（文本洞察真实）；切赛事指定 Model Router 见 `docs/LIVE_COMPLIANCE.md`
+- **Live 合规**：默认 `tokenplan` 网关（文本洞察真实）；切赛事指定 Model Router 见 `复赛文档/LIVE_COMPLIANCE.md`
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
 ## 系统架构一览
