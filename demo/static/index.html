@@ -97,6 +97,16 @@
   .card:not(.collapsed){border-color:rgba(46,91,255,.5);box-shadow:0 0 0 1px rgba(46,91,255,.28),0 10px 30px rgba(2,6,23,.35)}
   .card.collapsed{padding:9px 14px !important;flex:0 0 auto}
   .card.collapsed .card-head{margin:0}
+  .roi-card{background:linear-gradient(135deg, rgba(56,189,248,.10), rgba(16,185,129,.07));border:1px solid rgba(56,189,248,.28)}
+  .roi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 14px;margin:10px 0}
+  .roi-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--txt2)}
+  .roi-grid input{width:100%;padding:7px 9px;border-radius:7px;border:1px solid rgba(148,163,184,.35);background:rgba(148,163,184,.10);color:var(--txt);font-size:13px}
+  .roi-out{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:8px 0 4px}
+  .roi-kpi{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:rgba(148,163,184,.10);border:1px solid rgba(148,163,184,.25)}
+  .roi-num{font-size:20px;font-weight:800;color:var(--acc)}
+  .roi-cap{font-size:11.5px;color:var(--txt2)}
+  .roi-formula{font-size:11px;color:var(--txt2);margin:4px 0 0}
+
   .card:not(.collapsed){flex:1 1 0;min-height:0;display:flex;flex-direction:column}
   /* 展开/收起动效：高度由 JS 实测内容高度（真 auto 高度），过渡 + 淡入 + 微位移 */
   .card .card-body{opacity:0;transform:translateY(-6px);overflow:hidden;transition:max-height .38s cubic-bezier(.4,0,.2,1),opacity .32s ease,transform .32s ease}
@@ -817,6 +827,24 @@
                 <div id="blacklist"></div>
               </div>
             </div>
+          </div>
+          <!-- P1-7 ROI 示例测算面板 -->
+          <div class="card roi-card" style="margin:14px 0 4px">
+            <h3>用了 ReturnGuard，退货纠纷能少亏多少？<span class="badge">P1-7 · ROI 示例测算</span></h3>
+            <p class="desc">把下面的数字换成你店铺的真实情况，实时估算「靠证据说话」能挽回多少误判退款，以及把取证从人工几小时压到几分钟的人力节省。<b>仅为示意测算，不参与任何裁决。</b></p>
+            <div class="roi-grid">
+              <label>年退货订单量（单）<input type="number" id="roiQty" value="12000" min="0"></label>
+              <label>平均客单价（¥）<input type="number" id="roiPrice" value="180" min="0"></label>
+              <label>争议 / 可维权占比（%）<input type="number" id="roiDisp" value="35" min="0" max="100"></label>
+              <label>用 ReturnGuard 后胜诉率提升（百分点）<input type="number" id="roiGain" value="22" min="0" max="100"></label>
+              <label>取证人工时薪（¥/h）<input type="number" id="roiWage" value="40" min="0"></label>
+            </div>
+            <div class="roi-out">
+              <div class="roi-kpi"><span class="roi-num" id="roiSave">¥0</span><span class="roi-cap">预计年挽回误判退款</span></div>
+              <div class="roi-kpi"><span class="roi-num" id="roiTime">¥0</span><span class="roi-cap">年取证人力节省</span></div>
+              <div class="roi-kpi"><span class="roi-num" id="roiMin">3 分钟</span><span class="roi-cap">单均取证耗时（原人工 ~2 小时）</span></div>
+            </div>
+            <p class="roi-formula">测算逻辑：年挽回 ≈ 年退货量 × 客单价 × 争议占比 × 胜诉率提升；人力节省 = 年退货量 ×（2h − 3min）× 时薪。示例值已预填，改任意项即重算。</p>
           </div>
           <!-- C组：实际数据(real)未登录时的全宽登录门（默认隐藏） -->
           <div id="loginGate" class="card">
@@ -2150,6 +2178,24 @@ document.querySelectorAll('.board .col .card').forEach(c=>{
   const head=c.querySelector('.card-head');
   if(head && head.getAttribute('aria-expanded')==='false') c.classList.add('collapsed');
 });
+
+  // P1-7 ROI 示例测算
+  function calcROI(){
+    var q=parseFloat(document.getElementById('roiQty').value)||0;
+    var p=parseFloat(document.getElementById('roiPrice').value)||0;
+    var d=(parseFloat(document.getElementById('roiDisp').value)||0)/100;
+    var g=(parseFloat(document.getElementById('roiGain').value)||0)/100;
+    var w=parseFloat(document.getElementById('roiWage').value)||0;
+    var save=q*p*d*g;
+    var hoursSave=q*(2-3/60);
+    var wageSave=hoursSave*w;
+    document.getElementById('roiSave').textContent='¥'+Math.round(save).toLocaleString('zh-CN');
+    document.getElementById('roiTime').textContent='¥'+Math.round(wageSave).toLocaleString('zh-CN');
+  }
+  ['roiQty','roiPrice','roiDisp','roiGain','roiWage'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.addEventListener('input', calcROI);
+  });
+  calcROI();
 </script>
 </body>
 </html>
