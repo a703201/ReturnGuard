@@ -1,6 +1,6 @@
 # ReturnGuard · openGauss 部署与真实数据自动导入指南
 
-> 适用：复赛部署期使用国产数据库 openGauss 承载「实际退货数据（real 源）」，并在服务启动时自动回流真实业务数据。
+> 适用：复赛部署期使用国产数据库 openGauss 承载**全部业务数据**——demo / real / auth 三库均落在 openGauss（`db:5432/returnguard`），用户库不再落容器 SQLite、跨重启不丢。
 > 开发期仍可零依赖用 SQLite，部署期仅改环境变量，**业务代码零改动**（双轨隔离已在 `db.py` 预埋）。
 
 ---
@@ -17,13 +17,34 @@
 
 ---
 
-## 2. 切到 openGauss（仅改环境变量）
+## 2. 切到 openGauss（Docker Compose 一键部署，推荐）
+
+仓库 `docker/docker-compose.yml` 已内置 openGauss 服务（`rg_opengauss`）与应用服务（`rg_app`），**三库全部指向 openGauss**：
 
 ```bash
-# 实际数据(real 源) 指向 openGauss
+cd returnguard/docker
+docker compose up -d --build
+# 应用映射 127.0.0.1:65432:8000，由 Cloudflare Tunnel 反代到公网
+```
+
+compose 中已设：
+
+```yaml
+environment:
+  DATABASE_URL:        postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+  AUTH_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+  REAL_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+```
+
+> 关键：demo / real / auth **三库均指向同一 openGauss `returnguard` 库**（按 `source` 物理隔离），用户库不再落容器 SQLite，跨容器重启不丢账号与令牌。
+
+### 2.1 手动环境变量方式（非容器，可选）
+
+```bash
+# 三库全部指向 openGauss
+export DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
+export AUTH_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
 export REAL_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
-# 演示数据(demo 源) 仍可用 SQLite（或也指向 openGauss 另一库）
-export DATABASE_URL="sqlite:///./cases.db"
 
 # 可选：写接口鉴权（生产必开）
 export ANALYZE_API_KEY="一个强随机串"
@@ -31,7 +52,7 @@ export ANALYZE_API_KEY="一个强随机串"
 export UPLOAD_MAX_AGE_HOURS=24
 ```
 
-启动后 `db.py` 的 `get_engine` 会自动建表（`Base.metadata.create_all`），无需手动建表。
+启动后 `db.py` 的 `get_engine` 会自动建表（`Base.metadata.create_all`）+ 列迁移（`_migrate_case_columns`），无需手动建表。
 
 > 兼容性补丁：openGauss 的 `SELECT version()` 返回 `(openGauss 5.0.0 ...)`，SQLAlchemy PG 方言会误判；`db.py` 已内置 `_patch_opengauss_dialect`，仅在连接 openGauss/PostgreSQL 时挂接，提取主版本号，导入期无副作用。
 
@@ -75,14 +96,15 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ## 4. 验证部署
 
 ```bash
-# 健康检查
-curl http://localhost:8000/health
+# 健康检查（容器映射 127.0.0.1:65432 → 容器 8000；公网经 Cloudflare Tunnel）
+curl http://127.0.0.1:65432/health
+curl http://127.0.0.1:65432/api/config        # 应返回 "version": "1.1.2"
 
 # 看板应基于 real 源、含自动导入的数据
-curl "http://localhost:8000/api/insights?source=real&mode=mock" | python -m json.tool | head -20
+curl "http://127.0.0.1:65432/api/insights?source=real&mode=mock" | python -m json.tool | head -20
 
-# 确认导入条数
-curl "http://localhost:8000/api/cases?source=real&slim=1" | python -c "import sys,json;print('real 源案件数:',len(json.load(sys.stdin)))"
+# 确认 demo 源已重播 1206 条
+curl "http://127.0.0.1:65432/api/cases?source=demo&slim=1" | python -c "import sys,json;print('demo 源案件数:',len(json.load(sys.stdin)))"
 ```
 
 重启服务再次确认：real 源案件数**不翻倍**（幂等生效）。
@@ -97,6 +119,9 @@ curl "http://localhost:8000/api/cases?source=real&slim=1" | python -c "import sy
 
 ## 6. 注意事项
 
-- openGauss 与 SQLite 双源**物理隔离**：demo 永远来自种子，real 来自录入/导入，切换零代码（`?source=demo|real` 或前端顶栏）。
+- **三库物理隔离在 openGauss 内**：demo 永远来自种子，real 来自录入/导入，auth 存账号/令牌；三者按 `source`/`tenant_id` 隔离，切换零代码（`?source=demo|real` 或前端顶栏）。
+- **`sku_name` 长度**：模型定义为 `VARCHAR(256)`；cases.json 中有商品名长达 145 字符，openGauss 严格长度校验会在 `VARCHAR(128)` 下批量插入报 `DataError`，已扩列规避。
+- **Docker 本地 SQLite 绑挂载坑**：若用 `docker-compose.local.yml`（SQLite + 绑挂载）在 Windows 上启动会遇 `PRAGMA journal_mode=WAL` 的 `disk I/O error`，可设 `SQLITE_NO_WAL=1` 改用 DELETE 日志模式；**生产部署请用本指南的 openGauss compose**，无此问题。
 - 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
 - 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
+- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `1.1.2`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
