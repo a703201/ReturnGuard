@@ -192,7 +192,10 @@ def test_duplicate_register_generic(monkeypatch):
     monkeypatch.setattr(main, "_REGISTRATION_INVITE_CODE", "")
     with TestClient(app) as c:
         u = "dup_" + uuid.uuid4().hex[:6]
-        assert c.post("/api/auth/register", json={"username": u, "password": "secret123"}).status_code == 200
+        assert (
+            c.post("/api/auth/register", json={"username": u, "password": "secret123"}).status_code
+            == 200
+        )
         r2 = c.post("/api/auth/register", json={"username": u, "password": "secret123"})
         assert r2.status_code == 400
         assert "用户名已存在" not in r2.json().get("detail", "")

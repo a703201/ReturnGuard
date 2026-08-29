@@ -21,8 +21,15 @@ from typing import Any
 
 # 平台标识 = 案件库 platform 字段存储值，前后端/数据集统一使用
 PLATFORM_KEYS: list[str] = [
-    "Amazon", "AliExpress", "Temu", "SHEIN",
-    "eBay", "Shopee", "Lazada", "Walmart", "TikTok Shop",
+    "Amazon",
+    "AliExpress",
+    "Temu",
+    "SHEIN",
+    "eBay",
+    "Shopee",
+    "Lazada",
+    "Walmart",
+    "TikTok Shop",
 ]
 
 # 规则对照表在文档/前端展示时的属性顺序
@@ -232,7 +239,7 @@ EVIDENCE_SPECS: dict[str, dict[str, Any]] = {
             "非 SSL 物流无法提供有效追踪 → 丢件判卖家责且无法获补偿",
             '无发货前照片 → "损坏/瑕疵" 类争议难以反驳',
             "买家滥用退货（可疑账户被 watch list 限制，但普通卖家难触发此机制）",
-            '电子产品拆封/使用痕迹 → 不符合「原封/可转售」条件',
+            "电子产品拆封/使用痕迹 → 不符合「原封/可转售」条件",
         ],
         "special_clauses": [
             "Shopee Guarantee Period 内资金由平台托管（escrow 模式）",

@@ -23,19 +23,25 @@ def test_per_capability_fallback_mixed(monkeypatch):
     def _raise(*_a, **_k):
         raise RuntimeError("gateway 未开通图向量")
 
+    def _raise_boxes(*_a, **_k):
+        raise RuntimeError("gateway 未开通视觉定位")
+
     monkeypatch.setattr(models_router, "embed_image", _raise)
+    monkeypatch.setattr(models_router, "vl_detect_boxes", _raise_boxes)
     monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt: "破损,缺件")
     monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None: "全新未拆封")
     monkeypatch.setattr(models_router, "llm", lambda prompt, model=None: "一致性结论")
     monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie": "BASE64AUDIO")
 
     res = pipeline.analyze_case("r.png", "p.png", "全新", "SKU-X", 10.0, mode="live")
-    assert res["mode"] == "live"
+    # 部分能力真实、部分回退 → 诚信标注 live(partial)（而非恒为 live）
+    assert res["mode"] == "live(partial)"
     caps = res["capabilities"]
     assert caps["similarity"] is False  # 向量回退
     assert caps["defects"] is True  # 瑕疵真实
     assert caps["ocr"] is True
     assert caps["tts"] is True
+    assert "similarity" in res["degraded"] and "boxes" in res["degraded"]
     assert res["defect_tags"] == ["破损", "缺件"]  # 真实瑕疵标签
     assert "error" not in res
 
@@ -85,7 +91,15 @@ def test_vl_detect_boxes_parsing(monkeypatch):
     monkeypatch.setattr(
         models_router,
         "requests",
-        type("R", (), {"post": staticmethod(lambda *a, **k: _FakeResp({"choices": [{"message": {"content": raw}}]}))})(),
+        type(
+            "R",
+            (),
+            {
+                "post": staticmethod(
+                    lambda *a, **k: _FakeResp({"choices": [{"message": {"content": raw}}]})
+                )
+            },
+        )(),
     )
     boxes = models_router.vl_detect_boxes("http://x/y.png")
     assert len(boxes) == 1
@@ -129,7 +143,11 @@ def test_live_keypoint_boxes_fallback(monkeypatch):
     monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None: "承诺")
     monkeypatch.setattr(models_router, "llm", lambda prompt, model=None: "结论")
     monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie": "BASE64AUDIO")
-    monkeypatch.setattr(models_router, "vl_detect_boxes", lambda url, prompt=None: (_ for _ in ()).throw(RuntimeError("未开通")))
+    monkeypatch.setattr(
+        models_router,
+        "vl_detect_boxes",
+        lambda url, prompt=None: (_ for _ in ()).throw(RuntimeError("未开通")),
+    )
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
     assert res["capabilities"]["boxes"] is False
     assert res["defect_boxes_live"] is False

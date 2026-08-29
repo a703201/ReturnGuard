@@ -168,88 +168,180 @@ fig2.patch.set_facecolor("#F8FAFC")
 
 # 层定义：(x_center, y, width, height, title, subtitle, color)
 # 层间距加大到 1.0（盒子高 0.55，间隙 ~0.45）
-LH = 0.55          # 盒子高度
+LH = 0.55  # 盒子高度
 layers = [
     (0.50, 4.80, 0.80, LH, "前端层", "看板 / 取证上传 / 证据卷宗 / demo-real 切换", C_FRONT),
     (0.50, 3.80, 0.80, LH, "后端编排层", "FastAPI DAG · 并行取证 + 洞察聚合", C_BACK),
-    (0.50, 2.80, 0.80, LH, "模型能力层", "阿里云百炼 Model Router · 7 能力 live/mock 韧性", C_MODEL),
-    (0.50, 1.80, 0.80, LH, "洞察层（产品核心）", "聚类归因 · 预测预警 · 选品避坑 · 供应商品控", C_INSIGHT),
+    (
+        0.50,
+        2.80,
+        0.80,
+        LH,
+        "模型能力层",
+        "阿里云百炼 Model Router · 7 能力 live/mock 韧性",
+        C_MODEL,
+    ),
+    (
+        0.50,
+        1.80,
+        0.80,
+        LH,
+        "洞察层（产品核心）",
+        "聚类归因 · 预测预警 · 选品避坑 · 供应商品控",
+        C_INSIGHT,
+    ),
 ]
 
 for x, y, w, h, title, sub, fc in layers:
     p = FancyBboxPatch(
-        (x - w / 2, y - h / 2), w, h,
+        (x - w / 2, y - h / 2),
+        w,
+        h,
         boxstyle="round,pad=0.03,rounding_size=0.06",
-        linewidth=0, facecolor=fc, edgecolor="none",
-        zorder=3, alpha=0.92,
+        linewidth=0,
+        facecolor=fc,
+        edgecolor="none",
+        zorder=3,
+        alpha=0.92,
     )
     ax2.add_patch(p)
     # 标题（白色粗体）— 盒内偏上
-    ax2.text(x, y + 0.10, title,
-             fontsize=13.5, fontweight="bold", color="white",
-             fontproperties=fp, ha="center", va="center", zorder=4)
+    ax2.text(
+        x,
+        y + 0.10,
+        title,
+        fontsize=13.5,
+        fontweight="bold",
+        color="white",
+        fontproperties=fp,
+        ha="center",
+        va="center",
+        zorder=4,
+    )
     # 副标题（白色半透明小字）— 盒内偏下
-    ax2.text(x, y - 0.12, sub,
-             fontsize=9, color=(1, 1, 1, 0.85),
-             fontproperties=fp, ha="center", va="center", zorder=4)
+    ax2.text(
+        x,
+        y - 0.12,
+        sub,
+        fontsize=9,
+        color=(1, 1, 1, 0.85),
+        fontproperties=fp,
+        ha="center",
+        va="center",
+        zorder=4,
+    )
 
 # 数据层：双库并排（加宽间距）
 dh = 0.46
 da_w = 0.34
-gap = 0.10       # 两盒之间明确间隙
-da_center_gap = da_w + gap   # 0.44
-da_left = 0.50 - da_center_gap / 2   # 0.28
-da_right = 0.50 + da_center_gap / 2   # 0.72
+gap = 0.10  # 两盒之间明确间隙
+da_center_gap = da_w + gap  # 0.44
+da_left = 0.50 - da_center_gap / 2  # 0.28
+da_right = 0.50 + da_center_gap / 2  # 0.72
 DA1 = (da_left, 0.80, da_w, dh, "demo 库", "cases.json\n(演示种子)", C_DATA)
 DA2 = (da_right, 0.80, da_w, dh, "real 库", "cases_real.db\n(真实·隔离)", C_DATA)
 for x, y, w, h, title, sub, fc in [DA1, DA2]:
     p = FancyBboxPatch(
-        (x - w / 2, y - h / 2), w, h,
+        (x - w / 2, y - h / 2),
+        w,
+        h,
         boxstyle="round,pad=0.03,rounding_size=0.05",
-        linewidth=1.2, facecolor=fc, edgecolor="#94A3B8",
-        zorder=3, alpha=0.85,
+        linewidth=1.2,
+        facecolor=fc,
+        edgecolor="#94A3B8",
+        zorder=3,
+        alpha=0.85,
     )
     ax2.add_patch(p)
-    ax2.text(x, y + 0.08, title,
-             fontsize=10.5, fontweight="bold", color="#1E293B",
-             fontproperties=fp, ha="center", va="center", zorder=4)
-    ax2.text(x, y - 0.09, sub,
-             fontsize=8, color="#64748B",
-             fontproperties=fp, ha="center", va="center", zorder=4)
+    ax2.text(
+        x,
+        y + 0.08,
+        title,
+        fontsize=10.5,
+        fontweight="bold",
+        color="#1E293B",
+        fontproperties=fp,
+        ha="center",
+        va="center",
+        zorder=4,
+    )
+    ax2.text(
+        x,
+        y - 0.09,
+        sub,
+        fontsize=8,
+        color="#64748B",
+        fontproperties=fp,
+        ha="center",
+        va="center",
+        zorder=4,
+    )
 
 # 连接箭头（简洁灰色）
-arrow_style = dict(arrowstyle="-|>", mutation_scale=14, lw=2.0,
-                   color="#94A3B8", zorder=2)
-ly = [l[1] for l in layers]
+arrow_style = dict(arrowstyle="-|>", mutation_scale=14, lw=2.0, color="#94A3B8", zorder=2)
+ly = [layer[1] for layer in layers]
 # 垂直向下箭头：前端->后端->模型->洞察
 for i in range(len(layers) - 1):
-    ax2.add_patch(FancyArrowPatch(
-        (0.50, ly[i] - layers[i][3]/2), (0.50, ly[i+1] + layers[i+1][3]/2),
-        **arrow_style))
+    ax2.add_patch(
+        FancyArrowPatch(
+            (0.50, ly[i] - layers[i][3] / 2),
+            (0.50, ly[i + 1] + layers[i + 1][3] / 2),
+            **arrow_style,
+        )
+    )
 # 洞察 -> 双库（分叉箭头）
-ax2.add_patch(FancyArrowPatch(
-    (0.38, ly[-1] - layers[-1][3]/2), (DA1[0], DA1[1] + dh/2), **arrow_style))
-ax2.add_patch(FancyArrowPatch(
-    (0.62, ly[-1] - layers[-1][3]/2), (DA2[0], DA2[1] + dh/2), **arrow_style))
+ax2.add_patch(
+    FancyArrowPatch((0.38, ly[-1] - layers[-1][3] / 2), (DA1[0], DA1[1] + dh / 2), **arrow_style)
+)
+ax2.add_patch(
+    FancyArrowPatch((0.62, ly[-1] - layers[-1][3] / 2), (DA2[0], DA2[1] + dh / 2), **arrow_style)
+)
 
 # 标注文字
-ax2.text(0.50, 0.38, "双源物理隔离 · tenant 级 · 跨源不可见",
-         fontsize=9, color="#64748B", fontproperties=fp, ha="center")
-ax2.text(1.16, 3.80, "任一模型不可用\n则该步回退演示\n其余能力仍真实生效",
-         fontsize=8, color=C_BACK, fontproperties=fp, ha="center",
-         style="italic", linespacing=1.5,
-         bbox=dict(boxstyle="round,pad=0.35", facecolor="#F5F3FF", edgecolor=C_BACK,
-                   linewidth=0.8, alpha=0.9))
+ax2.text(
+    0.50,
+    0.38,
+    "双源物理隔离 · tenant 级 · 跨源不可见",
+    fontsize=9,
+    color="#64748B",
+    fontproperties=fp,
+    ha="center",
+)
+ax2.text(
+    1.16,
+    3.80,
+    "任一模型不可用\n则该步回退演示\n其余能力仍真实生效",
+    fontsize=8,
+    color=C_BACK,
+    fontproperties=fp,
+    ha="center",
+    style="italic",
+    linespacing=1.5,
+    bbox=dict(
+        boxstyle="round,pad=0.35", facecolor="#F5F3FF", edgecolor=C_BACK, linewidth=0.8, alpha=0.9
+    ),
+)
 
 # 总标题（远高于最上层盒子）
-ax2.text(0.50, 5.40,
-         "ReturnGuard 系统架构",
-         fontsize=17, fontweight="bold", color=INK,
-         fontproperties=fp, ha="center")
-ax2.text(0.50, 5.15,
-         "阿里云百炼 Model Router 驱动 · 退货数据反哺选品洞察",
-         fontsize=10.5, color="#64748B",
-         fontproperties=fp, ha="center")
+ax2.text(
+    0.50,
+    5.40,
+    "ReturnGuard 系统架构",
+    fontsize=17,
+    fontweight="bold",
+    color=INK,
+    fontproperties=fp,
+    ha="center",
+)
+ax2.text(
+    0.50,
+    5.15,
+    "阿里云百炼 Model Router 驱动 · 退货数据反哺选品洞察",
+    fontsize=10.5,
+    color="#64748B",
+    fontproperties=fp,
+    ha="center",
+)
 
 arch_png = os.path.join(OUTDIR, "arch.png")
 fig2.savefig(arch_png, dpi=160, bbox_inches="tight", facecolor="white")

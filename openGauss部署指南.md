@@ -62,7 +62,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 | sku / 产品 | SKU 编号 | **必填**，缺失行跳过 |
 | 品类 / category | 品类 | 3C数码/饰品配件/小家电/服饰鞋包 |
 | 供应商 / supplier | 供应商编号 | S1~S8 |
-| 平台 / platform | 平台 | Amazon/AliExpress/Temu/SHEIN |
+| 平台 / platform | 平台 | Amazon/AliExpress/Temu/SHEIN/eBay/Shopee/Lazada/Walmart/TikTok Shop |
 | 地区 / region | 销售地区 | US/UK/DE/FR/ES/RU/BR |
 | 金额 / 退款 / amount | 退款金额(¥) | 数值 |
 | 日期 / date | 案件日期 | YYYY-MM-DD，驱动时间序列 |
@@ -98,5 +98,5 @@ curl "http://localhost:8000/api/cases?source=real&slim=1" | python -c "import sy
 ## 6. 注意事项
 
 - openGauss 与 SQLite 双源**物理隔离**：demo 永远来自种子，real 来自录入/导入，切换零代码（`?source=demo|real` 或前端顶栏）。
-- 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已在 v1.1.1 外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
-- 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（v1.1.1 · SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
+- 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
+- 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
