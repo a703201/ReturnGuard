@@ -11,14 +11,13 @@ import sys
 import time
 import types
 import uuid
-
-import pytest
-from fastapi.testclient import TestClient
-from urllib.parse import quote, urlparse, parse_qs
+from urllib.parse import parse_qs, quote, urlparse
 
 import auth as auth_mod
 import main as main_mod
+import pytest
 import storage as storage_mod
+from fastapi.testclient import TestClient
 from main import UPLOAD_DIR, app
 
 _DEMO_DIR = pathlib.Path(__file__).resolve().parent.parent  # demo/
@@ -77,6 +76,7 @@ def test_reject_oversize(auth_headers):
 
 
 # ===================== 安全复审回归 =====================
+
 
 def test_write_endpoints_require_login():
     """SEC-1：所有数据写入接口匿名访问必须 401（不能无鉴权全开）。"""
@@ -148,7 +148,11 @@ def test_auth_secret_loaded_from_dotenv():
     clean_env = dict(os.environ)
     clean_env.pop("PYTEST_CURRENT_TEST", None)
     out = subprocess.check_output(
-        [sys.executable, "-c", "import sys;sys.path.insert(0, r'%s');import auth;print(auth._SECRET.hex())" % str(_DEMO_DIR)],
+        [
+            sys.executable,
+            "-c",
+            f"import sys;sys.path.insert(0, r'{_DEMO_DIR}');import auth;print(auth._SECRET.hex())",
+        ],
         cwd=str(_DEMO_DIR),
         env=clean_env,
         text=True,
@@ -209,7 +213,10 @@ def test_signed_upload_url_gate():
             # 伪造签名 → 404
             assert c.get(f"/api/file/{'0' * 32}?f={quote(f)}&e={e}").status_code == 404
             # 过期时间戳 → 404
-            assert c.get(f"/api/file/{'0' * 32}?f={quote(f)}&e={int(time.time()) - 10}").status_code == 404
+            assert (
+                c.get(f"/api/file/{'0' * 32}?f={quote(f)}&e={int(time.time()) - 10}").status_code
+                == 404
+            )
     finally:
         # Windows 文件锁：刚写完/读完的文件瞬时 unlink 可能报 PermissionError，
         # 重试若干次忽略瞬时锁，避免测试偶发 flaky。
@@ -235,5 +242,3 @@ def test_csp_nonce_injected():
         assert f'<script nonce="{nonce}">' in r.text, "内联 <script> 应被注入相同 nonce"
         # script-src 不得再放行 'unsafe-inline'（XSS 主防线）
         assert "script-src 'self' 'nonce-" in csp
-
-

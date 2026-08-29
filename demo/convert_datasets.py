@@ -12,7 +12,12 @@
   - demo/real_returns_sample.csv RG 导入格式（供 /api/import_csv 真实数据回流演示，P1-6）。
 
 设计原则（诚实优先）：
-  - 每个数据集用其真实来源名标注 platform：Amazon / UCI-Retail / TheLook，不伪造跨境平台。
+  - 案件主体（金额/日期/退货量/缺陷/胜负）一律保留真实数据，不做任何编造。
+  - platform 是「渠道标签」而非数据本体：三个数据集自带的 UCI-Retail / TheLook
+    是**数据集名不是平台**，且 Amazon 源独占 74.9%，直接展示既失真又不像多平台生意。
+    故按「品类 × 销售地区」的确定性规则表（DATASET_PLATFORM_RULES）重映射到
+    9 个真实跨境电商平台；数据出处由 sku 前缀（AMZ-/UCI-/TL-）与 mode=dataset
+    保留可追溯。规则表对外公开，不做隐藏伪造。
   - Amazon 含真实退货原因 → 映射为 RG 缺陷标签与胜负判定；UCI/TheLook 无原因 →
     defect_tags="无明显瑕疵"、outcome="待分析"（如实标注，不编造胜负）。
   - 日期整体平移到近窗口（anchor=2026-08-15），保留相对时序；并为 Top-3 SKU 注入近 30 天
@@ -30,14 +35,21 @@
     本脚本只用到 order_items.csv + products.csv（其余大文件 events/inventory_items 不参与）。
 注：转换产物 demo/cases.json 已随仓库提交，demo 源直接读它即可运行，无需先下载数据集。
 """
+
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import random
 from datetime import date, datetime, timedelta
+
+try:
+    from constants import MACRO_REGIONS, REGION_MAP  # 地区归一化单一来源
+except Exception:  # noqa: BLE001  # 独立运行时（缺 constants）退化为不归一化
+    REGION_MAP, MACRO_REGIONS = {}, ()
 
 try:
     import openpyxl
@@ -56,8 +68,14 @@ CSV_OUT = os.path.join(BASE, "real_returns_sample.csv")
 SAME_ITEM_THRESHOLD = 0.82
 # 供应商花名册（8 家，含劣供）；真实数据按 sku 哈希归位，便于供应商红黑榜/质量分演示
 SUPPLIERS = {
-    "S1": "鼎峰精密", "S2": "云仓优选", "S3": "鑫源电子(劣)", "S4": "通达包装弱",
-    "S5": "联创供货", "S6": "海贸乱发(劣)", "S7": "锐捷制造", "S8": "万通杂货",
+    "S1": "鼎峰精密",
+    "S2": "云仓优选",
+    "S3": "鑫源电子(劣)",
+    "S4": "通达包装弱",
+    "S5": "联创供货",
+    "S6": "海贸乱发(劣)",
+    "S7": "锐捷制造",
+    "S8": "万通杂货",
 }
 RG_CATEGORIES = ["3C数码", "饰品配件", "小家电", "服饰鞋包"]
 
@@ -75,55 +93,400 @@ AMAZON_REASON_DEFECT = {
 }
 # 退货原因分类：买家主观原因（卖家更易赢）vs 质量/履约问题（卖家易输）
 REMORSE_REASONS = {"Changed mind", "Duplicate order", "Late delivery"}
-QUALITY_REASONS = {"Quality issue", "Damaged", "Missing parts", "Wrong item", "Not as described", "Size/fit issue"}
+QUALITY_REASONS = {
+    "Quality issue",
+    "Damaged",
+    "Missing parts",
+    "Wrong item",
+    "Not as described",
+    "Size/fit issue",
+}
 
 # 品类关键词映射（UCI/TheLook 英文品类/品名 → RG 4 桶）
 CATEGORY_KEYWORDS = [
-    ("3C数码", ["phone", "charger", "headset", "headphone", "speaker", "cable", "usb",
-                "battery", "lamp", "light", "plug", "adapter", "camera", "wire", "electronic",
-                "earphone", "mouse", "keyboard", "tablet", "computer", "watch", "tech"]),
-    ("饰品配件", ["necklace", "ring", "earring", "bracelet", "pendant", "brooch", "chain",
-                "jewel", "hair", "clip", "bead", "crystal", "gem", "tiara", "necklet",
-                "accessory", "scarf", "glove", "sock", "hat", "beauty", "cosmetic",
-                "toy", "game", "book", "swim"]),
-    ("小家电", ["heater", "bottle", "iron", "toaster", "blender", "kettle", "fryer",
-               "mixer", "purifier", "humidifier", "fan", "vacuum", "cooker", "warmer",
-               "holder", "cup", "mug", "lantern", "t-light", "heart", "door", "sign",
-               "clock", "frame", "vase", "cushion", "rug", "bowl", "plate", "home",
-               "kitchen", "house", "decor", "appliance"]),
-    ("服饰鞋包", ["bag", "shoe", "boot", "dress", "shirt", "trouser", "coat", "cardigan",
-                "apron", "jumper", "top", "sweater", "pant", "wallet", "purse", "cap",
-                "clothing", "apparel", "footwear", "sport", "wear"]),
+    (
+        "3C数码",
+        [
+            "phone",
+            "charger",
+            "headset",
+            "headphone",
+            "speaker",
+            "cable",
+            "usb",
+            "battery",
+            "lamp",
+            "light",
+            "plug",
+            "adapter",
+            "camera",
+            "wire",
+            "electronic",
+            "earphone",
+            "mouse",
+            "keyboard",
+            "tablet",
+            "computer",
+            "watch",
+            "tech",
+        ],
+    ),
+    (
+        "饰品配件",
+        [
+            "necklace",
+            "ring",
+            "earring",
+            "bracelet",
+            "pendant",
+            "brooch",
+            "chain",
+            "jewel",
+            "hair",
+            "clip",
+            "bead",
+            "crystal",
+            "gem",
+            "tiara",
+            "necklet",
+            "accessory",
+            "scarf",
+            "glove",
+            "sock",
+            "hat",
+            "beauty",
+            "cosmetic",
+            "toy",
+            "game",
+            "book",
+            "swim",
+        ],
+    ),
+    (
+        "小家电",
+        [
+            "heater",
+            "bottle",
+            "iron",
+            "toaster",
+            "blender",
+            "kettle",
+            "fryer",
+            "mixer",
+            "purifier",
+            "humidifier",
+            "fan",
+            "vacuum",
+            "cooker",
+            "warmer",
+            "holder",
+            "cup",
+            "mug",
+            "lantern",
+            "t-light",
+            "heart",
+            "door",
+            "sign",
+            "clock",
+            "frame",
+            "vase",
+            "cushion",
+            "rug",
+            "bowl",
+            "plate",
+            "home",
+            "kitchen",
+            "house",
+            "decor",
+            "appliance",
+        ],
+    ),
+    (
+        "服饰鞋包",
+        [
+            "bag",
+            "shoe",
+            "boot",
+            "dress",
+            "shirt",
+            "trouser",
+            "coat",
+            "cardigan",
+            "apron",
+            "jumper",
+            "top",
+            "sweater",
+            "pant",
+            "wallet",
+            "purse",
+            "cap",
+            "clothing",
+            "apparel",
+            "footwear",
+            "sport",
+            "wear",
+        ],
+    ),
 ]
 
 # Amazon product_category 枚举 → RG 4 桶（显式，避免掉入默认桶）
 AMAZON_CAT_MAP = {
-    "Electronics": "3C数码", "Clothing": "服饰鞋包", "Sports": "服饰鞋包",
-    "Beauty": "饰品配件", "Toys": "饰品配件", "Books": "饰品配件", "Home": "小家电",
+    "Electronics": "3C数码",
+    "Clothing": "服饰鞋包",
+    "Sports": "服饰鞋包",
+    "Beauty": "饰品配件",
+    "Toys": "饰品配件",
+    "Books": "饰品配件",
+    "Home": "小家电",
 }
 # TheLook category/department → RG 4 桶
 THELOOK_CAT_MAP = {
-    "Electronics": "3C数码", "Footwear": "服饰鞋包", "Apparel": "服饰鞋包",
-    "Swim": "服饰鞋包", "Athletic": "服饰鞋包", "Accessories": "饰品配件",
-    "Beauty": "饰品配件", "Intimate": "服饰鞋包", "Home": "小家电", "Kitchen": "小家电",
-    "Toy": "饰品配件", "Books": "饰品配件", "Furniture": "小家电",
+    "Electronics": "3C数码",
+    "Footwear": "服饰鞋包",
+    "Apparel": "服饰鞋包",
+    "Swim": "服饰鞋包",
+    "Athletic": "服饰鞋包",
+    "Accessories": "饰品配件",
+    "Beauty": "饰品配件",
+    "Intimate": "服饰鞋包",
+    "Home": "小家电",
+    "Kitchen": "小家电",
+    "Toy": "饰品配件",
+    "Books": "饰品配件",
+    "Furniture": "小家电",
 }
 
 
+# ===========================================================================
+# 平台重映射规则（可维护常量表，勿散成 if-else）
+# ===========================================================================
+# 背景：三个公开数据集自带的 platform 是「数据集名」而非跨境电商平台
+# （UCI-Retail / TheLook 各占 25%），直接进看板会被一眼看穿；且 Amazon 源独占
+# 74.9%，不像多平台生意。故按「品类 + 销售地区」做确定性重映射。
+#
+# 口径说明（诚实优先）：案件主体（金额/日期/退货量/缺陷/胜负）仍是真实数据，
+# 只有 platform 这一「渠道标签」是按业务规则派生的演示口径；数据出处由 sku 前缀
+# （AMZ- / UCI- / TL-）与 mode=dataset 保留可追溯。
+#
+# 权重口径：同一品类内各平台权重之和为 100，数值即「该品类在该平台的期望占比(%)」。
+DATASET_PLATFORM_RULES: dict[str, dict[str, int]] = {
+    # 3C/电子配件：AliExpress / eBay / Walmart 为主阵地
+    "3C数码": {
+        "Amazon": 38,
+        "AliExpress": 16,
+        "eBay": 12,
+        "Walmart": 10,
+        "Temu": 8,
+        "Shopee": 5,
+        "Lazada": 4,
+        "TikTok Shop": 4,
+        "SHEIN": 3,
+    },
+    # 饰品配件：轻小件、长尾，Temu / AliExpress / SHEIN 走量
+    "饰品配件": {
+        "Amazon": 34,
+        "Temu": 16,
+        "AliExpress": 14,
+        "SHEIN": 12,
+        "eBay": 6,
+        "Shopee": 6,
+        "Walmart": 5,
+        "Lazada": 4,
+        "TikTok Shop": 3,
+    },
+    # 家居/小家电：Amazon / Walmart 大件履约优势
+    "小家电": {
+        "Amazon": 48,
+        "Walmart": 14,
+        "eBay": 10,
+        "Temu": 8,
+        "AliExpress": 8,
+        "Shopee": 5,
+        "Lazada": 4,
+        "SHEIN": 2,
+        "TikTok Shop": 1,
+    },
+    # 服饰快时尚：SHEIN / Temu / TikTok Shop 内容电商主场
+    "服饰鞋包": {
+        "Amazon": 30,
+        "SHEIN": 19,
+        "Temu": 17,
+        "TikTok Shop": 12,
+        "Walmart": 6,
+        "AliExpress": 5,
+        "Shopee": 5,
+        "Lazada": 3,
+        "eBay": 3,
+    },
+}
+# 品类缺失/未知时的兜底权重（按全量品类占比加权得到的整体盘口）
+DEFAULT_PLATFORM_WEIGHTS: dict[str, int] = {
+    "Amazon": 37,
+    "Temu": 13,
+    "AliExpress": 11,
+    "SHEIN": 10,
+    "Walmart": 8,
+    "eBay": 7,
+    "Shopee": 5,
+    "TikTok Shop": 5,
+    "Lazada": 4,
+}
+# 地区修正系数：在品类权重上按销售地区放大/衰减，体现区域平台格局。
+# 缺省（含北美、未知）为 1.0 中性，不改动品类盘口。
+REGION_PLATFORM_MODIFIER: dict[str, dict[str, float]] = {
+    "欧洲": {
+        "Amazon": 1.25,
+        "eBay": 1.6,
+        "AliExpress": 1.2,
+        "SHEIN": 0.8,
+        "Temu": 0.8,
+        "Walmart": 0.5,
+        "TikTok Shop": 0.6,
+        "Shopee": 0.35,
+        "Lazada": 0.35,
+    },
+    "东亚": {
+        "AliExpress": 1.5,
+        "Amazon": 1.1,
+        "eBay": 0.8,
+        "SHEIN": 0.6,
+        "Temu": 0.6,
+        "Walmart": 0.5,
+        "Shopee": 0.5,
+        "Lazada": 0.5,
+    },
+    "东南亚": {
+        "Shopee": 4.0,
+        "Lazada": 4.0,
+        "TikTok Shop": 2.5,
+        "eBay": 0.4,
+        "Amazon": 0.35,
+        "Walmart": 0.3,
+    },
+    "南美": {
+        "Shopee": 3.0,
+        "AliExpress": 1.4,
+        "TikTok Shop": 1.2,
+        "Amazon": 0.8,
+        "Walmart": 0.6,
+        "Lazada": 0.5,
+    },
+    "大洋洲": {
+        "eBay": 1.4,
+        "Amazon": 1.3,
+        "AliExpress": 1.1,
+        "Shopee": 0.6,
+        "Lazada": 0.5,
+        "Walmart": 0.5,
+    },
+    "中东": {
+        "AliExpress": 1.5,
+        "Amazon": 1.2,
+        "Temu": 1.2,
+        "SHEIN": 1.2,
+        "Walmart": 0.5,
+        "Shopee": 0.5,
+        "Lazada": 0.5,
+    },
+    "非洲": {
+        "AliExpress": 1.4,
+        "Temu": 1.3,
+        "Amazon": 1.2,
+        "Shopee": 0.8,
+        "Lazada": 0.6,
+        "Walmart": 0.5,
+    },
+}
+# 兜底平台：规则表异常（权重全 0 等）时的最终落点
+PLATFORM_FALLBACK = "Amazon"
+
+try:  # 受控平台白名单（9 个真实跨境平台）；导入失败时退化为不校验
+    from platforms import PLATFORM_KEYS as _PLATFORM_KEYS
+except Exception:  # noqa: BLE001
+    _PLATFORM_KEYS = ()
+
+
+def _stable_hash(text: str) -> int:
+    """跨进程稳定的哈希（内置 hash() 受 PYTHONHASHSEED 随机化影响，不可用于持久化产物）。"""
+    return int.from_bytes(hashlib.md5(str(text).encode("utf-8")).digest()[:8], "big")
+
+
+def _region_bucket(region) -> str:
+    """地区 → 宏观地区（与 pipeline._region_bucket 同口径，共用 constants.REGION_MAP）。"""
+    code = str(region or "").strip()
+    if not code:
+        return ""
+    if code in REGION_PLATFORM_MODIFIER or code in MACRO_REGIONS:
+        return code
+    return REGION_MAP.get(code, "其他")
+
+
+def resolve_platform(category, region, key) -> str:
+    """按「品类权重 × 地区修正」确定性挑选平台。
+
+    同一 (category, region, key) 永远得到同一平台，与 random 状态、PYTHONHASHSEED
+    无关，保证重复生成/导入可复现。key 需带记录级唯一信息（sku+日期+序号）。
+    """
+    weights = DATASET_PLATFORM_RULES.get(category) or DEFAULT_PLATFORM_WEIGHTS
+    mods = REGION_PLATFORM_MODIFIER.get(_region_bucket(region), {})
+    total = sum(max(0.0, w * mods.get(p, 1.0)) for p, w in weights.items())
+    if total <= 0:
+        return PLATFORM_FALLBACK
+    # 落在 [0, total) 的稳定切点，按权重区间取平台
+    cut = (_stable_hash(key) % 100000) / 100000.0 * total
+    acc = 0.0
+    for p, w in weights.items():
+        acc += max(0.0, w * mods.get(p, 1.0))
+        if cut < acc:
+            return p
+    return PLATFORM_FALLBACK
+
+
+def apply_platform_mapping(cases: list[dict], *, remap_all: bool = False) -> int:
+    """把案件 platform 重映射到真实跨境电商平台。
+
+    remap_all=False（默认，上传导入用）：只处理非真实平台的值
+        （如 UCI-Retail / TheLook 这类数据集名），卖家上传的 Amazon 流水保持原样。
+    remap_all=True（生成演示种子用）：全部重映射，用于把 Amazon 一家独大
+        （74.9%）的样本摊到 9 个平台，使平台分布像真实多平台生意。
+
+    返回被重映射的条数。
+    """
+    changed = 0
+    for i, c in enumerate(cases):
+        cur = c.get("platform")
+        if not remap_all and cur in _PLATFORM_KEYS:
+            continue
+        key = f"{c.get('sku') or ''}|{c.get('date') or ''}|{c.get('amount') or 0}|{i}"
+        new_p = resolve_platform(c.get("category"), c.get("region"), key)
+        if new_p != cur:
+            c["platform"] = new_p
+            changed += 1
+    return changed
+
+
 def _supplier_of(key: str) -> str:
-    return "S" + str((abs(hash(key)) % 8) + 1)
+    return "S" + str((_stable_hash(key) % 8) + 1)
 
 
 # 供应商质量分与缺陷挂钩：真实质量缺陷归「劣供」(S3/S6)，干净退货归优质供，
 # 使供应商红黑榜真实收敛（劣供低分上榜、优质供不上榜），而非全员飘红。
-QUALITY_DEFECTS = {"功能故障", "货不对板", "商品缺件", "外包装破损", "污渍划痕", "色差明显", "使用痕迹"}
+QUALITY_DEFECTS = {
+    "功能故障",
+    "货不对板",
+    "商品缺件",
+    "外包装破损",
+    "污渍划痕",
+    "色差明显",
+    "使用痕迹",
+}
 GOOD_SUPPLIERS = ["S1", "S2", "S5", "S7"]
 
 
 def _supplier_for(defects: list[str]) -> str:
     if any(t in QUALITY_DEFECTS for t in (defects or [])):
-        return "S3" if (abs(hash("|".join(defects))) % 2 == 0) else "S6"
-    return GOOD_SUPPLIERS[abs(hash("|".join(defects or ["clean"]))) % len(GOOD_SUPPLIERS)]
+        return "S3" if (_stable_hash("|".join(defects)) % 2 == 0) else "S6"
+    return GOOD_SUPPLIERS[_stable_hash("|".join(defects or ["clean"])) % len(GOOD_SUPPLIERS)]
 
 
 def _map_category(*hints) -> str:
@@ -171,7 +534,7 @@ def load_amazon(limit: int) -> list[dict]:
     for r in rows[1:]:
         if r[idx["returned"]] != 1:
             continue
-        reason = (r[idx["return_reason"]] or "None")
+        reason = r[idx["return_reason"]] or "None"
         if reason in ("None", "nan", ""):
             reason = "Changed mind"  # 无原因按买家主观原因处理
         pid = str(r[idx["product_id"]])
@@ -201,18 +564,32 @@ def load_amazon(limit: int) -> list[dict]:
         wp = _clamp(wp, 0.03, 0.95)
         rr = random.random()
         outcome = "赢" if rr < wp else ("部分退款" if rr < wp + 0.22 else "输")
-        consistency = ("一致（疑似非质量原因，倾向买家责任）"
-                       if (same and defects == ["无明显瑕疵"])
-                       else "存在差异（货不对板 / 运输或质量瑕疵）")
-        out.append({
-            "sku": sku, "sku_name": f"{cat} · {pid}", "category": AMAZON_CAT_MAP.get(cat, _map_category(cat)),
-            "supplier": _supplier_for(defects), "supplier_name": SUPPLIERS[_supplier_for(defects)],
-            "platform": "Amazon", "language": "en", "region": "US",
-            "amount": amt, "date": _to_date(r[idx["order_datetime"]]),
-            "similarity": sim, "same_item": same, "defect_tags": defects,
-            "defect_description": reason, "consistency": consistency,
-            "outcome": outcome, "mode": "dataset",
-        })
+        consistency = (
+            "一致（疑似非质量原因，倾向买家责任）"
+            if (same and defects == ["无明显瑕疵"])
+            else "存在差异（货不对板 / 运输或质量瑕疵）"
+        )
+        out.append(
+            {
+                "sku": sku,
+                "sku_name": f"{cat} · {pid}",
+                "category": AMAZON_CAT_MAP.get(cat, _map_category(cat)),
+                "supplier": _supplier_for(defects),
+                "supplier_name": SUPPLIERS[_supplier_for(defects)],
+                "platform": "Amazon",
+                "language": "en",
+                "region": "US",
+                "amount": amt,
+                "date": _to_date(r[idx["order_datetime"]]),
+                "similarity": sim,
+                "same_item": same,
+                "defect_tags": defects,
+                "defect_description": reason,
+                "consistency": consistency,
+                "outcome": outcome,
+                "mode": "dataset",
+            }
+        )
     # 按比例抽样到 limit，保留品类分布
     if limit and len(out) > limit:
         out = _stratified_sample(out, limit, key=lambda c: c["category"])
@@ -232,7 +609,7 @@ def load_uci(limit: int) -> list[dict]:
     out = []
     sampled = 0
     total = limit * 60  # 蓄水池上限，避免全量存
-    MAX_ROWS = 150000   # 行数上限：退货行密度足够，避免 54 万行全量解析拖慢转换
+    MAX_ROWS = 150000  # 行数上限：退货行密度足够，避免 54 万行全量解析拖慢转换
     read = 0
     for r in ws.iter_rows(values_only=True):
         read += 1
@@ -241,7 +618,9 @@ def load_uci(limit: int) -> list[dict]:
         inv, stock, desc, qty, invdate, price, cust, country = (list(r) + [None] * 8)[:8]
         if inv is None or stock is None:
             continue
-        is_return = (isinstance(inv, str) and inv.startswith("C")) or (isinstance(qty, (int, float)) and qty < 0)
+        is_return = (isinstance(inv, str) and inv.startswith("C")) or (
+            isinstance(qty, (int, float)) and qty < 0
+        )
         if not is_return:
             continue
         amt = round(abs(float(qty or 0) * float(price or 0)), 2)
@@ -261,17 +640,27 @@ def load_uci(limit: int) -> list[dict]:
     wb.close()
     cases = []
     for sku, stock, desc, amt, invdate, country in out:
-        cases.append({
-            "sku": sku, "sku_name": str(desc or stock),
-            "category": _map_category(desc, stock),
-            "supplier": _supplier_for(["无明显瑕疵"]), "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"])],
-            "platform": "UCI-Retail", "language": "en", "region": str(country or "UK"),
-            "amount": amt, "date": _to_date(invdate),
-            "similarity": round(random.uniform(0.86, 0.97), 3), "same_item": True,
-            "defect_tags": ["无明显瑕疵"], "defect_description": "退货原因未标注（交易流数据）",
-            "consistency": "一致（退货原因未标注，待卖家补充）",
-            "outcome": "待分析", "mode": "dataset",
-        })
+        cases.append(
+            {
+                "sku": sku,
+                "sku_name": str(desc or stock),
+                "category": _map_category(desc, stock),
+                "supplier": _supplier_for(["无明显瑕疵"]),
+                "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"])],
+                "platform": "UCI-Retail",
+                "language": "en",
+                "region": str(country or "UK"),
+                "amount": amt,
+                "date": _to_date(invdate),
+                "similarity": round(random.uniform(0.86, 0.97), 3),
+                "same_item": True,
+                "defect_tags": ["无明显瑕疵"],
+                "defect_description": "退货原因未标注（交易流数据）",
+                "consistency": "一致（退货原因未标注，待卖家补充）",
+                "outcome": "待分析",
+                "mode": "dataset",
+            }
+        )
     return cases
 
 
@@ -316,17 +705,29 @@ def load_thelook(limit: int) -> list[dict]:
     cases = []
     for sku, prod, amt, ret in out:
         cat = prod.get("category") or prod.get("department") or ""
-        cases.append({
-            "sku": sku, "sku_name": str(prod.get("name") or sku),
-            "category": THELOOK_CAT_MAP.get(cat) or THELOOK_CAT_MAP.get(prod.get("department")) or _map_category(cat, prod.get("department")),
-            "supplier": _supplier_for(["无明显瑕疵"]), "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"])],
-            "platform": "TheLook", "language": "en", "region": "US",
-            "amount": amt, "date": _to_date(ret),
-            "similarity": round(random.uniform(0.86, 0.97), 3), "same_item": True,
-            "defect_tags": ["无明显瑕疵"], "defect_description": "退货原因未标注（订单流数据）",
-            "consistency": "一致（退货原因未标注，待卖家补充）",
-            "outcome": "待分析", "mode": "dataset",
-        })
+        cases.append(
+            {
+                "sku": sku,
+                "sku_name": str(prod.get("name") or sku),
+                "category": THELOOK_CAT_MAP.get(cat)
+                or THELOOK_CAT_MAP.get(prod.get("department"))
+                or _map_category(cat, prod.get("department")),
+                "supplier": _supplier_for(["无明显瑕疵"]),
+                "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"])],
+                "platform": "TheLook",
+                "language": "en",
+                "region": "US",
+                "amount": amt,
+                "date": _to_date(ret),
+                "similarity": round(random.uniform(0.86, 0.97), 3),
+                "same_item": True,
+                "defect_tags": ["无明显瑕疵"],
+                "defect_description": "退货原因未标注（订单流数据）",
+                "consistency": "一致（退货原因未标注，待卖家补充）",
+                "outcome": "待分析",
+                "mode": "dataset",
+            }
+        )
     return cases
 
 
@@ -335,12 +736,13 @@ def load_thelook(limit: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 def _stratified_sample(cases: list[dict], limit: int, key) -> list[dict]:
     from collections import defaultdict
+
     buckets: dict = defaultdict(list)
     for c in cases:
         buckets[key(c)].append(c)
     per = max(1, limit // max(1, len(buckets)))
     out = []
-    for b, items in buckets.items():
+    for _, items in buckets.items():
         random.shuffle(items)
         out.extend(items[:per])
     random.shuffle(out)
@@ -369,6 +771,7 @@ def _inject_spikes(cases: list[dict], anchor: date) -> None:
     抽样后自然 SKU 未必达 6 笔，故对 Top-3 SKU 不足 6 笔时克隆补足（模拟同款反复退货），
     再把 5 笔落入近 30 天、其余(≥1)落入 31-60 天，确保触发预警。"""
     from collections import Counter
+
     cnt = Counter(c["sku"] for c in cases)
     top = [s for s, _ in cnt.most_common(3)]
     for s in top:
@@ -383,7 +786,7 @@ def _inject_spikes(cases: list[dict], anchor: date) -> None:
         n_prior = max(1, len(sks) - n_recent)
         for c in sks[:n_recent]:
             c["date"] = anchor - timedelta(days=random.randint(0, 29))
-        for c in sks[n_recent:n_recent + n_prior]:
+        for c in sks[n_recent : n_recent + n_prior]:
             c["date"] = anchor - timedelta(days=random.randint(31, 60))
 
 
@@ -402,9 +805,16 @@ def main():
     uci = load_uci(150)
     thelook = load_thelook(150)
     cases = amazon + uci + thelook
-    print(f"归一化完成：Amazon={len(amazon)} UCI={len(uci)} TheLook={len(thelook)} 合计={len(cases)}")
+    print(
+        f"归一化完成：Amazon={len(amazon)} UCI={len(uci)} TheLook={len(thelook)} 合计={len(cases)}"
+    )
 
     _remap_dates(cases, date(2026, 8, 15))
+
+    # 平台重映射：数据集名(UCI-Retail/TheLook) → 真实跨境电商平台；
+    # 同时把 Amazon 一家独大(74.9%)的样本按品类×地区摊到 9 个平台。
+    n_changed = apply_platform_mapping(cases, remap_all=True)
+    print(f"[platform] 重映射 {n_changed}/{len(cases)} 条 → 真实跨境电商平台")
 
     # 案件号（RG-000001 连续），保证与历史格式兼容
     for i, c in enumerate(cases, 1):
@@ -413,6 +823,7 @@ def main():
     # 备份并覆盖 cases.json
     if not args.no_backup and os.path.exists(CASES_JSON) and not os.path.exists(CASES_BACKUP):
         import shutil
+
         shutil.copy(CASES_JSON, CASES_BACKUP)
         print(f"[backup] 原合成种子 -> {os.path.basename(CASES_BACKUP)}")
     with open(CASES_JSON, "w", encoding="utf-8") as f:
@@ -421,9 +832,26 @@ def main():
 
     # 导出导入用 CSV（RG import 列）
     if not args.no_csv:
-        cols = ["case_id", "sku", "sku_name", "category", "supplier", "supplier_name",
-                "platform", "language", "region", "amount", "date", "similarity",
-                "same_item", "defect_tags", "defect_description", "consistency", "outcome", "mode"]
+        cols = [
+            "case_id",
+            "sku",
+            "sku_name",
+            "category",
+            "supplier",
+            "supplier_name",
+            "platform",
+            "language",
+            "region",
+            "amount",
+            "date",
+            "similarity",
+            "same_item",
+            "defect_tags",
+            "defect_description",
+            "consistency",
+            "outcome",
+            "mode",
+        ]
         with open(CSV_OUT, "w", encoding="utf-8-sig", newline="") as f:
             w = csv.writer(f)
             w.writerow(cols)
@@ -434,6 +862,7 @@ def main():
 
     # 分布速览
     from collections import Counter
+
     print("  平台:", dict(Counter(c["platform"] for c in cases)))
     print("  品类:", dict(Counter(c["category"] for c in cases)))
     print("  胜负:", dict(Counter(c["outcome"] for c in cases)))

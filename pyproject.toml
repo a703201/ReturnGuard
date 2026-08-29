@@ -25,3 +25,9 @@ target-version = ["py311"]
 python_version = "3.11"
 ignore_missing_imports = true
 warn_unused_ignores = false
+
+[tool.pytest.ini_options]
+# 项目代码在 demo/ 下，conftest/测试从根目录（本地与 CI 一致）运行时必须把它加入 sys.path，
+# 否则 import shared_state / import main 会 ModuleNotFoundError（即原 CI 崩的根因）。
+pythonpath = ["demo"]
+testpaths = ["demo/tests"]

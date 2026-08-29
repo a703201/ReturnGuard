@@ -40,8 +40,8 @@ from calibration import get_active_threshold
 from constants import SEVERITY
 from dotenv import load_dotenv
 from prompts import (
-    DEFECT_RECOGNITION_PROMPT,
     DEFECT_BBOX_PROMPT,
+    DEFECT_RECOGNITION_PROMPT,
     OCR_PROMISE_PROMPT,
     build_insights_prompt,
     consistency_prompt,
@@ -124,7 +124,9 @@ if MODEL_ROUTER_PROFILE == "official" and not TEXT_MODEL.startswith("qwen/"):
 
 logger.info(
     "模型网关已加载 profile=%s endpoint=%s key_set=%s",
-    MODEL_ROUTER_PROFILE, API_BASE, bool(API_KEY),
+    MODEL_ROUTER_PROFILE,
+    API_BASE,
+    bool(API_KEY),
 )
 
 
@@ -387,7 +389,7 @@ def _fallback_defect_boxes(returned_path: str, defects: list[str]) -> list[dict]
     与 pipeline._mock 的示意框口径一致：按缺陷标签生成归一化 [x,y,w,h] + 演示置信度；
     live 路径下会如实通过 capabilities["boxes"]=False 向前端标注「示意回退」。"""
     out: list[dict] = []
-    h = int(hashlib.md5(f"{returned_path}|boxes".encode("utf-8")).hexdigest(), 16)
+    h = int(hashlib.md5(f"{returned_path}|boxes".encode()).hexdigest(), 16)
     rng = random.Random(h)
     for d in defects:
         if d == "无明显瑕疵":
@@ -417,6 +419,23 @@ def _gen_wav(text: str, sr: int = 16000, dur: float = 1.2) -> str:
 
 
 # ===================== 单案取证（阶段A）实时编排 =====================
+def _honest_mode(caps: dict) -> str:
+    """按 capabilities 的真实降级程度给出 mode 标注，杜绝"全回退仍标 live"。
+
+    - 全部能力均回退 → "mock(fallback)"（与阶段B 群体洞察的回退标注口径一致）
+    - 部分回退       → "live(partial)"（前端可提示"本轮部分能力回退"）
+    - 全部真实       → "live"
+    """
+    if not caps:
+        return "mock(fallback)"
+    live_keys = [k for k, v in caps.items() if v]
+    if not live_keys:
+        return "mock(fallback)"
+    if len(live_keys) < len(caps):
+        return "live(partial)"
+    return "live"
+
+
 def live_analyze(
     returned_path: str,
     product_path: str,
@@ -524,8 +543,12 @@ def live_analyze(
         "priority_score": priority,
         "defect_boxes": boxes,  # live 真实 bbox（网关开通 qwen3-vl-plus）或确定性示意框（回退）
         "defect_boxes_live": caps.get("boxes", False),  # True=真实视觉坐标，False=示意回退
-        "mode": "live",
+        # 诚信标注：此前无论 capabilities 是否全部回退都恒返回 "live"，与阶段B 群体洞察的
+        # "mock(fallback)" 口径自相矛盾——演示时拔掉网线即可复现"标称 AI 实算、实为确定性
+        # 哈希"。现按真实降级程度标注：全回退 → mock(fallback)，部分回退 → live(partial)。
+        "mode": _honest_mode(caps),
         "capabilities": caps,  # 透出哪些能力是真实模型、哪些是回退，便于演示说明
+        "degraded": [k for k, v in caps.items() if not v],  # 本轮实际降级的能力清单
     }
 
 

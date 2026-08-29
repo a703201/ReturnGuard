@@ -42,9 +42,9 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    event,
     text,
 )
-from sqlalchemy import event
 from sqlalchemy.dialects.postgresql.base import PGDialect
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -143,6 +143,28 @@ def get_engine(source: str = DEFAULT_SOURCE):
                 cur.close()
 
         return _engines[source]
+
+
+def checkpoint_wal(source: str = DEFAULT_SOURCE) -> bool:
+    """对 SQLite 执行一次 TRUNCATE checkpoint：把 WAL 内容落回主库并截断 WAL 文件。
+
+    背景（实测）：SQLAlchemy 2.0 对文件型 SQLite 默认 QueuePool，长连接持有读锁导致 WAL
+    无法自动 truncate，实测膨胀到主库的 200 倍（rg_state.db 20KB / WAL 4.1MB；cases.db
+    495KB / WAL 1.6MB），长期运行会持续吃磁盘。需在启动与关闭时各执行一次，长期驻留的
+    服务还应周期性调用（见 main.py 的 WAL 巡检线程）。非 SQLite（openGauss/PG）直接跳过。
+    """
+    source = _normalize_source(source)
+    engine = get_engine(source)
+    if not str(engine.url).startswith("sqlite"):
+        return False
+    try:
+        with engine.connect() as conn:
+            conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+        return True
+    except Exception:  # noqa: BLE001
+        # 存在活跃读连接时 checkpoint 会返回 busy，属预期情况，下一轮再试即可
+        logger.debug("[%s] WAL checkpoint 未执行（可能有活跃连接）", source, exc_info=True)
+        return False
 
 
 def get_session(source: str = DEFAULT_SOURCE):
@@ -335,9 +357,10 @@ def list_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> li
         q = s.query(*_LIST_FIELDS)
         if source == "real" and tenant_id is not None:
             q = q.filter(
-                (Case.tenant_id == tenant_id)
-                | (Case.tenant_id.is_(None))
-                | (Case.tenant_id == PUBLIC_TENANT)
+                # SEC-P0: 不再把 tenant_id IS NULL 的记录并给任意登录用户——那会造成
+                # 归属不明的数据对所有人可见。此类历史数据在 init_db 时回填为 public
+                # （见 _backfill_null_tenant），此处只放行「本租户」与「显式公共桶」。
+                (Case.tenant_id == tenant_id) | (Case.tenant_id == PUBLIC_TENANT)
             )
         rows = q.all()
     return [_row_to_slim_dict(r) for r in rows]
@@ -395,9 +418,7 @@ def _migrate_case_columns(engine) -> None:
                 conn.execute(text(f"ALTER TABLE cases ADD COLUMN {name} {col_type}"))
                 if need_idx:  # 兜底补索引（create_all 在 ALTER 路径下不会重建索引）
                     idx_name = f"ix_cases_{name}"
-                    conn.execute(
-                        text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON cases ({name})")
-                    )
+                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON cases ({name})"))
             added.append(name)
         except Exception:  # noqa: BLE001
             logger.warning("[migrate] 补列失败（已跳过，不影响其余列）: %s %s", name, col_type)
@@ -407,6 +428,30 @@ def _migrate_case_columns(engine) -> None:
         logger.info("[migrate] 已补列 %d 个: %s", len(added), added)
     if failed:
         logger.warning("[migrate] 仍有 %d 列补列失败（需人工介入）: %s", len(failed), failed)
+
+
+def _backfill_null_tenant(source: str = DEFAULT_SOURCE) -> int:
+    """把 tenant_id IS NULL 的历史案件一次性回填为 PUBLIC_TENANT（幂等，无 NULL 时不写库）。
+
+    SEC-P0 配套：查询层已不再把 NULL 记录并给任意登录用户（那等于归属不明的数据对所有人
+    可见）。若不回填，这批记录会从所有视图里"消失"。启动时收进显式公共桶，既保证数据不丢，
+    又不再是隐式共享。
+    """
+    source = _normalize_source(source)
+    try:
+        with get_session(source) as s:
+            n = (
+                s.query(Case)
+                .filter(Case.tenant_id.is_(None))
+                .update({Case.tenant_id: PUBLIC_TENANT}, synchronize_session=False)
+            )
+            if n:
+                s.commit()
+                logger.info("[%s] 已将 %d 条归属不明的案件回填为 public 租户", source, n)
+            return n
+    except Exception:  # noqa: BLE001
+        logger.warning("[%s] 回填 NULL 租户失败（不影响启动）", source, exc_info=True)
+        return 0
 
 
 def init_db(
@@ -425,6 +470,7 @@ def init_db(
         Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     _migrate_case_columns(engine)  # 通用 Schema 演进：存量库补缺失列（含多租户 tenant_id）
+    _backfill_null_tenant(source)  # SEC-P0：归属不明的历史数据收进显式 public 桶
     if source == "demo":
         if seed_json is None:
             seed_json = os.path.join(BASE, "cases.json")
@@ -458,9 +504,10 @@ def load_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> li
         q = s.query(Case)
         if source == "real" and tenant_id is not None:
             q = q.filter(
-                (Case.tenant_id == tenant_id)
-                | (Case.tenant_id.is_(None))
-                | (Case.tenant_id == PUBLIC_TENANT)
+                # SEC-P0: 不再把 tenant_id IS NULL 的记录并给任意登录用户——那会造成
+                # 归属不明的数据对所有人可见。此类历史数据在 init_db 时回填为 public
+                # （见 _backfill_null_tenant），此处只放行「本租户」与「显式公共桶」。
+                (Case.tenant_id == tenant_id) | (Case.tenant_id == PUBLIC_TENANT)
             )
         data = [_row_to_dict(r) for r in q.all()]
     if tenant_id is None:
@@ -505,9 +552,10 @@ def get_case(
         q = s.query(Case).filter_by(case_id=case_id)
         if source == "real" and tenant_id is not None:
             q = q.filter(
-                (Case.tenant_id == tenant_id)
-                | (Case.tenant_id.is_(None))
-                | (Case.tenant_id == PUBLIC_TENANT)
+                # SEC-P0: 不再把 tenant_id IS NULL 的记录并给任意登录用户——那会造成
+                # 归属不明的数据对所有人可见。此类历史数据在 init_db 时回填为 public
+                # （见 _backfill_null_tenant），此处只放行「本租户」与「显式公共桶」。
+                (Case.tenant_id == tenant_id) | (Case.tenant_id == PUBLIC_TENANT)
             )
         r = q.first()
         return _row_to_dict(r) if r else None
@@ -523,9 +571,10 @@ def delete_case(
         q = s.query(Case).filter_by(case_id=case_id)
         if source == "real" and tenant_id is not None:
             q = q.filter(
-                (Case.tenant_id == tenant_id)
-                | (Case.tenant_id.is_(None))
-                | (Case.tenant_id == PUBLIC_TENANT)
+                # SEC-P0: 不再把 tenant_id IS NULL 的记录并给任意登录用户——那会造成
+                # 归属不明的数据对所有人可见。此类历史数据在 init_db 时回填为 public
+                # （见 _backfill_null_tenant），此处只放行「本租户」与「显式公共桶」。
+                (Case.tenant_id == tenant_id) | (Case.tenant_id == PUBLIC_TENANT)
             )
         n = q.delete()
         s.commit()

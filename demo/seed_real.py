@@ -28,6 +28,8 @@ import time
 import urllib.request
 from datetime import date
 
+from constants import BLACKLIST_LEVELS
+
 BASE_URL = "http://localhost:8000"
 SOURCE = "real"
 
@@ -501,7 +503,7 @@ def _print_summary(agg: dict, mode: str) -> None:
         print(f"  ⚠ {a.get('sku')}：{a.get('reason')}")
     print("\n— 供应商红黑榜（黑榜=高风险）—")
     for s in agg.get("supplier_scorecard", []):
-        if s.get("quality_score", 99) < 50:
+        if s.get("level") in BLACKLIST_LEVELS:
             print(
                 f"  🔴 {s.get('supplier')} {s.get('name')}：质量分 {s.get('quality_score')}（{s.get('level')}）"
                 f" 胜诉率={s.get('win_rate')} 缺陷率={s.get('defect_rate')}"

@@ -1,8 +1,8 @@
 # ReturnGuard 接口文档（API.md）
 
 > **服务**：ReturnGuard Demo（FastAPI）
-> **最后更新**：2026-08-27（v1.1.1）
-> **关联文档**：`docs/PRD.md`、`ModelRouter_API.docx`（模型能力参考）、`CHANGELOG.md`（v1.1.1 安全复审闭环）
+> **最后更新**：2026-08-29（1.1.2）
+> **关联文档**：`docs/PRD.md`、`ModelRouter_API.docx`（模型能力参考）、`CHANGELOG.md`（安全复审闭环）
 
 ---
 
@@ -19,7 +19,7 @@
 - **错误响应**：HTTP 状态码 + FastAPI 默认 `{ "detail": "..." }`。
 - **live 回退**：live 模式失败时**不报 5xx**，返回 `200` 并带 `mode="mock(fallback)"` 与 `error` 字段，保证前端不中断。
 - **兼容键**：`/api/insights` 始终返回 `total_cases` / `sku_ranking` / `defect_distribution`，前端无需按模式分支。
-- **鉴权（v1.1.1 起强制）**：写接口（`POST /api/analyze`、`POST/DELETE /api/cases`、`POST /api/import_csv`）须携带登录会话；管理端点（`POST /api/calibrate`、`GET /metrics`）须 `ADMIN_API_KEY` 或登录会话。令牌经 `Authorization: Bearer <token>` 或 `X-Token: <token>` 头传递（**不再支持 `?token=` 查询参数**，SEC-4）。未携带 → `401`。
+- **鉴权（强制）**：写接口（`POST /api/analyze`、`POST/DELETE /api/cases`、`POST /api/import_csv`）须携带登录会话；管理端点（`POST /api/calibrate`、`GET /metrics`）须 `ADMIN_API_KEY` 或登录会话。令牌经 `Authorization: Bearer <token>` 或 `X-Token: <token>` 头传递（**不再支持 `?token=` 查询参数**，SEC-4）。未携带 → `401`。
 - **多租户**：`real` 源案件按 `tenant_id` 隔离；`public` 基准共享；`demo` 源为共享演示库。数据变更接口均须登录态，禁止匿名写入。
 
 ---
@@ -149,7 +149,7 @@ curl http://localhost:8000/api/cases
 - **`DELETE /api/cases/{id}`**：删除指定案件（仅当前租户可删自己写入的；跨租户删除 → `403`/`404`）；须登录会话。
 - 两接口仅落**当前数据源**（`?source=demo|real`，前端顶栏开关透传），不污染另一源。
 
-### 3.7 `GET /api/file/{sig}` —— 上传图签名短链（v1.1.1 · SEC-8）
+### 3.7 `GET /api/file/{sig}` —— 上传图签名短链（SEC-8）
 退货图（PII）不再经 `/uploads` 公开挂载，改为 HMAC 签名 + TTL 短链：
 ```
 /api/file/{sig}?f=<filename>&e=<exp_unix>
@@ -159,7 +159,7 @@ curl http://localhost:8000/api/cases
 - 伪造签名 / 过期时间戳 → `404`；匿名直接访问旧 `/uploads/...` → `404`（挂载已移除）。
 - OSS / 七牛 / `PUBLIC_IMAGE_BASE` 公网 URL 不经此路由，不受影响。
 
-### 3.8 `POST /api/calibrate` · `GET /metrics` —— 管理端点（v1.1.1 · SEC-1/7）
+### 3.8 `POST /api/calibrate` · `GET /metrics` —— 管理端点（SEC-1/7）
 - **`POST /api/calibrate`**：用真同款/调包样本按 Youden J 标定相似度阈值（`CalibrateRequest`）；须 `ADMIN_API_KEY` 或登录会话，匿名 → `401`。
 - **`GET /metrics`**：运行指标（`requests` / `latency_ms_sum` / `errors` / `analyze_count` 等）；须 `ADMIN_API_KEY` 或登录会话，匿名 → `401`。
 
@@ -275,7 +275,7 @@ build_insights_live(aggregated):
 
 ---
 
-## 6. 安全（v1.1.1 安全复审闭环）
+## 6. 安全（安全复审闭环，SEC-1~12 全清零）
 
 公网部署语境下，安全发现项 **SEC-1 ~ SEC-12 已全部清零**。设计要点：
 

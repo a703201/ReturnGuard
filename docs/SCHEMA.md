@@ -1,6 +1,6 @@
 # ReturnGuard 数据库表结构（SCHEMA）
 
-> 适用版本：V1.1.1（仓库根 `VERSION` 为单一来源）
+> 适用版本：1.1.2（仓库根 `VERSION` 为单一来源）
 > 对应代码：`demo/db.py` 的 `Case` 模型（ORM 单一来源）
 > 本文件与 `demo/schema.sql` 互为镜像：本文档给人看，`.sql` 给数据库用。
 
@@ -9,7 +9,7 @@
 | 项 | 值 |
 |----|----|
 | 数据库 | SQLite |
-| demo 源 | `cases.db`（种子约 672 条，由 `generate_dataset.py` 生成） |
+| demo 源 | `cases.db`（**1206 条**真实退货案件，由 `cases.json` 播种） |
 | real 源 | `cases_real.db`（初始空库，供网页端录入 / 删除） |
 | 表名 | `cases` |
 | 隔离方式 | demo / real **双源物理隔离**，各自独立建表，schema 完全一致 |
@@ -27,7 +27,7 @@
 | 5 | `category` | VARCHAR(64) | ✅ | 品类：3C数码 / 饰品配件 / 小家电 / 服饰鞋包 | |
 | 6 | `supplier` | VARCHAR(32) | ✅ | 供应商编号 S1~S8 | |
 | 7 | `supplier_name` | VARCHAR(128) | | 供应商名称 | |
-| 8 | `platform` | VARCHAR(32) | ✅ | 销售平台：Amazon / AliExpress / Temu / SHEIN | |
+| 8 | `platform` | VARCHAR(32) | ✅ | 销售平台（9 个）：Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop | |
 | 9 | `language` | VARCHAR(16) | | 举证语种 | 单案上传时附带 |
 | 10 | `region` | VARCHAR(32) | | 销售地区 | |
 | 11 | `amount` | FLOAT | | 退款 / 争议金额（¥） | |

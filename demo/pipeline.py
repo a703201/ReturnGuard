@@ -36,7 +36,18 @@ from datetime import datetime
 from statistics import mean
 
 from calibration import get_active_threshold
-from constants import DEFECT_POOL, SEVERITY
+from constants import (
+    BLACKLIST_LEVELS,
+    DECIDED_OUTCOMES,
+    DEFECT_POOL,
+    REGION_MAP,
+    SEVERITY,
+    SUPPLIER_LEVEL_THRESHOLDS,
+    SUPPLIER_LEVEL_TOP,
+)
+
+# re-export：保留历史内部引用名 _REGION_MAP（数据本体已迁到 constants 单一来源）
+_REGION_MAP = REGION_MAP
 
 logger = logging.getLogger("returnguard.pipeline")
 
@@ -240,40 +251,14 @@ _REGION_SHIP_RATIO = {
     "东亚": 0.13,
     "东南亚": 0.12,
     "大洋洲": 0.17,
+    "中东": 0.15,
+    "非洲": 0.16,
     "": 0.14,
     "未知": 0.14,
     "其他": 0.14,
 }
-# 国家代码 → 宏观销售地区（仅兜底映射；已是中文宏观地区则透传）
-_REGION_MAP = {
-    "US": "北美",
-    "CA": "北美",
-    "MX": "北美",
-    "UK": "欧洲",
-    "DE": "欧洲",
-    "FR": "欧洲",
-    "ES": "欧洲",
-    "IT": "欧洲",
-    "RU": "欧洲",
-    "NL": "欧洲",
-    "SE": "欧洲",
-    "PL": "欧洲",
-    "PT": "欧洲",
-    "BR": "南美",
-    "AR": "南美",
-    "CL": "南美",
-    "JP": "东亚",
-    "KR": "东亚",
-    "CN": "东亚",
-    "SG": "东南亚",
-    "MY": "东南亚",
-    "TH": "东南亚",
-    "VN": "东南亚",
-    "ID": "东南亚",
-    "PH": "东南亚",
-    "AU": "大洋洲",
-    "NZ": "大洋洲",
-}
+# 国家代码 / 国家全名 → 宏观销售地区，见 constants.REGION_MAP（单一来源）。
+# 已在此处 re-export，保持历史 import 路径与内部引用不变。
 
 
 def _region_bucket(code: str | None) -> str:
@@ -336,6 +321,14 @@ def _build_category_heatmap(cat: dict) -> list[dict]:
     return out
 
 
+def _supplier_level(score: float) -> str:
+    """质量分 → 档位（阈值取自 constants，与黑名单判定共用同一套，杜绝漂移）。"""
+    for bound, level in SUPPLIER_LEVEL_THRESHOLDS:
+        if score < bound:
+            return level
+    return SUPPLIER_LEVEL_TOP
+
+
 def _build_supplier_scorecard(sup: dict) -> list[dict]:
     out: list[dict] = []
     for k, v in sup.items():
@@ -344,9 +337,7 @@ def _build_supplier_scorecard(sup: dict) -> list[dict]:
         defect_rate = round(v["real"] / v["cases"], 3) if v["cases"] else 0
         wr = round(v["won"] / v["cases"], 3) if v["cases"] else 0
         score = round(100 * (0.5 * wr + 0.5 * (1 - defect_rate)), 1)
-        level = (
-            "高风险" if score < 20 else "待改进" if score < 30 else "合格" if score < 38 else "优质"
-        )
+        level = _supplier_level(score)
         # 缺陷构成：剔除"无明显瑕疵"占位，保留真实缺陷分布（前端画构成条）
         defect_dist = {dk: dv for dk, dv in v["defects"].items() if dk != "无明显瑕疵"}
         out.append(
@@ -371,13 +362,16 @@ def _build_supplier_scorecard(sup: dict) -> list[dict]:
 
 
 def _build_platform_view(plat: dict) -> list[dict]:
+    # win_rate 分母用 decided（已判定）而非 cases：与全局 win_rate 同口径，
+    # 否则「待分析」案件会把平台胜诉率稀释成接近 0，出现所有平台都远低于大盘的假象。
     out: list[dict] = []
     for k, v in plat.items():
         out.append(
             {
                 "platform": k,
                 "cases": v["cases"],
-                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+                "decided": v["decided"],
+                "win_rate": round(v["won"] / v["decided"], 3) if v["decided"] else 0,
                 "refund": round(v["refund"], 2),
             }
         )
@@ -396,7 +390,8 @@ def _build_matrix(matrix: dict) -> list[dict]:
                     "platform": p,
                     "supplier": s,
                     "cases": v["cases"],
-                    "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+                    "decided": v["decided"],
+                    "win_rate": round(v["won"] / v["decided"], 3) if v["decided"] else 0,
                     "refund": round(v["refund"], 2),
                 }
             )
@@ -404,15 +399,21 @@ def _build_matrix(matrix: dict) -> list[dict]:
 
 
 def _build_region_view(region: dict) -> list[dict]:
-    """地区维度聚合（方向2 维度扩展）：按销售地区统计纠纷量、退款、胜诉率。"""
+    """地区维度聚合（方向2 维度扩展）：按销售地区统计纠纷量、退款、胜诉率。
+
+    decided 字段供前端区分「胜诉率 0%」与「尚无已判定案件」——跨境数据源里
+    整批无退货原因的案件（outcome=待分析）会全部落在同一地区，若按 cases 做分母
+    会显示成红色 0%，实际只是还没判定。
+    """
     out: list[dict] = []
     for k, v in region.items():
         out.append(
             {
                 "region": k,
                 "cases": v["cases"],
+                "decided": v["decided"],
                 "refund": round(v["refund"], 2),
-                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+                "win_rate": round(v["won"] / v["decided"], 3) if v["decided"] else 0,
             }
         )
     out.sort(key=lambda x: -x["cases"])
@@ -595,7 +596,7 @@ def _aggregate(cases: list[dict]) -> dict:
     outcome_dist = Counter()
     for c in cases:
         oc = c.get("outcome")
-        outcome_dist[oc if oc in ("赢", "部分退款", "输") else "待分析"] += 1
+        outcome_dist[oc if oc in DECIDED_OUTCOMES else "待分析"] += 1
     wins = outcome_dist.get("赢", 0)
     decided = total - outcome_dist.get("待分析", 0)
     win_rate = round(wins / decided, 3) if decided else 0.0
@@ -617,9 +618,12 @@ def _aggregate(cases: list[dict]) -> dict:
             "sim": 0.0,
         }
     )
-    plat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    # decided=已判定案件数（胜诉率分母，与全局 win_rate 同口径，剔除「待分析」）
+    plat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0})
     # 平台 × 供应商 交叉累加器（供应商维度扩展：跨平台横向对比供货方质量）
-    matrix = defaultdict(lambda: defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0}))
+    matrix = defaultdict(
+        lambda: defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0})
+    )
     # SKU 维度（含日期，用于近期异常预警）
     sku = defaultdict(
         lambda: {
@@ -638,7 +642,7 @@ def _aggregate(cases: list[dict]) -> dict:
     # 全量相似度累加（每案都计），用于代理争议率分母，避免只统计"有平台"案件导致虚高
     sim_all = 0.0
     # 地区 / 季节 维度累加器（方向2 维度扩展）
-    region = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    region = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0})
     season = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
     # 时间序列累加器（B组：时间序列 + 预测预警）：按自然月 'YYYY-MM' 累加案件数与退款
     ts = defaultdict(lambda: {"cases": 0, "refund": 0.0})
@@ -705,6 +709,8 @@ def _aggregate(cases: list[dict]) -> dict:
             pp["refund"] += amt
             if c.get("outcome") == "赢":
                 pp["won"] += 1
+            if c.get("outcome") in DECIDED_OUTCOMES:
+                pp["decided"] += 1
 
         # 平台 × 供应商 交叉：两端都需有效才入交叉矩阵
         p_val = c.get("platform")
@@ -715,6 +721,8 @@ def _aggregate(cases: list[dict]) -> dict:
             mm["refund"] += amt
             if c.get("outcome") == "赢":
                 mm["won"] += 1
+            if c.get("outcome") in DECIDED_OUTCOMES:
+                mm["decided"] += 1
 
         # 地区维度（方向2 维度扩展）：归一化宏观地区，缺失/未知/其他不污染地区对比
         reg_val = _region_bucket(c.get("region"))
@@ -724,6 +732,8 @@ def _aggregate(cases: list[dict]) -> dict:
             rr["refund"] += amt
             if c.get("outcome") == "赢":
                 rr["won"] += 1
+            if c.get("outcome") in DECIDED_OUTCOMES:
+                rr["decided"] += 1
         # 季节维度（由日期推导）
         seas_val = _season_of(c.get("date"))
         if seas_val:
@@ -763,7 +773,9 @@ def _aggregate(cases: list[dict]) -> dict:
 
     sku_ranking, anomaly_alerts = _build_sku_ranking(sku, max_date)
 
-    # 供应商红黑榜 + 黑名单自动生成（方向2）：质量分<50 自动入黑名单，带可解释理由
+    # 供应商红黑榜 + 黑名单自动生成（方向2）：按档位入黑名单，带可解释理由。
+    # 注意：这里按 level 判定而非另设分数阈值——历史写法为 quality_score < 50，
+    # 与「score≥38 即优质」的分级冲突，38~49 分的「优质」供应商会被同时拉黑。
     supplier_scorecard = _build_supplier_scorecard(sup)
 
     def _pct(x: float) -> str:
@@ -781,7 +793,7 @@ def _aggregate(cases: list[dict]) -> dict:
             f"维权胜诉率 {_pct(s['win_rate'])}",
         }
         for s in supplier_scorecard
-        if s["quality_score"] < 50
+        if s["level"] in BLACKLIST_LEVELS
     ]
 
     # 退货成本估算：物流成本（按地区比例）+ 退款 = 退货总成本

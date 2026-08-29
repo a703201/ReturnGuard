@@ -11,3 +11,8 @@ cases.db
 *.db-wal
 *.db-shm
 *.sqlite3
+# 数据重建前的备份（cases.json.bak 等），不入库
+*.bak
+*.json.bak
+# 本地服务日志
+_uvicorn*.log

@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import logging
 import os
+import secrets
 import sys
 import time
 from urllib.parse import quote as _urlquote
@@ -48,8 +49,12 @@ logger = logging.getLogger("returnguard.storage")
 QINIU_ACCESS_KEY = os.environ.get("QINIU_ACCESS_KEY", "")
 QINIU_SECRET_KEY = os.environ.get("QINIU_SECRET_KEY", "")
 QINIU_BUCKET = os.environ.get("QINIU_BUCKET", "")
-QINIU_DOMAIN = os.environ.get("QINIU_DOMAIN", "").rstrip("/")  # 公网域名，如 http://tuchuang.xxx.top
-QINIU_KEY_PREFIX = os.environ.get("QINIU_KEY_PREFIX", "").strip("/")  # 存储键前缀（"文件夹"），如 ReturnGuard
+QINIU_DOMAIN = os.environ.get("QINIU_DOMAIN", "").rstrip(
+    "/"
+)  # 公网域名，如 http://tuchuang.xxx.top
+QINIU_KEY_PREFIX = os.environ.get("QINIU_KEY_PREFIX", "").strip(
+    "/"
+)  # 存储键前缀（"文件夹"），如 ReturnGuard
 
 # ---- OSS / S3 兼容对象存储 ----
 OSS_BUCKET = os.environ.get("RG_OSS_BUCKET", "")
@@ -103,19 +108,31 @@ def upload(local_path: str, filename: str) -> str:
         - 兜底：/uploads/<filename>
     任一真实图床失败不影响主流程：逐层降级到下一后端并记日志。
     """
+    # SEC-P0: 公网图床的对象 key 必须不可猜测。此前直接沿用上传文件名
+    # （形如 <8位hex>_ret_<原名>.png），随机空间仅 32 bit，可被遍历爆破，
+    # 而退货图属于买家 PII、且 URL 无鉴权无过期。现统一改用 256 bit 随机 key。
+    public_key = _public_object_key(filename)
     if _use_qiniu():
         try:
-            return _upload_qiniu(local_path, filename)
+            return _upload_qiniu(local_path, public_key)
         except Exception:  # 七牛异常降级，保证上传主流程不中断
             logger.exception("Qiniu 上传失败，降级到 OSS / PUBLIC_IMAGE_BASE / 本地路径")
     if _use_oss():
         try:
-            return _upload_oss(local_path, filename)
+            return _upload_oss(local_path, public_key)
         except Exception:  # 对象存储异常降级，保证上传主流程不中断
             logger.exception("OSS 回传失败，降级到 PUBLIC_IMAGE_BASE / 本地路径")
     if PUBLIC_IMAGE_BASE:
-        return f"{PUBLIC_IMAGE_BASE}/{filename}"
+        return f"{PUBLIC_IMAGE_BASE}/{public_key}"
     return sign_upload_url(filename)  # 本地兜底：签名短链（SEC-8），不再公开静态可读
+
+
+def _public_object_key(filename: str) -> str:
+    """为公网图床生成不可猜测的对象 key（保留扩展名，便于 CDN 正确设置 Content-Type）。"""
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"):
+        ext = ".png"
+    return f"{secrets.token_urlsafe(32)}{ext}"
 
 
 def sign_upload_url(filename: str, ttl: int | None = None) -> str:

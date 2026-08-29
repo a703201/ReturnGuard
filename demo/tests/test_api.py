@@ -2,7 +2,6 @@
 
 import uuid
 
-import pytest
 from fastapi.testclient import TestClient
 from main import app
 
@@ -106,7 +105,7 @@ def test_metrics_endpoint(auth_headers):
             assert k in d, f"metrics 缺少字段 {k}"
 
 
-def test_real_source_isolated_and_empty():
+def test_real_source_isolated_and_empty(auth_headers):
     """库级隔离：real 源与 demo 种子物理隔离。
 
     说明：demo/real 为独立库文件/实例，real 的初始数据来自录入/导入（含 C组多租户 public 基准）。
@@ -120,7 +119,13 @@ def test_real_source_isolated_and_empty():
         assert d["source"] == "real"
         # 物理隔离：demo 种子库的 SKU 绝不应出现在 real 源
         demo_skus = {x["sku"] for x in c.get("/api/cases", params={"source": "demo"}).json()}
-        real_skus = {x["sku"] for x in c.get("/api/cases", params={"source": "real"}).json()}
+        # SEC-P0：real 源真实退货数据已要求登录，匿名一律 401
+        anon = c.get("/api/cases", params={"source": "real"})
+        assert anon.status_code == 401, "real 源真实数据不可匿名拉取"
+        real_skus = {
+            x["sku"]
+            for x in c.get("/api/cases", params={"source": "real"}, headers=auth_headers).json()
+        }
         assert demo_skus and real_skus.isdisjoint(demo_skus), "real 源不应混入 demo 种子数据"
         # demo 源仍是种子数据，不受影响
         d2 = c.get("/api/insights", params={"mode": "mock", "source": "demo"}).json()

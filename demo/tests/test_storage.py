@@ -35,10 +35,22 @@ def test_local_fallback(monkeypatch):
     assert storage.is_public_ready() is False
 
 
+def _assert_unguessable_key(url: str, base: str, filename: str) -> None:
+    """SEC-P0 回归：公网图床返回的 key 必须不可猜测（高熵随机，不沿用上传文件名）。"""
+    assert url.startswith(base + "/")
+    assert url.endswith(".png")
+    key = url.rsplit("/", 1)[-1]
+    assert key != filename, "对象 key 不应沿用上传文件名"
+    # token_urlsafe(32) → 43 字符（不含扩展名），足以抵御遍历爆破
+    assert len(key) >= 40, f"对象 key 熵过低（{len(key)} 字符），疑似沿用原名"
+
+
 def test_public_base(monkeypatch):
     _reload(monkeypatch, {"PUBLIC_IMAGE_BASE": "https://img.example.com/uploads"})
     assert storage.backend_name() == "public_base"
-    assert storage.upload("/tmp/x.png", "a.png") == "https://img.example.com/uploads/a.png"
+    _assert_unguessable_key(
+        storage.upload("/tmp/x.png", "a.png"), "https://img.example.com/uploads", "a.png"
+    )
     assert storage.is_public_ready() is True
 
 
@@ -55,8 +67,9 @@ def test_oss_fallback_without_boto3(monkeypatch):
         },
     )
     assert storage.backend_name() == "oss"
-    url = storage.upload("/tmp/x.png", "a.png")
-    assert url == "https://img.example.com/uploads/a.png"
+    _assert_unguessable_key(
+        storage.upload("/tmp/x.png", "a.png"), "https://img.example.com/uploads", "a.png"
+    )
 
 
 def test_qiniu_backend_mocked(monkeypatch):
@@ -96,7 +109,10 @@ def test_qiniu_backend_mocked(monkeypatch):
         assert storage.backend_name() == "qiniu"
         assert storage.is_public_ready() is True
         url = storage.upload("/tmp/x.png", "abc.png")
-        assert url == "http://tuchuang.a703201sworld.top/ReturnGuard/abc.png"
+        # SEC-P0：key 不可猜测（不再沿用 abc.png）；前缀与域名仍正确拼接
+        assert url.startswith("http://tuchuang.a703201sworld.top/ReturnGuard/")
+        assert url.endswith(".png")
+        assert url.rsplit("/", 1)[-1] != "abc.png"
     finally:
         sys.modules.pop("qiniu", None)
 

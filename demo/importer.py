@@ -17,7 +17,7 @@ import logging
 import re
 import uuid
 
-from db import load_cases, save_case, get_case, delete_case
+from db import delete_case, get_case, load_cases, save_case
 from schemas import ManualCase
 
 logger = logging.getLogger("returnguard.importer")
@@ -171,6 +171,7 @@ def import_from_connector(connector, source: str = "real") -> dict:
 def _norm_date_key(d) -> str | None:
     """把日期归一为 YYYY-MM-DD 字符串；无法解析返回 None。"""
     import datetime
+
     if d is None:
         return None
     if isinstance(d, (datetime.date, datetime.datetime)):
@@ -226,8 +227,16 @@ def import_file(
         cases, detected = parse_file(filename, content)
     except Exception as e:  # noqa: BLE001
         logger.warning("文件解析失败: %s", e, exc_info=True)
-        return {"ok": False, "error": f"文件解析失败: {e}", "detected": None,
-                "imported": 0, "updated": 0, "skipped": 0, "file_duplicates": 0, "errors": [str(e)]}
+        return {
+            "ok": False,
+            "error": f"文件解析失败: {e}",
+            "detected": None,
+            "imported": 0,
+            "updated": 0,
+            "skipped": 0,
+            "file_duplicates": 0,
+            "errors": [str(e)],
+        }
 
     imported = updated = skipped = file_dup = 0
     errors: list[str] = []
@@ -261,7 +270,20 @@ def import_file(
 
     logger.info(
         "文件导入完成 file=%s type=%s source=%s imported=%d updated=%d skipped=%d file_dup=%d",
-        filename, detected, source, imported, updated, skipped, file_dup,
+        filename,
+        detected,
+        source,
+        imported,
+        updated,
+        skipped,
+        file_dup,
     )
-    return {"ok": True, "detected": detected, "imported": imported, "updated": updated,
-            "skipped": skipped, "file_duplicates": file_dup, "errors": errors}
+    return {
+        "ok": True,
+        "detected": detected,
+        "imported": imported,
+        "updated": updated,
+        "skipped": skipped,
+        "file_duplicates": file_dup,
+        "errors": errors,
+    }

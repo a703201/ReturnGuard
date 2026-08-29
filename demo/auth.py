@@ -34,6 +34,7 @@ if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ
 
 logger = __import__("logging").getLogger("returnguard.auth")
 
+
 # ---- 令牌签名密钥：生产必须设 AUTH_SECRET；未设则用进程内随机值（演示态，重启即失效）----
 # 注意：load_dotenv() 已在本文件顶部执行，故 .env 中的 AUTH_SECRET 现在可被正确读取。
 def _resolve_secret(raw: str) -> bytes:
@@ -90,10 +91,14 @@ class User(AuthBase):
     username = Column(String(64), unique=True, index=True, nullable=False)
     pw_hash = Column(String(128), nullable=False)
     pw_salt = Column(String(64), nullable=False)
-    pw_iters = Column(Integer, default=CURRENT_PBKDF2_ITERS, nullable=False)  # 落库时的 KDF 轮数（rehash-on-login 渐进升级）
+    pw_iters = Column(
+        Integer, default=CURRENT_PBKDF2_ITERS, nullable=False
+    )  # 落库时的 KDF 轮数（rehash-on-login 渐进升级）
     tenant_name = Column(String(128), default="")  # 展示用企业/店铺名
     created_at = Column(DateTime, default=datetime.utcnow)
-    token_version = Column(Integer, default=0, nullable=False)  # 令牌吊销/登出：自增即令旧 token 失效
+    token_version = Column(
+        Integer, default=0, nullable=False
+    )  # 令牌吊销/登出：自增即令旧 token 失效
 
 
 def get_auth_engine():

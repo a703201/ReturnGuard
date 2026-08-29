@@ -22,22 +22,35 @@ from sqlalchemy import (
     String,
     Table,
     create_engine,
+    event,
     inspect,
     text,
 )
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 _STATE_URL = os.environ.get("STATE_DB_URL") or ("sqlite:///" + os.path.join(BASE, "rg_state.db"))
 
-# check_same_thread=False：uvicorn 默认线程池跑同步端点，多线程会并发访问该引擎
-_engine = create_engine(_STATE_URL, connect_args={"check_same_thread": False})
-try:
-    with _engine.connect() as _c:
-        _c.exec_driver_sql("PRAGMA busy_timeout=5000")  # 多 worker 并发写时自动退避，避免 SQLITE_BUSY
-        _c.exec_driver_sql("PRAGMA journal_mode=WAL")    # WAL：降低读写互斥，避免“database is locked”
-except Exception:  # pragma: no cover - 仅非 sqlite 后端可能无 PRAGMA
-    pass
+# check_same_thread=False：uvicorn 默认线程池跑同步端点，多线程会并发访问该引擎。
+# NullPool：状态库全是单行 upsert，连接创建开销可忽略；关键收益是连接用完即关，SQLite
+# 在最后一个连接关闭时自动 checkpoint，杜绝 WAL 无限膨胀（实测曾达主库 200 倍）。
+_engine = create_engine(
+    _STATE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=NullPool,
+)
+
+# PRAGMA 必须挂在 connect 事件上：此前只对「建池时的那一条连接」执行过，池内后续新建的
+# 连接完全不生效，并发写时仍会撞 SQLITE_BUSY。
+if _STATE_URL.startswith("sqlite"):
+
+    @event.listens_for(_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA busy_timeout=5000")  # 并发写时自动退避
+        cur.execute("PRAGMA journal_mode=WAL")  # 降低读写互斥
+        cur.close()
+
 
 _meta = MetaData()
 _t_rl = Table(
@@ -64,7 +77,9 @@ def _migrate() -> None:
         cols = {c["name"] for c in inspect(_engine).get_columns("login_lock")}
         with _engine.begin() as conn:
             if "start" not in cols:
-                conn.execute(text("ALTER TABLE login_lock ADD COLUMN start FLOAT NOT NULL DEFAULT 0.0"))
+                conn.execute(
+                    text("ALTER TABLE login_lock ADD COLUMN start FLOAT NOT NULL DEFAULT 0.0")
+                )
     except Exception:  # pragma: no cover - 表不存在等
         pass
 
@@ -94,9 +109,7 @@ def rate_check(key: str, limit: int, window: int = 60) -> bool:
         row = conn.execute(_t_rl.select().where(_t_rl.c.key == key)).first()
         if row.cnt > limit:
             # 超限：撤销本次自增，保持计数原值（避免透支，并发下仍准确）
-            conn.execute(
-                _t_rl.update().where(_t_rl.c.key == key).values(cnt=row.cnt - 1)
-            )
+            conn.execute(_t_rl.update().where(_t_rl.c.key == key).values(cnt=row.cnt - 1))
             return False
         return True
 

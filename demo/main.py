@@ -15,8 +15,8 @@
 
 from __future__ import annotations
 
-import ipaddress
 import hmac
+import ipaddress
 import logging
 import os
 import re
@@ -34,6 +34,7 @@ from calibration import get_active_threshold, save_calibration, suggest_threshol
 from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     DEFAULT_SOURCE,
     VALID_SOURCES,
+    checkpoint_wal,
     delete_case,
     init_db,
     list_cases,
@@ -41,7 +42,7 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     save_case,
 )
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from importer import import_csv_text, import_file  # B组：真实数据回流（CSV / 数据集文件导入）
 from pdf_report import default_filename, generate_insights_pdf
@@ -83,16 +84,27 @@ _state_lock = threading.Lock()
 
 # ---- 认证安全加固（防 spam / 防攻击）----
 # 注册/登录限流：注册更严（每建一个租户=一套隔离数据），登录按 IP + 按用户名双重防护
-_AUTH_REGISTER_LIMIT = int(os.environ.get("AUTH_REGISTER_LIMIT", "10"))   # 每 IP 每分钟注册上限
+_AUTH_REGISTER_LIMIT = int(os.environ.get("AUTH_REGISTER_LIMIT", "10"))  # 每 IP 每分钟注册上限
 _AUTH_LOGIN_IP_LIMIT = int(os.environ.get("AUTH_LOGIN_IP_LIMIT", "30"))  # 每 IP 每分钟登录上限
-_LOGIN_MAX_FAILS = int(os.environ.get("LOGIN_MAX_FAILS", "5"))           # 单用户名连续失败上限
-_LOGIN_LOCK_SEC = int(os.environ.get("LOGIN_LOCK_MIN", "15")) * 60       # 锁定持续时间（秒）
-_REGISTRATION_ENABLED = os.environ.get("REGISTRATION_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+_LOGIN_MAX_FAILS = int(os.environ.get("LOGIN_MAX_FAILS", "5"))  # 单用户名连续失败上限
+_LOGIN_LOCK_SEC = int(os.environ.get("LOGIN_LOCK_MIN", "15")) * 60  # 锁定持续时间（秒）
+# SEC: 注册默认关闭（secure-by-default）。公网部署须在 .env 显式开启并配合邀请码，
+# 否则任何人都可批量创建租户并灌入数据。开关语义：未配置 = 关闭。
+_REGISTRATION_ENABLED = os.environ.get("REGISTRATION_ENABLED", "false").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 _REGISTRATION_INVITE_CODE = os.environ.get("REGISTRATION_INVITE_CODE", "").strip()
 # 仅当直连客户端属于可信代理时才采纳 X-Forwarded-For / X-Real-IP（逗号分隔 IP/CIDR；默认空=不信任）
-_AUTH_TRUSTED_PROXIES = [p.strip() for p in os.environ.get("AUTH_TRUSTED_PROXIES", "").split(",") if p.strip()]
+_AUTH_TRUSTED_PROXIES = [
+    p.strip() for p in os.environ.get("AUTH_TRUSTED_PROXIES", "").split(",") if p.strip()
+]
 # 公网部署跨域白名单（逗号分隔具体域名；默认空=不挂 CORS，同源）；禁止 "*"
-_CORS_ALLOW_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+_CORS_ALLOW_ORIGINS = [
+    o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()
+]
 
 # 登录失败计数 / 封禁（按用户名）：靶向爆破防护，已外置到 shared_state（SEC-12 跨 worker 共享）。
 
@@ -276,6 +288,36 @@ def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="请先登录后再操作")
 
 
+# ---- WAL 巡检：SQLite 长连接持读锁，WAL 无法自动 truncate，需显式 checkpoint ----
+# 实测：rg_state.db 主库 20KB / WAL 4.1MB（206 倍），cases.db 495KB / WAL 1.6MB。
+_WAL_CHECKPOINT_INTERVAL = float(os.environ.get("WAL_CHECKPOINT_INTERVAL_SEC", "1800"))
+
+
+def _wal_checkpoint_all() -> None:
+    """对 demo / real 两个案件库各执行一次 TRUNCATE checkpoint（失败不影响运行）。"""
+    for src in VALID_SOURCES:
+        try:
+            checkpoint_wal(src)
+        except Exception:  # noqa: BLE001
+            logger.debug("WAL checkpoint 跳过 source=%s", src, exc_info=True)
+
+
+def _start_wal_watcher(interval_sec: float) -> threading.Event | None:
+    """后台守护线程：周期性截断 WAL。设 WAL_CHECKPOINT_INTERVAL_SEC<=0 可关闭。"""
+    if interval_sec <= 0:
+        return None
+    stop = threading.Event()
+
+    def _loop():
+        while not stop.wait(interval_sec):
+            _wal_checkpoint_all()
+
+    t = threading.Thread(target=_loop, name="wal-watcher", daemon=True)
+    t.start()
+    logger.info("WAL 巡检线程已启动（间隔 %.0f 秒）", interval_sec)
+    return stop
+
+
 @asynccontextmanager
 async def lifespan(app):
     """服务启动时：初始化双源数据库（demo 播种 / real 空库）+ 清理过期上传图。
@@ -311,7 +353,15 @@ async def lifespan(app):
         except Exception:
             logger.exception("启动自动导入 CSV 失败（不影响服务启动）")
     _cleanup_old_uploads(max_age_hours=float(os.environ.get("UPLOAD_MAX_AGE_HOURS", "24")))
-    yield
+    # 启动时先截断一次历史 WAL，再起巡检线程，关闭前最后截断一次
+    _wal_checkpoint_all()
+    _wal_stop = _start_wal_watcher(_WAL_CHECKPOINT_INTERVAL)
+    try:
+        yield
+    finally:
+        if _wal_stop is not None:
+            _wal_stop.set()
+        _wal_checkpoint_all()
 
 
 app = FastAPI(title="ReturnGuard Demo", lifespan=lifespan)
@@ -365,19 +415,44 @@ async def observe_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    """P1-3 防御纵深：即便前端偶发漏转义，CSP 阻断脚本注入执行；因前端使用内联脚本，
-    script-src 放行 unsafe-inline，但 object-src/base-uri/frame-ancestors 收紧，杜绝插件与框套攻击。
+    """P1-3 防御纵深：即便前端偶发漏转义，CSP 也能阻断脚本注入执行。
+
+    SEC-P0 收紧：原先所有非 `/` 路由都下发含 `'unsafe-inline'` 的宽松 script-src，而
+    `/static` 是整体挂载的，于是 `/static/index.html` 可直连拿到无 nonce 的宽松策略，
+    与前端一处未转义的 title 属性叠加即构成存储型 XSS。现改为：
+      ① 直接掐断一切 *.html 静态直连（页面只应由 `/` 经 nonce 注入后下发）；
+      ② HTML 响应一律严格 CSP（script-src 'self'，禁止内联），`/` 用 nonce 策略覆盖；
+      ③ 补齐 HSTS / X-Frame-Options / Permissions-Policy。
     """
+    # ① 页面只能通过 / 拿（带 nonce），不允许 /static/index.html 这类直连绕过
+    if request.url.path.lower().endswith((".html", ".htm")):
+        return PlainTextResponse("Not Found", status_code=404)
+
     response = await call_next(request)
+    is_html = "text/html" in response.headers.get("content-type", "").lower()
+    # ② HTML 严格、非 HTML（JSON/图片/音频）无需脚本策略但仍收紧其余项
+    script_src = "'self'" if is_html else "'self' 'unsafe-inline'"
     response.headers.setdefault(
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
-        "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+        f"style-src 'self' 'unsafe-inline'; script-src {script_src}; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    # ③ 仅公网 HTTPS 下发 HSTS（隧道/CDN 场景看 X-Forwarded-Proto），避免污染本地 http 开发
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "").lower()
+    if proto == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
     return response
+
+
+# index.html 中内联 <script> 的 nonce 占位符（见 index() 内的注入逻辑）
+_NONCE_PLACEHOLDER = "<!--RG_CSP_NONCE-->"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -386,10 +461,20 @@ def index():
     nonce = secrets.token_urlsafe(16)
     with open(INDEX, encoding="utf-8") as f:
         html = f.read()
-    # 仅一个内联 <script>（index.html:909），注入 nonce 使其被 CSP 放行；
+    # 仅一个内联 <script>，注入 nonce 使其被 CSP 放行；
     # <style> 块及大量 HTML 属性 style="..." 无法 nonce，style-src 保留 'unsafe-inline'
     # （CSS 注入无脚本执行能力，危害低），记为已知权衡。
-    html = html.replace("<script>", f'<script nonce="{nonce}">', 1)
+    #
+    # 注入方式改用显式占位符：原先 html.replace("<script>", ..., 1) 依赖"全文只有一个
+    # <script> 且它恰好是最先出现的"这一巧合，一旦后续新增任何内联块或更早出现
+    # "<script>" 字符串，nonce 就会打偏 → 全站 JS 被 CSP 阻断而白屏。
+    if _NONCE_PLACEHOLDER in html:
+        html = html.replace(_NONCE_PLACEHOLDER, f' nonce="{nonce}"')
+    else:  # 占位符缺失时兜底，避免直接白屏
+        logger.warning(
+            "index.html 缺少 nonce 占位符 %s，回退为替换首个 <script>", _NONCE_PLACEHOLDER
+        )
+        html = html.replace("<script>", f'<script nonce="{nonce}">', 1)
     csp = (
         "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
         f"style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{nonce}'; "
@@ -407,7 +492,7 @@ async def serve_upload(sig: str, f: str = Query(...), e: int = Query(...)):
     now = int(time.time())
     if e < now:
         raise HTTPException(status_code=404, detail="not found")
-    expected = hmac.new(auth._SECRET, f"{f}|{e}".encode("utf-8"), "sha256").hexdigest()[:32]
+    expected = hmac.new(auth._SECRET, f"{f}|{e}".encode(), "sha256").hexdigest()[:32]
     if not hmac.compare_digest(sig, expected):
         raise HTTPException(status_code=404, detail="not found")
     safe = _safe_name(f)
@@ -551,7 +636,7 @@ async def analyze(
 def api_config():
     """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源、图床状态等。"""
     from constants import SAME_ITEM_THRESHOLD
-    from models_router import MODEL_ROUTER_PROFILE, API_BASE
+    from models_router import API_BASE, MODEL_ROUTER_PROFILE
 
     return {
         "same_item_threshold": SAME_ITEM_THRESHOLD,
@@ -734,11 +819,17 @@ def cases(request: Request, slim: bool = False):
     - 默认返回全字段（调试/演示用，含 voice_audio_b64 等大字段）。
     - slim=1 时只返回录入列表所需关键字段（P3-①），用于数据录入页列表展示与删除，
       从源头避免整库大响应体（demo 库约 25MB 级）。
-    - real 源按当前租户隔离（匿名 → public）。
+    - real 源按当前租户隔离，且**必须登录**（匿名不再归 "public"）。
     """
     source = _resolve_source(request)
-    # real 源必须解析出具体租户（匿名归 "public"），否则 load_cases 无过滤会跨租户泄露
-    tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
+    # SEC-P0: real 源存的是真实退货数据（SKU / 供应商 / 商品文案），此前匿名可零凭证
+    # 拉走全库。现与 /api/insights 对齐：real 源一律要求登录，且登录后租户即用户名，
+    # 不再回退 "public"，因此看不到任何归属不明（tenant_id IS NULL）的历史记录。
+    # demo 源是共享演示库、不含真实买家 PII，保持匿名可读以保证演示体验。
+    if source == "real":
+        tenant_id = _require_session(request)
+    else:
+        tenant_id = None
     return (
         list_cases(source, tenant_id=tenant_id) if slim else load_cases(source, tenant_id=tenant_id)
     )
@@ -770,11 +861,20 @@ def add_case(c: ManualCase, request: Request):
 @app.delete("/api/cases/{case_id}")
 def delete_case_api(case_id: str, request: Request):
     """删除指定 source 下的一条案件（实际数据管理用）。写接口：需 API Key（_require_api_key）。
-    real 源仅能删除当前租户（或 public 匿名）的案件，跨租户不可见不可删。"""
+    real 源仅能删除当前租户的案件，跨租户不可见不可删。
+
+    SEC-P0: demo 源为共享演示库且测试账号公开，此前任何登录者都能把 1206 条种子数据
+    逐条删光（演示现场不可逆）。现对 demo 源一律拒绝删除，种子数据只能经 FORCE_RESEED 重建。
+    """
     source = _resolve_source(request)
     _require_session(request)
-    tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
+    if source == "demo":
+        raise HTTPException(status_code=403, detail="演示库为只读，如需清空请用实际数据（real）源")
+    tenant_id = _resolve_tenant(request)
     n = delete_case(source, case_id, tenant_id=tenant_id)
+    if n == 0:
+        # 此前删除不存在的 id 仍返回 ok:true，前端无法区分成功与"没找到"
+        raise HTTPException(status_code=404, detail="未找到该案件，或不属于当前账户")
     return {"ok": True, "source": source, "deleted": n}
 
 
@@ -825,8 +925,11 @@ def login_api(req: LoginRequest, request: Request):
     if not _check_rate_limit(client_ip, scope="login", limit=_AUTH_LOGIN_IP_LIMIT):
         raise HTTPException(status_code=429, detail="登录过于频繁，请稍后再试")
     # 用户名级临时封禁（靶向爆破防护）
+    # SEC: 锁定态必须与"凭证错误"对外完全一致（同为 401 + 同文案）。否则攻击者可用
+    # 「429 已锁定」vs「401 不存在」的响应差异枚举出真实用户名。
     if shared_state.login_locked(req.username):
-        raise HTTPException(status_code=429, detail="该账户已被临时锁定，请稍后再试")
+        logger.warning("登录被拒（账户锁定中）ip=%s user=%s", client_ip, req.username)
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = auth.authenticate(req.username, req.password)
     if not token:
         # 失败审计 + 计数封禁

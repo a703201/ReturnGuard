@@ -6,20 +6,65 @@
 
 ## [1.1.2] — 2026-08-27
 
-> Live 合规清单 + 平台规则出处核验 + 复赛交付物总览；并根治「official profile 模型标识错配」导致无法一键切官方 Model Router 的缺陷。
+> Live 合规清单 + 平台规则出处核验 + 复赛交付物总览；**演示数据集真实化（1206 条）+ 平台扩展至 9 个**；并根治「official profile 模型标识错配」导致无法一键切官方 Model Router 的缺陷。
+
+### 数据集与维度扩展（重大变更）
+- **真实数据集替换**：demo 演示库由固定种子合成案件替换为 **1206 条真实退货案件**（`demo/cases.json`），胜诉率 **34.6%**；原合成集留存为 `demo/cases_synthetic_backup.json`。
+- **平台由 4 个扩展至 9 个**：Amazon / AliExpress / Temu / SHEIN / **eBay / Shopee / Lazada / Walmart / TikTok Shop**（`platforms.py`），平台对比、平台×供应商交叉、平台举证包等看板维度同步扩容。
+- **图床激活**：七牛云对象存储接入并启用（`storage.py`，优先级 qiniu > oss > public_base > local），`/api/config` 返回 `image_bed: qiniu`、`image_bed_public: true`，上传图回传真实公网 URL 供模型服务端回源。
 
 ### Live 合规（对齐官方 Model Router_API.docx）
 - **模型标识 profile 化**：`_MODEL_ROUTER_PROFILES` 新增 `models` 字典，文本/VL/OCR/向量/rerank/TTS 标识随 profile 固化并由 `MODELS[...]` 统一下发，杜绝 base_url 与模型名错配。
 - **修复 official 错配**：旧代码在 official profile 下仍向官方端点发无前缀模型名（`qwen3.7-max` / `qwen-audio-3.0-tts-plus` / `qwen3-rerank`），官方会 404。现 official 用 `qwen/qwen3.7-max` / `qwen/qwen3-tts-instruct-flash` / `qwen/qwen3-rerank`。
 - **文本模型前缀补齐**：official 下若 `.env` 遗留 tokenplan 风格无前缀命名，自动补 `qwen/` 前缀，保证「改一个 `MODEL_ROUTER_PROFILE` 即一键切官方」。
-- 新增交付物：`docs/LIVE_COMPLIANCE.md`（逐项核对表 + 一键切换步骤 + 评委风险）、`docs/PLATFORM_SOURCES.md`（四大平台官方政策 URL 核验 + 准确性判定）、`docs/复赛交付物总览.md`（提交清单 + 阶段成果 + 体验指引 + GitCode 镜像说明）。
+- 新增交付物：`docs/LIVE_COMPLIANCE.md`（逐项核对表 + 一键切换步骤 + 评委风险）、`docs/PLATFORM_SOURCES.md`（Amazon/AliExpress/Temu/SHEIN 四个核心平台官方政策 URL 核验 + 准确性判定；其余 5 个平台待核验）、`docs/复赛交付物总览.md`（提交清单 + 阶段成果 + 体验指引 + GitCode 镜像说明）。
 - README 顶部新增「一分钟速览」（体验地址 / 测试账号 / 版本 / live 合规指针）。
 
-### [1.1.1] — 2026-08-27
-> 评委体验优化 + 安全复审收尾（SEC-1~12 全清零，测试 65→85）。
-- 前端：金额配色提亮、胜诉率环图还原、评委引导横幅、空态文案优化。
-- 安全：写接口鉴权收敛、签名短链 PII 收敛、CSP nonce 硬化、多 worker 共享状态外置、KDF 60 万轮、Key 常量时间比较；SQLite WAL + busy_timeout 抗并发。
+### 修复（Fixes）
+- **P0 安全三洞**：大厂标准审查发现的 3 项 P0 安全问题已修复并回归验证。
+- **SQLite WAL 失控**：WAL 文件无节制增长问题已收口（checkpoint 策略修正）。
+- **AI 诚实性标注补齐**：真实模型输出与 mock 回退在前端与接口层均显式区分标注，杜绝把回退结果当真实能力呈现。
+- **CI 转绿**：流水线恢复全绿；当前测试 **86 passed**。
+
+### 文档（Docs）
+- **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「七牛云已激活」；公网体验地址更正为「已上线」（https://rg.a703201sworld.top ，`demo`/`demo123`）。
+- `docs/CODE_REVIEW.md` 新增第十一节「大厂标准审查结论摘要」（综合 5.8/10 六维评分 + 已闭环项 + 待跟进项）。
+- 初赛过程材料归档至工作区 `docs_legacy/`（不入本仓库）。
+
+---
+
+## [1.1.1] — 2026-08-27
+
+> 安全复审全量闭环（公网部署语境）：第八节安全专项复审发现项 SEC-1 ~ SEC-12 **全部清零**。测试 65 → 85，安全面由 A- 提升至 A 区间。
+
+### 安全加固（Security · SEC-1 ~ SEC-12）
+- **SEC-1 写接口鉴权全开**：新增 `_require_session`（写接口须登录会话）+ `_require_admin`（`/api/calibrate`、`/metrics` 须 `ADMIN_API_KEY` 或登录）；`/api/analyze`、`POST/DELETE /api/cases`、`/api/import_csv` 收口。匿名写接口 → **401**（公网实测一致）。
+- **SEC-2 `AUTH_SECRET` 静默忽略**：`auth.py` 顶部补 `load_dotenv()`（pytest 守卫），`_SECRET` 统一转 bytes，支持 `secrets.token_hex(32)` 配置；令牌跨重启可验。
+- **SEC-3 代理 IP 误判**：`get_client_ip` 优先采纳 `CF-Connecting-IP`（Cloudflare Tunnel），部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`；限流/防爆破在多 worker 下生效。
+- **SEC-4 停用 `?token=` 传令牌**：仅读 `Authorization: Bearer` / `X-Token` 头，避免令牌经 URL/日志泄露。
+- **SEC-5 数据变更须登录**：写接口统一 `_require_session`，`public` 基准亦须登录态。
+- **SEC-6 公网关注册**：`REGISTRATION_ENABLED=false`（评委用内置 demo/demo123），保留可选 `REGISTRATION_INVITE_CODE`。
+- **SEC-7 `/metrics` 收口**：纳入 `_require_admin`（匿名 401）；`/api/config` 保留开放（仅透出非敏感常量）。
+- **SEC-8 上传图签名短链（PII 收敛）**：删除 `/uploads` 静态公开挂载；本地兜底 URL 改由 `storage.sign_upload_url()` 生成 HMAC 签名 + TTL 短链 `/api/file/{sig}?f=&e=`，含路径穿越防护；OSS/七牛公网 URL 不受影响。匿名 `/uploads/任意` → **404**；有效签名 → **200**，伪造/过期 → **404**。
+- **SEC-9 CSP nonce 硬化**：首页每请求生成 `secrets.token_urlsafe(16)` nonce 注入内联 `<script>`，CSP `script-src 'self' 'nonce-…'` 去 `unsafe-inline`（style-src 保留 unsafe-inline 为已知权衡）。
+- **SEC-10 登录侧信道 / KDF 轮数**：未知用户也跑等代价 pbkdf2（消用户枚举时序差）；pbkdf2 10 万轮 → **60 万轮**，存量账户 rehash-on-login 渐进升级。
+- **SEC-11 API Key 常量时间比较**：`_require_api_key`/`_require_admin` 改用 `hmac.compare_digest`。
+- **SEC-12 多 worker 共享状态外置**：新增 `shared_state.py`（独立 SQLite `rg_state.db` 存限流/登录锁，滑动窗口防爆破）；`db.py` 代际计数落库 `rg_kv` 表，根治多 worker 陈旧缓存。
+
+### 前端 / 评委体验
+- 金额配色提亮、胜诉率环图还原、评委引导横幅、空态文案优化。
+
+### 修复（Fixes）
+- 修 `storage` 密钥导入期捕获漂移（改动态 `auth._SECRET`）。
+- 修安全回归测试 Windows 文件锁 flaky（`unlink` 5 次重试）。
 - XSS 测试数据清理（`<script>` 占位行删除 + 测试自清理）。
+- SQLite WAL + `busy_timeout` 抗并发。
+- `*.db`（含 `rg_state.db` / `users.db` / `cases.db`）全部 `.gitignore` 不入库。
+
+### 文档（Docs）
+- `docs/CODE_REVIEW.md` 第八~十节：安全专项复审 + SEC-1~12 全量修复记录（含公网实测）。
+- `docs/API.md`：补全鉴权、签名 URL、限流/防爆破、CSP、管理端点等章节。
+- `README.md` / `demo/README.md` / `openGauss部署指南.md`：同步安全现状与 `/uploads` 改为签名短链。
 
 ---
 
@@ -61,36 +106,6 @@
 - live 视觉/向量/OCR/TTS 仍依赖 Model Router gateway 开通对应模型；未开通自动回退 mock 并逐能力标记（演示不中断，开通即生效）。
 - openGauss 多 worker 部署：聚合代际计数与限流/登录锁已在 v1.1.1 外置为独立 SQLite（`shared_state.py` / `rg_kv`，SEC-12），单进程缓存陈旧问题已根治；生产多实例仍建议上层 Redis 共享其余指标（非阻断）。
 - `/uploads` 公开挂载已在 v1.1.1 改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），退货 PII 图不再长期公开可读。
-
----
-
-## [1.1.1] — 2026-08-27
-
-> 安全复审全量闭环（公网部署语境）：第八节安全专项复审发现项 SEC-1 ~ SEC-12 **全部清零**。测试 65 → 85，安全面由 A- 提升至 A 区间。
-
-### 安全加固（Security · SEC-1 ~ SEC-12）
-- **SEC-1 写接口鉴权全开**：新增 `_require_session`（写接口须登录会话）+ `_require_admin`（`/api/calibrate`、`/metrics` 须 `ADMIN_API_KEY` 或登录）；`/api/analyze`、`POST/DELETE /api/cases`、`/api/import_csv` 收口。匿名写接口 → **401**（公网实测一致）。
-- **SEC-2 `AUTH_SECRET` 静默忽略**：`auth.py` 顶部补 `load_dotenv()`（pytest 守卫），`_SECRET` 统一转 bytes，支持 `secrets.token_hex(32)` 配置；令牌跨重启可验。
-- **SEC-3 代理 IP 误判**：`get_client_ip` 优先采纳 `CF-Connecting-IP`（Cloudflare Tunnel），部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`；限流/防爆破在多 worker 下生效。
-- **SEC-4 停用 `?token=` 传令牌**：仅读 `Authorization: Bearer` / `X-Token` 头，避免令牌经 URL/日志泄露。
-- **SEC-5 数据变更须登录**：写接口统一 `_require_session`，`public` 基准亦须登录态。
-- **SEC-6 公网关注册**：`REGISTRATION_ENABLED=false`（评委用内置 demo/demo123），保留可选 `REGISTRATION_INVITE_CODE`。
-- **SEC-7 `/metrics` 收口**：纳入 `_require_admin`（匿名 401）；`/api/config` 保留开放（仅透出非敏感常量）。
-- **SEC-8 上传图签名短链（PII 收敛）**：删除 `/uploads` 静态公开挂载；本地兜底 URL 改由 `storage.sign_upload_url()` 生成 HMAC 签名 + TTL 短链 `/api/file/{sig}?f=&e=`，含路径穿越防护；OSS/七牛公网 URL 不受影响。匿名 `/uploads/任意` → **404**；有效签名 → **200**，伪造/过期 → **404**。
-- **SEC-9 CSP nonce 硬化**：首页每请求生成 `secrets.token_urlsafe(16)` nonce 注入内联 `<script>`，CSP `script-src 'self' 'nonce-…'` 去 `unsafe-inline`（style-src 保留 unsafe-inline 为已知权衡）。
-- **SEC-10 登录侧信道 / KDF 轮数**：未知用户也跑等代价 pbkdf2（消用户枚举时序差）；pbkdf2 10 万轮 → **60 万轮**，存量账户 rehash-on-login 渐进升级。
-- **SEC-11 API Key 常量时间比较**：`_require_api_key`/`_require_admin` 改用 `hmac.compare_digest`。
-- **SEC-12 多 worker 共享状态外置**：新增 `shared_state.py`（独立 SQLite `rg_state.db` 存限流/登录锁，滑动窗口防爆破）；`db.py` 代际计数落库 `rg_kv` 表，根治多 worker 陈旧缓存。
-
-### 修复（Fixes）
-- 修 `storage` 密钥导入期捕获漂移（改动态 `auth._SECRET`）。
-- 修安全回归测试 Windows 文件锁 flaky（`unlink` 5 次重试）。
-- `*.db`（含 `rg_state.db` / `users.db` / `cases.db`）全部 `.gitignore` 不入库。
-
-### 文档（Docs）
-- `docs/CODE_REVIEW.md` 第八~十节：安全专项复审 + SEC-1~12 全量修复记录（含公网实测）。
-- `docs/API.md`：补全鉴权、签名 URL、限流/防爆破、CSP、管理端点等章节。
-- `README.md` / `demo/README.md` / `openGauss部署指南.md`：同步安全现状与 `/uploads` 改为签名短链。
 
 ---
 

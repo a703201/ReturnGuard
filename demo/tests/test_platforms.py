@@ -1,14 +1,14 @@
 """平台适配举证包单测：规则引擎 + /api/platforms + analyze 关联 + insights 维度筛选。"""
 
-import pytest
 from fastapi.testclient import TestClient
 from main import app
 from platforms import CAPABILITY_KEYS, PLATFORM_KEYS, get_platform_spec, list_platforms
 
 
-def test_list_platforms_four():
+def test_list_platforms_all():
+    """平台数曾从 4 扩到 9，此处按 PLATFORM_KEYS 断言，避免扩平台后用例再次失效。"""
     ps = list_platforms()
-    assert len(ps) == 4
+    assert len(ps) == len(PLATFORM_KEYS)
     assert [p["label"] for p in ps] == PLATFORM_KEYS
 
 
@@ -41,7 +41,7 @@ def test_api_platforms_endpoint():
         r = c.get("/api/platforms")
         assert r.status_code == 200
         ps = r.json()["platforms"]
-        assert len(ps) == 4
+        assert len(ps) == len(PLATFORM_KEYS)
         assert ps[0]["label"] in PLATFORM_KEYS
         assert all("key" in p for p in ps), "每个平台规格都应带稳定 key 字段"
 

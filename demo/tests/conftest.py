@@ -1,10 +1,38 @@
-"""共享测试夹具：安全复审后，写接口要求登录会话，提供 demo/demo123 的令牌夹具。"""
+"""共享测试夹具。
 
-import pytest
-from fastapi.testclient import TestClient
+【关键】本文件顶部会在**导入任何项目模块之前**把三个数据库重定向到临时目录。
+db.py / auth.py / shared_state.py 都在模块顶层读取连接串并缓存引擎，因此环境变量
+必须在 import 之前设好，否则测试会直接读写真实业务库——实测曾把演示库从 1206 条
+污染到 1214 条，并在 demo/ 下生成 users.db、rg_state.db-wal 等残留。
+"""
 
-import shared_state  # SEC-12：限流/封禁落库，需每测试隔离
-from main import app
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+# ---- 必须在 import 项目模块之前完成的环境重定向 ----
+_TMP_DB_DIR = Path(tempfile.mkdtemp(prefix="rg_test_"))
+
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TMP_DB_DIR / 'cases_demo.db'}")
+os.environ.setdefault("REAL_DATABASE_URL", f"sqlite:///{_TMP_DB_DIR / 'cases_real.db'}")
+os.environ.setdefault("AUTH_DATABASE_URL", f"sqlite:///{_TMP_DB_DIR / 'users.db'}")
+os.environ.setdefault("STATE_DB_URL", f"sqlite:///{_TMP_DB_DIR / 'rg_state.db'}")
+# 注册默认已关闭（secure-by-default，见 main.py）。测试要覆盖注册链路，故在此开启；
+# 「未开启时应拒绝」由 test_security.py 里的用例专门验证。
+os.environ.setdefault("REGISTRATION_ENABLED", "true")
+
+import pytest  # noqa: E402
+import shared_state  # noqa: E402  SEC-12：限流/封禁落库，需每测试隔离
+from fastapi.testclient import TestClient  # noqa: E402
+from main import app  # noqa: E402
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _tmp_db_dir():
+    """会话结束时回收临时数据库目录，保证工作区零残留。"""
+    yield _TMP_DB_DIR
+    shutil.rmtree(_TMP_DB_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

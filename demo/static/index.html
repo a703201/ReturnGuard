@@ -822,7 +822,7 @@
             <div class="card" data-card="c3-5" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">退货成本 & 供应商黑名单</h3>
               <div class="card-body">
-                <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出质量分&lt;50 的高风险供应商与可解释理由。</p>
+                <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出「高风险 / 待改进」档位的供应商与可解释理由（分级与黑名单共用同一套阈值）。</p>
                 <div id="costKpis" class="chart"></div>
                 <div id="blacklist"></div>
               </div>
@@ -1088,11 +1088,14 @@
     </div>
   </div>
 
-<script>
+<script<!--RG_CSP_NONCE-->>
 const $ = s => document.querySelector(s);
 const pct = x => (x*100).toFixed(0) + '%';
 const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
 const realColor = w => w>=0.5?'#4ade80':w>=0.3?'#facc15':'#fb7185';
+// 胜诉率单元格：decided=0 表示该维度尚无已判定案件（全是「待分析」），
+// 不能直接显示 0%——那会读成「这个平台/地区全输」，实际只是还没判定。
+const winRateCell = x => (x && (x.decided===undefined || x.decided>0)) ? pct(x.win_rate) : '— 待分析';
 let _ins = null;  // 最近一次 insights 响应，供供应商下钻本地计算
 
 // ---- 数据源开关（演示数据 / 实际数据）----
@@ -1244,7 +1247,7 @@ function renderMatrix(el, rows){
       if(!r){html+='<td>-</td>';return;}
       const rc=realColor(r.win_rate);
       const rgba=rc==='#34d399'?'52,211,153':rc==='#fbbf24'?'251,191,36':'248,113,113';
-      html+=`<td style="background:rgba(${rgba},.18);color:${rc};font-weight:600">${pct(r.win_rate)}`
+      html+=`<td style="background:rgba(${rgba},.18);color:${rc};font-weight:600">${winRateCell(r)}`
         +`<br><span style="font-size:10px;color:var(--txt3)">${r.cases}笔</span></td>`;
     });
     html+='</tr>';
@@ -1290,7 +1293,7 @@ function renderTrendLine(el, ts, forecast){
     grid+=`<text x="${padL-5}" y="${(+gy+3).toFixed(1)}" fill="#64748b" font-size="9" text-anchor="end">${gv}</text>`;
   }
   all.forEach((p,i)=>{
-    xlab+=`<text x="${X(i)}" y="${H-10}" fill="${p.f?'#fbbf24':'#94a3b8'}" font-size="9" text-anchor="middle">${p.label}</text>`;
+    xlab+=`<text x="${X(i)}" y="${H-10}" fill="${p.f?'#fbbf24':'#94a3b8'}" font-size="9" text-anchor="middle">${esc(p.label)}</text>`;
   });
   let dots='';
   all.forEach((p,i)=>{ dots+=`<circle cx="${X(i)}" cy="${Y(p.v)}" r="2.6" fill="${p.f?'#fbbf24':'#22d3ee'}"></circle>`; });
@@ -1357,7 +1360,9 @@ function renderSuppliers(d){
     let i=0;
     const segs=Object.entries(dd).sort((a,b)=>b[1]-a[1]).map(([k,v])=>{
       const c=SUP_PALETTE[i++%SUP_PALETTE.length];
-      return `<span style="width:${Math.round(v/total*100)}%;background:${c}" title="${k}: ${v}"></span>`;
+      // SEC-P0: k 是缺陷标签，源自用户导入的 CSV/数据集，未转义即构成存储型 XSS
+      // （title 属性可被 " onmouseover=... 提前闭合利用）。同数据在下方下钻视图已正确 esc。
+      return `<span style="width:${Math.round(v/total*100)}%;background:${c}" title="${esc(k)}: ${esc(v)}"></span>`;
     }).join('');
     const div=document.createElement('div'); div.className='sup-card'; div.style.borderLeftColor=col;
     div.innerHTML=`<div class="sup-head"><div><b style="font-size:15px">${esc(s.supplier)}</b> <span class="note">${esc(s.name)}</span></div>`
@@ -1680,7 +1685,7 @@ async function loadInsights(){
   (d.platform_view||[]).forEach(x=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${esc(x.platform)}</td><td>${x.cases}</td>`
-      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td><td>${x.refund}</td>`;
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${winRateCell(x)}</td><td>${x.refund}</td>`;
     pt.appendChild(tr);
   });
 
@@ -1718,7 +1723,7 @@ async function loadInsights(){
   (d.region_view||[]).forEach(x=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${esc(x.region)}</td><td>${x.cases}</td><td>${x.refund}</td>`
-      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`;
+      +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${winRateCell(x)}</td>`;
     rt.appendChild(tr);
   });
   renderBarh($('#regionBars'), (d.region_view||[]).map(x=>({label:x.region,v:x.refund,text:'¥'+x.refund,color:'#22d3ee'})));
