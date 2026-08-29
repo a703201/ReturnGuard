@@ -4,15 +4,16 @@
 带来的并发覆盖、无数据模型、无事务等问题，并为复赛切换到国产数据库 openGauss 预留
 同构接口。
 
-双轨设计（开发期 / 部署期**零代码改动**切换）：
-    - 开发期（默认）：SQLite 文件库，零部署、随起随用，不卡初赛进度。
-    - 部署期（复赛）：设置环境变量 DATABASE_URL 指向 openGauss 即可，业务代码不变。
-      openGauss 是华为开源的国产关系型数据库（兼容 PostgreSQL 协议）；其向量能力还可
-      进一步把「图向量比对」做成真实落库的相似度检索，替代当前 mock 相似度。
+开发与部署**统一使用 openGauss**（华为开源国产关系型数据库，兼容 PostgreSQL 协议）：
+    - 开发期与部署期共用同一套 openGauss：本地先 `docker compose -f docker/docker-compose.yml up -d db`，
+      即获得 `localhost:5432/returnguard`，启动应用前确保 openGauss 容器在运行，业务代码零改动。
+    - 仅在**无 openGauss 的离线 / CI 环境**才显式回退 SQLite 文件库（设 `DATABASE_URL=sqlite:///...`）；
+      **默认即 openGauss**，杜绝「开发用 SQLite 掩盖部署问题」。
+    - 其向量能力可进一步把「图向量比对」做成真实落库的相似度检索，替代当前 mock 相似度。
 
-数据来源双库隔离（演示 / 实际）：
-    - demo 源：来自种子 cases.json（cases.db），用于复赛演示，绝不混入真实业务数据。
-    - real 源：初始为空（cases_real.db），由网页「数据录入」添加实际退货案件。
+数据来源双库隔离（演示 / 实际），均落同一 openGauss 实例、按 source 物理隔离：
+    - demo 源：来自种子 cases.json（openGauss `returnguard` 库 `cases` 表），用于复赛演示，绝不混入真实业务数据。
+    - real 源：初始为空，由网页「数据录入」添加实际退货案件，按 tenant_id 隔离。
     - 两源各自独立库文件/实例，物理隔离；通过 ?source=demo|real 或前端顶栏开关切换，
       切换零代码。所有仓储函数均带 source 参数（默认 demo），向后兼容。
 
@@ -74,15 +75,18 @@ def _patch_opengauss_dialect(url: str) -> None:
         logger.info("已挂接 openGauss 版本探测补丁")
 
 
-# ---- 连接配置：默认 SQLite 双源隔离；部署期改环境变量即可切 openGauss ----
-# 演示数据（demo）：来自种子 cases.json；实际数据（real）：用户在网页「数据录入」添加，初始为空。
-# 两源各自独立库文件，物理隔离，互不污染；切换零代码（env 或前端 source 参数）。
+# ---- 连接配置：开发&部署统一 openGauss（localhost:5432/returnguard）；仅离线/CI 才显式回退 SQLite ----
+# 演示数据（demo）与实际数据（real）均落在同一 openGauss 实例、按 source 物理隔离；
+# 切换零代码（env 或前端 source 参数）。
 BASE = os.path.dirname(os.path.abspath(__file__))
+# 默认即 openGauss（开发&部署统一）；本地需先启动 openGauss 容器（见 docker/docker-compose.yml 的 db 服务）。
+DEFAULT_OG = "postgresql+psycopg2://gaussdb:Gauss-2026@localhost:5432/returnguard"
+# 离线/CI/无 openGauss 环境才显式回退 SQLite 文件库（仍支持，但非默认）。
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(BASE, "cases.db")
 REAL_SQLITE = "sqlite:///" + os.path.join(BASE, "cases_real.db")
-# 兼容旧部署：若设置了 DATABASE_URL 则作为 demo 源（保持原有行为）
-DEMO_DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE)
-REAL_DATABASE_URL = os.environ.get("REAL_DATABASE_URL", REAL_SQLITE)
+# 默认走 openGauss；显式设置 DATABASE_URL / REAL_DATABASE_URL 可覆盖（含回退 SQLite）。
+DEMO_DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_OG)
+REAL_DATABASE_URL = os.environ.get("REAL_DATABASE_URL", DEFAULT_OG)
 SOURCES = {"demo": DEMO_DATABASE_URL, "real": REAL_DATABASE_URL}
 DEFAULT_SOURCE = "demo"
 VALID_SOURCES = ("demo", "real")

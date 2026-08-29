@@ -4,7 +4,7 @@
 #   db  —— openGauss 5.0.0（华为开源国产库，兼容 PostgreSQL 协议；
 #          使用社区维护更稳定的 enmotech/opengauss:5.0.0）
 #   app —— ReturnGuard FastAPI 应用（docker/ 目录下 Dockerfile 构建，源码在 demo/）
-# 双轨切换：app 的 DATABASE_URL 指向 db 服务即可，业务代码零改动。
+# 开发与部署统一 openGauss：app 的 DATABASE_URL 默认指向 db 服务，业务代码零改动。
 # 部署配置与源码解耦：本文件位于仓库 docker/，build context 为仓库根（..）。
 # ============================================================
 name: returnguard
@@ -54,7 +54,7 @@ services:
       db:
         condition: service_healthy   # 等 openGauss 真正可连再起应用
     environment:
-      # 双轨切换核心：部署期用 openGauss（postgresql+psycopg2 方言，协议兼容）
+      # 统一 openGauss（postgresql+psycopg2 方言，协议兼容；开发与部署同一套）
       # 密码里不含 @/#，可直接写明文；若后续改含保留字符的密码，需 URL 编码。
       DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
       AUTH_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard

@@ -8,9 +8,9 @@
 
 | 项 | 值 |
 |----|----|
-| 数据库 | **openGauss**（部署主力，demo/real/auth 三库均 `db:5432/returnguard`）；开发期可回退 SQLite（零配置） |
-| demo 源 | openGauss `returnguard` 库 `cases` 表（**1206 条**真实退货案件，由 `cases.json` 播种；开发回退时为 `cases.db`） |
-| real 源 | openGauss `returnguard` 库 `cases` 表（初始空库，供网页端录入 / 删除；开发回退时为 `cases_real.db`） |
+| 数据库 | **openGauss**（开发与部署统一，demo/real/auth 三库均 `db:5432/returnguard`，本地经 `localhost:5432/returnguard`）；仅离线 / CI 才显式回退 SQLite |
+| demo 源 | openGauss `returnguard` 库 `cases` 表（**1206 条**真实退货案件，由 `cases.json` 播种，开发与部署同一库） |
+| real 源 | openGauss `returnguard` 库 `cases` 表（初始空库，供网页端录入 / 删除，按 tenant_id 隔离） |
 | 表名 | `cases` |
 | 隔离方式 | demo / real **双源物理隔离**，各自独立引擎 + 独立代际计数，schema 完全一致 |
 | 字段数 | 27（1 个自增主键 `id` + 26 个业务字段） |
@@ -56,7 +56,7 @@
 
 ## 4. 重建 / 校验
 
-- 重建表结构（开发期 SQLite）：`sqlite3 cases.db < demo/schema.sql`（重置需先 `DROP TABLE IF EXISTS cases;`）。
+- 重建表结构（openGauss 统一，离线回退 SQLite）：开发与部署均走 `create_all` + `_migrate_case_columns` 演进；如需全量重播设 `FORCE_RESEED=1` 并清 `ogdata` 卷。离线 SQLite 回退时可用 `sqlite3 cases.db < demo/schema.sql`（重置需先 `DROP TABLE IF EXISTS cases;`）。
 - 部署期（openGauss）：`docker compose -f docker/docker-compose.yml up -d` 会自动 `create_all` + `_migrate_case_columns` 演进；如需全量重播设 `FORCE_RESEED=1` 并清 `ogdata` 卷。
 - 模型与磁盘 schema 已核对一致（见 `docs/CODE_REVIEW.md` 六、及日常 `FORCE_RESEED=1` 重建流程）。
 - 新增 / 修改字段时：**先改 `db.py` 的 `Case` 模型 → 同步更新本文件与 `demo/schema.sql` → 旧库走 `FORCE_RESEED=1` 或写迁移**，避免 `create_all` 不 ALTER 旧表导致 `no such column`。
