@@ -61,13 +61,23 @@ logger = logging.getLogger("returnguard.api")
 
 # ---- 版本（单一来源：仓库根 VERSION 文件；前端顶栏与 /api/config 均从此读取）----
 def _read_app_version() -> str:
-    try:
-        with open(
-            os.path.join(os.path.dirname(__file__), "..", "VERSION"), encoding="utf-8"
-        ) as _vf:
-            return _vf.read().strip() or "unknown"
-    except FileNotFoundError:
-        return "unknown"
+    """读取仓库根 VERSION 文件，支持本地开发与 Docker 两种目录结构。"""
+    base = os.path.dirname(__file__)
+    candidates = [
+        # 本地开发 / 新版 Docker：main.py 在 demo/，VERSION 在仓库根
+        os.path.join(base, "..", "VERSION"),
+        # 旧版 Docker 拍平结构：main.py 与 VERSION 同目录（fallback，向后兼容）
+        os.path.join(base, "VERSION"),
+    ]
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8") as _vf:
+                value = _vf.read().strip()
+                if value:
+                    return value
+        except (FileNotFoundError, IsADirectoryError, PermissionError):
+            continue
+    return "unknown"
 
 
 APP_VERSION = _read_app_version()
