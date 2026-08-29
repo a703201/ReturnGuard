@@ -1,6 +1,8 @@
 import { state } from './store.js';
 import { apiFetch, apiUrl, copyText } from './api.js';
 
+export const $ = s => document.querySelector(s);
+
 export const pct = x => (x*100).toFixed(0) + '%';
 
 export const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
