@@ -23,6 +23,7 @@ Token Plan 当前开通以「文本推理 / TTS 语音」为主；视觉/向量/
 """
 
 import base64
+import contextvars
 import hashlib
 import io
 import json
@@ -33,6 +34,7 @@ import random
 import re
 import struct
 import sys
+import time
 import wave
 
 import requests
@@ -129,6 +131,33 @@ logger.info(
     bool(API_KEY),
 )
 
+# ===================== live 链路总超时预算（A22）=====================
+# 并发安全：用 contextvars 隔离每个请求的 deadline，避免并发请求互相串扰。
+# 每次外部 HTTP 调用经 _post() → _guard() 检查是否超总预算；超限抛 TimeoutError，
+# 由 live_analyze 逐能力 except 回退 mock，或 pipeline.build_insights 整体回退 mock(fallback)。
+LLM_HTTP_TIMEOUT = float(os.environ.get("LLM_HTTP_TIMEOUT", "60"))
+LLM_TOTAL_BUDGET = float(os.environ.get("LLM_TOTAL_BUDGET", "120"))
+_LLM_DEADLINE = contextvars.ContextVar("rg_llm_deadline", default=0.0)
+
+
+def _enter_budget(budget: float) -> None:
+    """进入一次 live 调用前设定总预算（秒）。budget<=0 表示不限。"""
+    _LLM_DEADLINE.set(time.monotonic() + budget if budget > 0 else 0.0)
+
+
+def _guard() -> None:
+    """外部调用前检查总预算，超限抛 TimeoutError 触发 mock 回退。"""
+    d = _LLM_DEADLINE.get()
+    if d and time.monotonic() > d:
+        raise TimeoutError("live 链路超过总预算，回退 mock")
+
+
+def _post(url: str, **kw):
+    """requests.post 统一封装：强制总预算检查 + 默认超时，避免单/多次调用无界阻塞工作线程。"""
+    _guard()
+    kw.setdefault("timeout", LLM_HTTP_TIMEOUT)
+    return requests.post(url, **kw)
+
 
 def _headers():
     """构造请求头：Bearer 鉴权 + JSON 内容类型。"""
@@ -141,7 +170,7 @@ def embed_image(image_url):
     返回：浮点数列表（向量）。用于后续余弦相似度判断是否同一件。
     注意：当前 Token Plan 网关团队版模型列表未开通图像向量，调用会报错；
     由 pipeline 的 live 回退机制降级到 mock（确定性哈希），演示不中断。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/embeddings",
         headers=_headers(),
         json={"model": MODELS["embed"], "input": {"image": image_url}},
@@ -167,7 +196,7 @@ def vl_chat(image_url, prompt):
     """调用 qwen3-vl-plus，对图片提问题并返回文字回答。
     方案功能②用它做「破损/缺件/污渍/使用痕迹」等瑕疵标签识别。
     注意：当前网关未开通多模态理解，调用会报错并回退 mock。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
@@ -194,7 +223,7 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
     返回：[{label, x, y, w, h, confidence}, ...]。用于「关键帧红框标注」真实坐标。
     网关开通多模态理解即真实；未开通/解析失败由 live_analyze 回退确定性示意框，
     保证演示不中断且如实标注（不替代平台裁决）。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
@@ -251,7 +280,7 @@ def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
     """调用 qwen-vl-ocr，从本店主图/详情图里提取文字承诺（如「全新未拆/30天退换」）。
     方案功能③用它做「退回件实际状态 vs 本店承诺」的货不对板核验。
     注意：当前网关未开通 OCR 视觉模型，调用会报错并回退 mock。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
@@ -276,7 +305,7 @@ def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
 def llm(prompt, model=TEXT_MODEL):
     """调用默认文本模型（MODEL_ROUTER_TEXT_MODEL，默认 qwen3.7-max）做文本生成。
     可选 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等更快模型。返回模型文本。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
@@ -323,7 +352,7 @@ def llm_json(prompt, model=TEXT_MODEL):
     """调用大模型并直接返回结构化 JSON（用于洞察聚类/归因）。
     qwen3.6+ 等模型会把思考放进 reasoning_content、content 可能为空，
     此时回退读取 reasoning_content 再抽取。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
@@ -341,7 +370,7 @@ def rerank(query, documents, model=None):
     注：当前网关未开通重排模型，pipeline 会退化为本地公式计算（见 pipeline.analyze_case）。"""
     if model is None:
         model = MODELS["rerank"]
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/rerank",
         headers=_headers(),
         json={"model": model, "query": query, "documents": documents},
@@ -356,7 +385,7 @@ def tts(text, voice="Chelsie"):
     """调用 TTS 模型生成语音（base64 编码的音频）。
     profile 自适应：official=qwen/qwen3-tts-instruct-flash（voice 用 Chelsie/Ethan/Serena），
     tokenplan=qwen-audio-3.0-tts-plus。OpenAI 兼容 /audio/speech 路径。"""
-    r = requests.post(
+    r = _post(
         f"{API_BASE}/audio/speech",
         headers=_headers(),
         json={"model": MODELS["tts"], "input": text, "voice": voice},
@@ -465,6 +494,7 @@ def live_analyze(
     if not ret_url or not prod_url:
         raise RuntimeError("未配置 PUBLIC_IMAGE_BASE（live 模式需可公网访问的图片地址）")
 
+    _enter_budget(LLM_TOTAL_BUDGET)
     caps: dict[str, bool] = {}
 
     # ① 同款一致性：两张图向量 → 余弦相似度（网关开通 tongyi-embedding-vision-plus 即真实）
@@ -561,6 +591,7 @@ def build_insights_live(aggregated: dict) -> dict:
     """
     if not API_KEY:
         raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
+    _enter_budget(LLM_TOTAL_BUDGET)
     prompt = build_insights_prompt(aggregated)
     out = llm_json(prompt, model=TEXT_MODEL)
     if not out:

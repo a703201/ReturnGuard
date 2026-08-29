@@ -127,7 +127,7 @@ def test_write_endpoints_allow_logged_in():
             json={"sku": "SKU-SEC1", "category": "c", "supplier": "S1"},
             headers=hdr,
         )
-        assert r.status_code == 200, "已登录 /api/cases 应成功"
+        assert r.status_code == 201, "已登录 /api/cases 应成功（201 Created）"
         # /metrics 登录后可访问
         r = c.get("/metrics", headers=hdr)
         assert r.status_code == 200, "已登录 /metrics 应可访问"
@@ -229,16 +229,31 @@ def test_signed_upload_url_gate():
 
 
 def test_csp_nonce_injected():
-    """SEC-9：首页 CSP 含 per-request nonce，且内联 <script> 被注入相同 nonce（阻断未授权内联脚本执行）。"""
+    """SEC-9：A24 后前端已外置为同源 ES module，由 CSP `script-src 'self'` 放行，
+    不再依赖内联脚本；nonce 机制保留以兼容将来回嵌的内联块。
+
+    当前断言的安全不变量：
+      ① script-src 仅放行同源（'self'），外置模块可加载；
+      ② script-src 不得含 'unsafe-inline'（XSS 主防线）；
+      ③ 页面以外置 `<script type="module" src="/static/app.js">` 加载；
+      ④ 每请求仍生成 nonce，证明 nonce 机制活跃（防御未来内联脚本注入）。
+    """
     import re
 
     with TestClient(app) as c:
         r = c.get("/")
         assert r.status_code == 200
         csp = r.headers["Content-Security-Policy"]
-        m = re.search(r"nonce-([A-Za-z0-9_-]+)", csp)
-        assert m, "CSP 应含 nonce"
-        nonce = m.group(1)
-        assert f'<script nonce="{nonce}">' in r.text, "内联 <script> 应被注入相同 nonce"
-        # script-src 不得再放行 'unsafe-inline'（XSS 主防线）
-        assert "script-src 'self' 'nonce-" in csp
+        # ① 同源脚本放行
+        assert "script-src 'self'" in csp, "script-src 应仅放行同源"
+        # ② 抽 script-src 指令段，确认无 unsafe-inline
+        m = re.search(r"script-src ([^;]+);", csp)
+        assert m, "CSP 应含 script-src 指令"
+        script_src = m.group(1)
+        assert "'unsafe-inline'" not in script_src, "script-src 不得含 unsafe-inline（XSS 主防线）"
+        # ③ 外置 ES module 加载
+        assert '<script type="module" src="/static/app.js">' in r.text, (
+            "前端应以外置 ES module 加载，而非内联脚本"
+        )
+        # ④ nonce 机制仍每请求生成
+        assert re.search(r"nonce-[A-Za-z0-9_-]+", csp), "应保留 per-request nonce 机制"

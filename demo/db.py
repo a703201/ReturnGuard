@@ -516,6 +516,98 @@ def load_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> li
     return data
 
 
+def _apply_tenant_filter(q, source: str, tenant_id):
+    """real 源按租户隔离：仅放行「本租户」与「显式公共桶」（SEC-P0，禁止 NULL 隐式共享）。"""
+    if source == "real" and tenant_id is not None:
+        q = q.filter((Case.tenant_id == tenant_id) | (Case.tenant_id == PUBLIC_TENANT))
+    return q
+
+
+def _apply_filters(q, category: str = "", platform: str = "", region: str = "", outcome: str = ""):
+    """把下钻过滤下推到 SQL WHERE（A23：不再全量拉库后在 Python 里逐条过滤）。
+
+    仅对「等值、带索引」的维度做下推（category/platform/region/outcome）；
+    season 需 date→季节映射，仍由调用方在 Python 侧二次过滤（见 main._get_insights）。
+    """
+    if category:
+        q = q.filter(Case.category == category)
+    if platform:
+        q = q.filter(Case.platform == platform)
+    if region:
+        q = q.filter(Case.region == region)
+    if outcome:
+        q = q.filter(Case.outcome == outcome)
+    return q
+
+
+def load_filtered_cases(
+    source: str = DEFAULT_SOURCE,
+    tenant_id: str | None = None,
+    category: str = "",
+    platform: str = "",
+    region: str = "",
+    outcome: str = "",
+) -> list[dict]:
+    """读取指定 source 的案件并下推过滤（category/platform/region/outcome → SQL WHERE）。
+
+    替代「load_cases 全量拉库 + Python 过滤」的旧模式：聚合看板只需被筛选的那批案件，
+    全量拉库既浪费 IO 又把不相关案件一并载入内存（A23）。返回的仍是全字段 dict，
+    因为 _aggregate 需要 amount/similarity/defect_tags/date 等多列做聚合。
+    """
+    source = _normalize_source(source)
+    with get_session(source) as s:
+        q = _apply_tenant_filter(s.query(Case), source, tenant_id)
+        q = _apply_filters(q, category, platform, region, outcome)
+        rows = q.all()
+    return [_row_to_dict(r) for r in rows]
+
+
+def query_cases(
+    source: str = DEFAULT_SOURCE,
+    tenant_id: str | None = None,
+    category: str = "",
+    platform: str = "",
+    region: str = "",
+    outcome: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    slim: bool = True,
+) -> dict:
+    """分页查询案件（A23：/api/cases 分页）。返回 {items, total, page, page_size, source, filters}。
+
+    - 过滤同样下推 SQL（category/platform/region/outcome）。
+    - slim=True 用列表投影（_LIST_FIELDS），避免把 base64 语音/举证长文一并拉回前端（P3-①）。
+    - page/page_size 做边界规整，防止非法值导致异常或超量拉取（上限 200 防滥用）。
+    """
+    source = _normalize_source(source)
+    page = max(1, int(page))
+    page_size = max(1, min(int(page_size), 200))
+    with get_session(source) as s:
+        base = _apply_tenant_filter(s.query(Case), source, tenant_id)
+        filtered = _apply_filters(base, category, platform, region, outcome)
+        total = filtered.count()
+        if slim:
+            page_q = _apply_tenant_filter(s.query(*_LIST_FIELDS), source, tenant_id)
+            page_q = _apply_filters(page_q, category, platform, region, outcome)
+        else:
+            page_q = filtered
+        rows = page_q.limit(page_size).offset((page - 1) * page_size).all()
+    items = [_row_to_slim_dict(r) if slim else _row_to_dict(r) for r in rows]
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "source": source,
+        "filters": {
+            "category": category,
+            "platform": platform,
+            "region": region,
+            "outcome": outcome,
+        },
+    }
+
+
 def save_case(
     source: str = DEFAULT_SOURCE, case: dict | None = None, tenant_id: str | None = None
 ) -> None:
@@ -536,7 +628,7 @@ def save_case(
     bump_generation(source)
     # 聚合洞察结果可能已变，失效 pipeline 层缓存（懒导入避免循环依赖）
     try:
-        from pipeline import invalidate_insights_cache
+        from cache import invalidate_insights_cache
 
         invalidate_insights_cache()
     except Exception:  # 缓存失效失败不应影响主流程
@@ -581,9 +673,100 @@ def delete_case(
     _invalidate_cache(source)
     bump_generation(source)
     try:
-        from pipeline import invalidate_insights_cache
+        from cache import invalidate_insights_cache
 
         invalidate_insights_cache()
     except Exception:
         logger.warning("洞察缓存失效失败（可忽略）", exc_info=True)
     return n
+
+
+def _norm_date_key(d) -> str | None:
+    """日期归一为 YYYY-MM-DD 字符串用于比较；无法解析返回 None（语义同 importer._norm_date_key）。"""
+    import datetime
+    import re
+
+    if d is None:
+        return None
+    if isinstance(d, (datetime.date, datetime.datetime)):
+        return d.strftime("%Y-%m-%d")
+    s = str(d).strip()
+    m = re.match(r"(\d{4}-\d{2}-\d{2})", s)
+    return m.group(1) if m else (s[:10] if len(s) >= 10 else s or None)
+
+
+def _cmp_case_date(a, b) -> int:
+    """a 比 b 新 → >0；b 更新 → <0；相等或一方未知 → 0（用于 upsert 保留最新记录）。"""
+    ka, kb = _norm_date_key(a), _norm_date_key(b)
+    if ka is None or kb is None:
+        return 0
+    return (ka > kb) - (ka < kb)
+
+
+def bulk_upsert_cases(
+    source: str = DEFAULT_SOURCE,
+    rows: list[dict] | None = None,
+    tenant_id: str | None = None,
+) -> dict:
+    """单事务批量 upsert（修复 P1-批量导入 N+1：原逐行 get_case+save_case 各带独立事务，
+    万行 CSV 产生数万语句、中途异常留脏数据）。本函数：一次加载现有案件、一次事务提交、
+    一次代际自增、一次缓存失效。
+
+    每行的 upsert 决策与原 _upsert_case 一致：
+      - case_id 不存在 → 新增(imported)
+      - 存在且同日 → 跳过(skipped)
+      - 存在且上传更新 → 删旧存新(updated)
+      - 存在且上传更旧 → 保留库中最新(skipped)
+    返回 {imported, updated, skipped, errors}。
+    """
+    source = _normalize_source(source)
+    if not rows:
+        return {"imported": 0, "updated": 0, "skipped": 0, "errors": []}
+    t = "demo" if source == "demo" else (tenant_id or "public")
+    imported = updated = skipped = 0
+    errors: list[str] = []
+    with get_session(source) as s:
+        q = s.query(Case)
+        if source == "real" and tenant_id is not None:
+            q = q.filter((Case.tenant_id == tenant_id) | (Case.tenant_id == PUBLIC_TENANT))
+        existing: dict[str, Case] = {c.case_id: c for c in q.all()}
+        for row in rows:
+            data = dict(row)
+            cid = data.get("case_id")
+            try:
+                if not cid or cid not in existing:
+                    new_data = dict(data)
+                    new_data["tenant_id"] = t
+                    s.add(_dict_to_row(new_data))
+                    imported += 1
+                else:
+                    cur = existing[cid]
+                    cmp = _cmp_case_date(data.get("date"), _row_to_dict(cur).get("date"))
+                    if cmp == 0:
+                        skipped += 1
+                    elif cmp > 0:
+                        s.delete(cur)
+                        new_data = dict(data)
+                        new_data["tenant_id"] = t
+                        s.add(_dict_to_row(new_data))
+                        updated += 1
+                    else:
+                        skipped += 1
+            except Exception as e:  # noqa: BLE001
+                skipped += 1
+                errors.append(f"{cid} 落库失败: {e}")
+        try:
+            s.commit()
+        except Exception as e:  # noqa: BLE001
+            s.rollback()
+            logger.exception("bulk_upsert 提交失败，整批回滚")
+            return {"imported": 0, "updated": 0, "skipped": 0, "errors": [f"批量提交失败: {e}"]}
+    _invalidate_cache(source)
+    bump_generation(source)
+    try:
+        from cache import invalidate_insights_cache
+
+        invalidate_insights_cache()
+    except Exception:
+        logger.warning("洞察缓存失效失败（可忽略）", exc_info=True)
+    return {"imported": imported, "updated": updated, "skipped": skipped, "errors": errors}

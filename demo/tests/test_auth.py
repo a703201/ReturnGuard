@@ -89,7 +89,8 @@ def test_tenant_isolation(client):
     def skus(h=None):
         hdrs = {"Authorization": "Bearer " + h} if h else {}
         return sorted(
-            x["sku"] for x in client.get("/api/cases?source=real&slim=1", headers=hdrs).json()
+            x["sku"]
+            for x in client.get("/api/cases?source=real&slim=1", headers=hdrs).json()["items"]
         )
 
     a, b = skus(ta), skus(tb)
@@ -119,7 +120,7 @@ def test_cross_tenant_delete_blocked(client):
         x["case_id"]
         for x in client.get(
             "/api/cases?source=real&slim=1", headers={"Authorization": "Bearer " + tb}
-        ).json()
+        ).json()["items"]
         if x["sku"] == "SKU-DEL-" + ub
     ][0]
     r = client.delete(
@@ -133,7 +134,7 @@ def test_cross_tenant_delete_blocked(client):
         x["sku"]
         for x in client.get(
             "/api/cases?source=real&slim=1", headers={"Authorization": "Bearer " + tb}
-        ).json()
+        ).json()["items"]
     ]
 
 

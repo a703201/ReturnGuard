@@ -1,0 +1,26 @@
+# ============================================================
+# ReturnGuard · 公网隧道系统服务化（cloudflared named tunnel）
+# ------------------------------------------------------------
+# 把 Cloudflare Tunnel（named tunnel rg，固定域名 rg.a703201sworld.top）注册为系统服务，
+# 与 returnguard.service 配合：应用起、隧道起，评委/现场即可通过公网域名访问。
+# 前提：服务器已 `cloudflared login` 并完成 named tunnel 配置（rg-tunnel.yml）。
+# 部署步骤：
+#   1) sudo cp docker/returnguard-tunnel.service /etc/systemd/system/
+#   2) sudo systemctl daemon-reload && sudo systemctl enable --now returnguard-tunnel
+#   3) 判活：curl -I https://rg.a703201sworld.top/health 应返回 200
+# 注意：隧道进程存活于服务器本机，关机/重启用 systemd 自愈；凭据长期有效，重启无需重新 login。
+# ============================================================
+[Unit]
+Description=ReturnGuard Cloudflare Tunnel (named tunnel rg)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# cloudflared 绝对路径按实际安装调整；--config 指向 named tunnel 配置
+ExecStart=/usr/local/bin/cloudflared tunnel --config /opt/returnguard/rg-tunnel.yml run rg
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

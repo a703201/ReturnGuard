@@ -7,7 +7,7 @@ REM        故 app 绑 127.0.0.1:65432，由 cloudflared 反代出公网。
 REM ============================================================
 set PY=C:\Users\a7032\.workbuddy\binaries\python\envs\default\Scripts\python.exe
 set CF=D:\cloudflared.exe
-set CFG=D:\Codes\Project\跨境\returnguard\rg-tunnel.yml
+set CFG=D:\Codes\Project\跨境\returnguard\deploy\rg-tunnel.yml
 set DEMO=D:\Codes\Project\跨境\returnguard\demo
 
 echo [1/2] 启动 ReturnGuard app (127.0.0.1:65432) ...

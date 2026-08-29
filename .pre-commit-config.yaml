@@ -1,0 +1,26 @@
+# ReturnGuard · 本地提交前门禁（B-测试：pre-commit 进工程规范）
+# 安装：pip install pre-commit && pre-commit install
+# 运行：pre-commit run --all-files
+# CI 中同样以独立步骤执行，保证「本地与流水线一致」。
+default_language_version: python3.11
+default_stages: [commit, push, manual]
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^demo/
+      - id: ruff-format
+        files: ^demo/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        # 与 pyproject.toml [tool.mypy] 一致：skip 第三方 stub，仅查自有代码；
+        # 增量门禁，随注解补全逐步收紧。
+        args: [--config-file=pyproject.toml]
+        files: ^demo/(?!tests/)
+        additional_dependencies: []

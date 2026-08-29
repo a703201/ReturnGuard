@@ -37,18 +37,19 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     checkpoint_wal,
     delete_case,
     init_db,
-    list_cases,
-    load_cases,
+    load_filtered_cases,
+    query_cases,
     save_case,
 )
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from importer import import_csv_text, import_file  # B组：真实数据回流（CSV / 数据集文件导入）
+from logging_setup import configure_logging, new_request_id, request_id
 from pdf_report import default_filename, generate_insights_pdf
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
-from pipeline import _season_of, analyze_case, build_insights
+from pipeline import _empty_aggregate, _season_of, analyze_case, build_insights
 from platforms import get_platform_spec, is_valid_platform, list_platforms
 from pydantic import BaseModel
 from schemas import AnalyzeResult, InsightsResponse, ManualCase
@@ -71,8 +72,8 @@ def _read_app_version() -> str:
 
 APP_VERSION = _read_app_version()
 
-# ---- 可观测性（P2-9）：结构化日志 + 基础指标 ----
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+# ---- 可观测性（P2-9 / A26）：结构化 JSON 日志 + 请求追踪 + 基础指标 ----
+configure_logging()
 _metrics = defaultdict(int)
 _metrics["start_time"] = int(time.time())
 
@@ -383,34 +384,64 @@ if _CORS_ALLOW_ORIGINS:
     )
 
 
-# 演示态防浏览器缓存：GET 响应（页面 / 静态资源 / 接口）一律 no-cache，
-# 避免「网页未更新」——评委或现场刷新即见最新代码，无需手动清缓存。
+# 缓存策略（B-前端 P1）：静态资源可缓存，页面与接口保持新鲜。
+# 原先全站 no-cache 致每次刷新重传约 66KB 的 app.js + 图片；现对 /static/*
+# 下发短时效强校验缓存，其余（HTML/API）仍 no-cache，兼顾性能与「代码即见最新」。
 @app.middleware("http")
 async def no_cache_middleware(request: Request, call_next):
     response = await call_next(request)
-    if request.method == "GET":
+    if request.method != "GET":
+        return response
+    path = request.url.path
+    if path.startswith("/static/"):
+        # 内容寻址由文件名/版本控制；60s 短缓存避免演示期间反复重传
+        response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
+    else:
         response.headers["Cache-Control"] = "no-cache"
     return response
 
 
 @app.middleware("http")
 async def observe_middleware(request: Request, call_next):
-    """P2-9：请求耗时日志 + 基础指标计数（便于容器采集与排障）。"""
-    start = time.time()
-    response = await call_next(request)
-    dur_ms = (time.time() - start) * 1000
-    with _state_lock:
-        _metrics["requests"] += 1
-        _metrics["latency_ms_sum"] += dur_ms
-        if response.status_code >= 500:
-            _metrics["errors"] += 1
-        path = request.url.path
-        if path == "/api/analyze":
-            _metrics["analyze_count"] += 1
-        elif path == "/api/insights":
-            _metrics["insights_count"] += 1
-    logger.info("%s %s -> %d (%.1fms)", request.method, path, response.status_code, dur_ms)
-    return response
+    """P2-9 / A26：请求追踪（RequestId）+ 耗时日志 + 基础指标计数。
+
+    request_id 经 contextvars 透传（并发安全），注入每条日志；若客户端带 X-Request-Id
+    则沿用（便于网关/链路追踪串联），否则生成。响应回写 X-Request-Id 供前端排障。
+    """
+    rid = request.headers.get("X-Request-Id") or new_request_id()
+    token = request_id.set(rid)
+    try:
+        start = time.time()
+        response = await call_next(request)
+        dur_ms = (time.time() - start) * 1000
+        with _state_lock:
+            _metrics["requests"] += 1
+            _metrics["latency_ms_sum"] += dur_ms
+            if response.status_code >= 500:
+                _metrics["errors"] += 1
+            path = request.url.path
+            if path == "/api/analyze":
+                _metrics["analyze_count"] += 1
+            elif path == "/api/insights":
+                _metrics["insights_count"] += 1
+        response.headers["X-Request-Id"] = rid
+        logger.info(
+            "%s %s -> %d (%.1fms)",
+            request.method,
+            path,
+            response.status_code,
+            dur_ms,
+            extra={
+                "event": "request",
+                "method": request.method,
+                "path": path,
+                "status_code": response.status_code,
+                "latency_ms": round(dur_ms, 1),
+            },
+        )
+        return response
+    finally:
+        request_id.reset(token)
 
 
 @app.middleware("http")
@@ -461,20 +492,16 @@ def index():
     nonce = secrets.token_urlsafe(16)
     with open(INDEX, encoding="utf-8") as f:
         html = f.read()
-    # 仅一个内联 <script>，注入 nonce 使其被 CSP 放行；
+    # 前端脚本已外置为 /static/app.js（ES module，同域加载），由 CSP 的 script-src 'self'
+    # 放行，无需 nonce 注入；仍保留 nonce 机制以兼容将来可能回嵌的内联脚本。
     # <style> 块及大量 HTML 属性 style="..." 无法 nonce，style-src 保留 'unsafe-inline'
     # （CSS 注入无脚本执行能力，危害低），记为已知权衡。
     #
-    # 注入方式改用显式占位符：原先 html.replace("<script>", ..., 1) 依赖"全文只有一个
+    # 注入方式用显式占位符：原先 html.replace("<script>", ..., 1) 依赖"全文只有一个
     # <script> 且它恰好是最先出现的"这一巧合，一旦后续新增任何内联块或更早出现
     # "<script>" 字符串，nonce 就会打偏 → 全站 JS 被 CSP 阻断而白屏。
     if _NONCE_PLACEHOLDER in html:
         html = html.replace(_NONCE_PLACEHOLDER, f' nonce="{nonce}"')
-    else:  # 占位符缺失时兜底，避免直接白屏
-        logger.warning(
-            "index.html 缺少 nonce 占位符 %s，回退为替换首个 <script>", _NONCE_PLACEHOLDER
-        )
-        html = html.replace("<script>", f'<script nonce="{nonce}">', 1)
     csp = (
         "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
         f"style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{nonce}'; "
@@ -511,7 +538,7 @@ def health():
 
 
 @app.post("/api/analyze", response_model=AnalyzeResult)
-async def analyze(
+def analyze(
     request: Request,
     returned_image: UploadFile = File(..., description="退回商品图"),
     product_image: UploadFile = File(..., description="本店主图/详情图"),
@@ -597,7 +624,9 @@ async def analyze(
         # P3-5 退回图用 URL 访问（图床公网 URL，不再内联整图 base64 撑大响应）
         result["returned_image_url"] = ret_url
 
-        # 数据沉淀：取证结果 > 数据沉淀。save 失败只记日志，仍优先返回 result
+        # 数据沉淀：取证结果 > 数据沉淀。save 失败只记日志，仍优先返回 result，
+        # 但显式返回 persisted 标记，前端据此提示用户「本次取证未落库」（修复 P1-写库失败静默吞）
+        persisted = False
         try:
             tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
             save_case(
@@ -615,8 +644,10 @@ async def analyze(
                 },
                 tenant_id=tenant_id,
             )
+            persisted = True
         except Exception as e:
             logger.exception("案件沉淀失败（不影响本次取证结果返回）: %s", e)
+        result["persisted"] = persisted
         return result
     except HTTPException:
         raise
@@ -635,11 +666,11 @@ async def analyze(
 @app.get("/api/config")
 def api_config():
     """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源、图床状态等。"""
-    from constants import SAME_ITEM_THRESHOLD
-    from models_router import API_BASE, MODEL_ROUTER_PROFILE
+    from models_router import MODEL_ROUTER_PROFILE
 
     return {
-        "same_item_threshold": SAME_ITEM_THRESHOLD,
+        # 阈值走标定后的运行期值，而非硬编码常量（P1-阈值过期）：前端显示的判定线与判定逻辑一致。
+        "same_item_threshold": get_active_threshold(),
         "version": APP_VERSION,
         "sources": list(VALID_SOURCES),
         "default_source": DEFAULT_SOURCE,
@@ -647,8 +678,8 @@ def api_config():
         "image_bed_public": is_public_ready(),
         # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=赛事指定 Model Router，
         # 复赛提交时切到 official 即演示用赛事指定端点（详见 demo/.env.example）。
+        # 注意：不再回传内部网关地址 model_router_endpoint（P2-信息泄露），前端无需该值。
         "model_router_profile": MODEL_ROUTER_PROFILE,
-        "model_router_endpoint": API_BASE,
     }
 
 
@@ -690,38 +721,17 @@ def _get_insights(
     source = _resolve_source(request)
     # C组：实际数据(real)要求登录后查看（按租户隔离，匿名不暴露公共基准）
     if source == "real" and not _resolve_tenant(request):
-        return {
-            "source": "real",
-            "mode": mode,
-            "requires_login": True,
-            "message": "实际数据按租户隔离，请登录后查看您的数据。",
-            "total_cases": 0,
-            "total_refund": 0.0,
-            "win_rate": 0.0,
-            "avg_dispute_rate": 0.0,
-            "outcome_dist": {},
-            "category_heatmap": [],
-            "supplier_scorecard": [],
-            "platform_view": [],
-            "platform_supplier_matrix": [],
-            "sku_ranking": [],
-            "anomaly_alerts": [],
-            "root_cause_dist": {},
-            "root_cause": "",
-            "sourcing_advice": [],
-            "recommendations": [],
-            "report": "",
-            "sku_insights": [],
-            "region_view": [],
-            "season_view": [],
-            "supplier_blacklist": [],
-            "logistics_cost": 0.0,
-            "total_return_cost": 0.0,
-            "time_series": [],
-            "forecast": {},
-            "forecast_alerts": [],
-            "sourcing_checklist": [],
-        }
+        # 复用 pipeline._empty_aggregate() 单一来源，避免手写空字典与聚合结果字段漂移（P1-空结果契约分裂）。
+        empty = _empty_aggregate()
+        empty.update(
+            {
+                "source": "real",
+                "mode": mode,
+                "requires_login": True,
+                "message": "实际数据按租户隔离，请登录后查看您的数据。",
+            }
+        )
+        return empty
     # real 源必须解析出具体租户（匿名归 "public"），否则 load_cases 无过滤会跨租户泄露
     tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
     if mode not in ("mock", "live"):
@@ -736,13 +746,11 @@ def _get_insights(
             raise HTTPException(status_code=400, detail="platform 不在支持列表")
     if season and season not in ("春", "夏", "秋", "冬"):
         raise HTTPException(status_code=400, detail="season 仅支持 春/夏/秋/冬")
-    cases = load_cases(source, tenant_id=tenant_id)
-    if category:
-        cases = [c for c in cases if c.get("category") == category]
-    if platform:
-        cases = [c for c in cases if c.get("platform") == platform]
-    if region:
-        cases = [c for c in cases if c.get("region") == region]
+    # A23：过滤下推 SQL——category/platform/region 直接在查询层 WHERE 命中，
+    # 不再全量 load_cases 后在 Python 逐条过滤；season 仍需 date→季节映射，留 Python 二次过滤。
+    cases = load_filtered_cases(
+        source, tenant_id=tenant_id, category=category, platform=platform, region=region
+    )
     if season:
         cases = [c for c in cases if _season_of(c.get("date")) == season]
     agg = build_insights(cases, mode, source)
@@ -813,12 +821,22 @@ def export_pdf(
 
 
 @app.get("/api/cases")
-def cases(request: Request, slim: bool = False):
-    """查看指定 source 的案件库。
+def cases(
+    request: Request,
+    slim: bool = True,
+    page: int = 1,
+    page_size: int = 50,
+    category: str = "",
+    platform: str = "",
+    region: str = "",
+    outcome: str = "",
+):
+    """查看指定 source 的案件库（A23：支持过滤下推 + 分页）。
 
-    - 默认返回全字段（调试/演示用，含 voice_audio_b64 等大字段）。
-    - slim=1 时只返回录入列表所需关键字段（P3-①），用于数据录入页列表展示与删除，
-      从源头避免整库大响应体（demo 库约 25MB 级）。
+    返回信封：{items, total, page, page_size, source, filters}。
+    - slim=1（默认）只返回录入列表所需关键字段（P3-①），避免整库大响应体。
+    - category/platform/region/outcome：下推 SQL WHERE，减少拉库与传输量。
+    - page/page_size：分页，避免一次性把整库推给前端。
     - real 源按当前租户隔离，且**必须登录**（匿名不再归 "public"）。
     """
     source = _resolve_source(request)
@@ -830,12 +848,20 @@ def cases(request: Request, slim: bool = False):
         tenant_id = _require_session(request)
     else:
         tenant_id = None
-    return (
-        list_cases(source, tenant_id=tenant_id) if slim else load_cases(source, tenant_id=tenant_id)
+    return query_cases(
+        source,
+        tenant_id=tenant_id,
+        category=category,
+        platform=platform,
+        region=region,
+        outcome=outcome,
+        page=page,
+        page_size=page_size,
+        slim=slim,
     )
 
 
-@app.post("/api/cases")
+@app.post("/api/cases", status_code=201)
 def add_case(c: ManualCase, request: Request):
     """网页「数据录入」：手动添加一条实际退货案件到指定 source（默认 real 由前端开关控制）。
 
@@ -850,12 +876,17 @@ def add_case(c: ManualCase, request: Request):
     if not data.get("defect_tags"):
         data["defect_tags"] = ["无明显瑕疵"]
     save_case(source, data, tenant_id=tenant_id)
-    return {
-        "ok": True,
-        "source": source,
-        "case_id": data["case_id"],
-        "tenant": tenant_id or "public",
-    }
+    location = f"/api/cases/{data['case_id']}"
+    return JSONResponse(
+        status_code=201,
+        headers={"Location": location},
+        content={
+            "ok": True,
+            "source": source,
+            "case_id": data["case_id"],
+            "tenant": tenant_id or "public",
+        },
+    )
 
 
 @app.delete("/api/cases/{case_id}")
@@ -1013,7 +1044,7 @@ def calibrate_post(req: CalibrateRequest, request: Request):
 
 
 @app.post("/api/import_csv")
-async def import_csv(
+def import_csv(
     request: Request,
     csv_file: UploadFile | None = File(None),
     csv_text: str = Form(""),
@@ -1029,6 +1060,11 @@ async def import_csv(
     text = ""
     if csv_file is not None and csv_file.filename:
         raw = csv_file.file.read()
+        if len(raw) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"文件过大，单文件上限 {_MAX_UPLOAD_BYTES // 1024 // 1024}MB",
+            )
         try:
             text = raw.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -1047,7 +1083,7 @@ async def import_csv(
 
 
 @app.post("/api/import_file")
-async def import_file_api(
+def import_file_api(
     request: Request,
     file: UploadFile = File(...),
 ):
@@ -1061,7 +1097,11 @@ async def import_file_api(
     _require_session(request)
     # 文件导入强制落到 real 源，避免污染演示种子库
     source = "real"
-    raw = await file.read()
+    raw = file.file.read()
+    if len(raw) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413, detail=f"文件过大，单文件上限 {_MAX_UPLOAD_BYTES // 1024 // 1024}MB"
+        )
     fname = file.filename or "upload"
     try:
         if fname.lower().endswith(".csv"):
