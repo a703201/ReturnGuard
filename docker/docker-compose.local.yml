@@ -34,6 +34,9 @@ services:
     entrypoint: ["sh", "-c"]
     environment:
       # SQLite 模式（默认值，显式声明以防覆盖）
+      # Docker 绑挂载（Windows/macOS）下 WAL 的 -shm/mmap 在挂载点会 disk I/O error，
+      # 故容器化本地部署关闭 WAL（改用 DELETE 日志模式）；宿主机原生 fs 不受影响。
+      SQLITE_NO_WAL: "1"
       DATABASE_URL: sqlite:///./cases.db
       REAL_DATABASE_URL: sqlite:///./cases_real.db
       AUTH_DATABASE_URL: sqlite:///./users.db
@@ -50,7 +53,9 @@ services:
       # 经 Cloudflare Tunnel / 反代部署时须设 127.0.0.1，否则按 IP 限流/防爆破会坍缩成全局单桶（SEC-3）
       AUTH_TRUSTED_PROXIES: "127.0.0.1"
     ports:
-      - "8000:8000"
+      # 对齐 Cloudflare 隧道（deploy/rg-tunnel.yml → localhost:65432）；仅绑 localhost，
+      # 由本机 cloudflared 反代出公网，不直接暴露给外部网络。
+      - "127.0.0.1:65432:8000"
     # 开发期绑定挂载源码：改动即时生效，免重建镜像
     volumes:
       - ../demo:/app
