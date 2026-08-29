@@ -3,7 +3,7 @@
 > 参赛赛道：**AI 市场洞察 · AI 智能选品引擎**（退货纠纷数据驱动的选品避坑与品控洞察）
 > 赛事：AI+跨境黑客松巅峰赛 · 复赛
 > 核心 AI 能力全部经 **阿里云百炼 Model Router** 调用
-> 初赛过程材料见上级目录 `docs_legacy/`
+> 初赛过程材料见 `docs/legacy/`
 
 ## 电梯陈述（一句话）
 
@@ -119,7 +119,7 @@ python verify_api.py
 ```
 
 ## 提交状态
-- **初赛**：创意方案已通过官方在线表单提交（完整版见 `../docs_legacy/ReturnGuard_方案.md`，表单精简版见 `../docs_legacy/ReturnGuard_表单提交文案.md`）。
+- **初赛**：创意方案已通过官方在线表单提交（完整版见 `docs/legacy/ReturnGuard_方案.md`，表单精简版见 `docs/legacy/ReturnGuard_表单提交文案.md`）。
 - **复赛规划**：可运行 Web Demo（上传退件图 → 相似度 / 瑕疵 / 卷宗 / 语音 + 洞察看板）+ GitCode 仓库 + 3 分钟演示视频 + 容器化体验地址（详见方案 4.5 节）。
 
 ## 目录
@@ -128,4 +128,4 @@ python verify_api.py
 - `CHANGELOG.md` — 版本变更记录（当前 1.1.2）
 - `openGauss部署指南.md` — openGauss 真实部署 + 真实数据自动导入
 - `demo/` — FastAPI 应用：`main.py`（入口）、`pipeline.py`（取证/洞察）、`models_router.py`（真实模型 + 逐能力回退）、`auth.py`（账户/多租户）、`calibration.py`（阈值自标定）、`importer.py`（CSV 回流）、`storage.py`（图床）、`seed_real.csv`（自动导入样例）
-- （初赛完整方案 / 表单文案已归档至上级目录 `docs_legacy/`）
+- （初赛完整方案 / 表单文案已归档至 `docs/legacy/`）
