@@ -1,0 +1,31 @@
+# ============================================================
+# ReturnGuard · 系统服务化（systemd，方向 A 云服务器部署）
+# ------------------------------------------------------------
+# 把「openGauss + FastAPI」compose 栈注册为系统服务：
+#   - 开机自启、崩溃/出网波动后自愈（Restart=on-failure）
+#   - 依赖 docker 与网络就绪后再拉起
+# 部署步骤（服务器上）：
+#   1) 把本仓库放到 /opt/returnguard，并在 /opt/returnguard 放置 .env（含 GS_PASSWORD /
+#      MODEL_ROUTER_API_KEY / PUBLIC_IMAGE_BASE 等，切勿入库）
+#   2) sudo cp docker/returnguard.service /etc/systemd/system/
+#   3) sudo systemctl daemon-reload && sudo systemctl enable --now returnguard
+#   4) 状态：systemctl status returnguard；日志：journalctl -u returnguard -f
+# ============================================================
+[Unit]
+Description=ReturnGuard (openGauss + FastAPI) via docker compose
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/returnguard
+# 用绝对路径避免 PATH 差异；compose 文件在仓库 docker/ 下，context 为仓库根
+ExecStart=/usr/bin/docker compose -f /opt/returnguard/docker/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f /opt/returnguard/docker/docker-compose.yml down
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

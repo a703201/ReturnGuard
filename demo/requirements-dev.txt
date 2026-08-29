@@ -4,3 +4,8 @@ pytest==9.1.1
 pytest-cov==6.2.1
 httpx==0.28.1
 ruff==0.16.3
+# 类型检查（B-测试：mypy 进 CI，作为增量门禁；当前 check_untyped_defs=false，随注解补全逐步收紧）
+mypy==1.13.0
+# 本地提交前门禁（pre-commit）：ruff lint/format + mypy，保证入库即达标
+pre-commit==4.0.1
+

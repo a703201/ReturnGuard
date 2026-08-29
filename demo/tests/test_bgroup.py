@@ -48,10 +48,12 @@ def test_calibration_save_load_roundtrip(tmp_path):
 def test_import_csv_text_mapping_and_types(monkeypatch):
     rows = []
 
-    def fake_save(source, data, tenant_id=None):
-        rows.append((source, data))
+    def fake_bulk(source, data_rows, tenant_id=None):
+        for r in data_rows:
+            rows.append((source, r))
+        return {"imported": len(data_rows), "updated": 0, "skipped": 0, "errors": []}
 
-    monkeypatch.setattr(importer, "save_case", fake_save)
+    monkeypatch.setattr(importer, "bulk_upsert_cases", fake_bulk)
     csv = (
         "sku,品类,供应商,平台,地区,金额,日期,相似度,结果,缺陷\n"
         "SKU-A,3C数码,S1,Amazon,北美,120,2026-03-01,0.91,赢,外包装破损\n"
@@ -76,10 +78,11 @@ def test_import_csv_text_mapping_and_types(monkeypatch):
 def test_import_csv_text_chinese_headers(monkeypatch):
     rows = []
 
-    def fake_save(source, data, tenant_id=None):
-        rows.append(data)
+    def fake_bulk(source, data_rows, tenant_id=None):
+        rows.extend(data_rows)
+        return {"imported": len(data_rows), "updated": 0, "skipped": 0, "errors": []}
 
-    monkeypatch.setattr(importer, "save_case", fake_save)
+    monkeypatch.setattr(importer, "bulk_upsert_cases", fake_bulk)
     csv = "sku,退款,瑕疵\nSKU-C,200,污渍划痕\n"
     res = importer.import_csv_text(csv, "real")
     assert res["imported"] == 1

@@ -23,8 +23,17 @@ target-version = ["py311"]
 
 [tool.mypy]
 python_version = "3.11"
+# 第三方库（fastapi/sqlalchemy/numpy 等）类型 stub 可能与本地 Python 版本不一致，
+# 直接 skip 其 stub 解析（按 Any 处理），只对我们自己的代码做类型检查，避免误报阻断 CI。
 ignore_missing_imports = true
+follow_imports = "skip"
 warn_unused_ignores = false
+show_error_codes = true
+disallow_untyped_defs = false
+# 增量策略：先看紧「已标注类型」的代码（check_untyped_defs=false 不深查无标注函数体），
+# 让 mypy 作为 CI 门禁先落地、不阻断现有绿灯；后续为函数补注解后逐步收紧。
+check_untyped_defs = false
+exclude = ["demo/tests/.*"]
 
 [tool.pytest.ini_options]
 # 项目代码在 demo/ 下，conftest/测试从根目录（本地与 CI 一致）运行时必须把它加入 sys.path，

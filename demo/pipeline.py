@@ -29,7 +29,6 @@ import logging
 import math
 import random
 import struct
-import threading
 import wave
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -51,22 +50,18 @@ _REGION_MAP = REGION_MAP
 
 logger = logging.getLogger("returnguard.pipeline")
 
+# 洞察聚合缓存（_ins_cache / _ins_lock / _ins_cache_put / invalidate_insights_cache）
+# 已下沉到独立 cache.py，解耦 db ⇄ pipeline 循环依赖（A21）。本模块仅复用，不再自持状态。
+from cache import (  # noqa: E402, F401
+    _ins_cache,
+    _ins_cache_put,
+    _ins_lock,
+    invalidate_insights_cache,
+)
+
 # 案件持久化已迁移到 db.py（SQLAlchemy 仓储层，SQLite / openGauss 双轨）。
 # 这里做 re-export，保持 main.py 的 import 路径不变。
 from db import get_generation, load_cases, save_case  # noqa: E402, F401
-
-# 洞察聚合缓存：按 (mode, source, 案件集合指纹, 代际) 缓存，save_case 时代际自增即失效。
-# 说明：缓存为进程内、单 worker 场景（demo 默认）；uvicorn 线程池并发下用 _ins_lock 保证线程安全；
-# 多 worker（多进程）部署仍需 Redis 等共享缓存（跨进程不可共享本进程 dict）。
-_ins_cache: dict = {}
-_ins_lock = threading.Lock()
-
-
-def invalidate_insights_cache() -> None:
-    """使洞察聚合缓存失效（由 db.save_case / delete_case 在写库后调用）。"""
-    with _ins_lock:
-        _ins_cache.clear()
-
 
 # ---- 缺陷词表/严重程度已迁至 constants.py（见文件头说明），此处仅保留业务映射 ----
 
@@ -1010,16 +1005,19 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
     不同筛选命中相同条数会冲突（复现：A 5笔 / B 5笔 返回同一结果）。故键必须唯一标识
     "被聚合的那一批案件"——用案件 id 集合指纹（配合代际防陈旧），确保下钻结果互不污染。
     """
-    # 案件 id 指纹（缺失 id 归一为 "" 以避免 None 不可排序）；唯一标识被聚合批次
-    sig = hash(tuple(sorted((c.get("case_id") or "") for c in cases)))
+    # 案件 id 指纹（缺失 id 归一为 "" 以避免 None 不可排序）；唯一标识被聚合批次。
+    # 用 sha1 而非内置 hash()：避免 PYTHONHASHSEED 随机化导致缓存键跨进程不一致，且抗碰撞（P1-缓存指纹）。
+    sig = hashlib.sha1(
+        ",".join(sorted((c.get("case_id") or "") for c in cases)).encode("utf-8")
+    ).hexdigest()
     key = (mode, source, sig, get_generation(source))
     with _ins_lock:
         if key in _ins_cache:
+            _ins_cache.move_to_end(key)  # 命中即刷新 LRU 序
             return _ins_cache[key]
     agg = _aggregate(cases)
     if not cases:
-        with _ins_lock:
-            _ins_cache[key] = agg
+        _ins_cache_put(key, agg)
         return agg
     if mode == "live":
         try:
@@ -1049,6 +1047,5 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
     # B组·选品避坑闭环：无论 mock/live，均把负面信号收敛成可执行清单（结构化、可落地）
     agg["sourcing_checklist"] = _build_sourcing_loop(agg)
     agg["mode"] = agg.get("mode", "mock")
-    with _ins_lock:
-        _ins_cache[key] = agg
+    _ins_cache_put(key, agg)
     return agg

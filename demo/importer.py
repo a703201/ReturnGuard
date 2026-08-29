@@ -17,7 +17,7 @@ import logging
 import re
 import uuid
 
-from db import delete_case, get_case, load_cases, save_case
+from db import bulk_upsert_cases, load_cases, save_case
 from schemas import ManualCase
 
 logger = logging.getLogger("returnguard.importer")
@@ -71,7 +71,7 @@ def import_csv_text(
     tenant_id：real 源多租户隔离，缺省 "public"（启动自动导入/匿名录入归公共租户）。
     """
     reader = csv.DictReader(io.StringIO(text))
-    imported = skipped = 0
+    skipped = 0
     errors: list[str] = []
     # 幂等基：现有行的自然键集合（仅在开启 dedupe 时加载，避免非必要全表扫描）
     existing: set[tuple] = set()
@@ -84,6 +84,7 @@ def import_csv_text(
         except Exception:  # noqa: BLE001
             logger.warning("去重基线加载失败，退化为全量导入", exc_info=True)
             existing = set()
+    rows: list[dict] = []
     for i, row in enumerate(reader, 1):
         mapped: dict = {}
         for h, v in row.items():
@@ -127,17 +128,26 @@ def import_csv_text(
             # 生成稳定案件号（原导入链路缺 case_id → NULL，导致无法按 ID 删除/去重；
             # 这里补齐，与 /api/cases 手动录入保持一致）
             data["case_id"] = "RG-" + uuid.uuid4().hex[:8].upper()
-            save_case(source, data, tenant_id=tenant_id)
-            imported += 1
+            rows.append(data)
             if dedupe:
                 existing.add(nat)
         except Exception as e:  # noqa: BLE001
             skipped += 1
             errors.append(f"第{i}行落库失败: {e}")
+    # 单事务批量落库（修复 P1-N+1：原逐行 save_case 各带独立事务）
+    res = bulk_upsert_cases(source, rows, tenant_id=tenant_id)
     logger.info(
-        "CSV 导入完成 source=%s imported=%d skipped=%d dedupe=%s", source, imported, skipped, dedupe
+        "CSV 导入完成 source=%s imported=%d skipped=%d dedupe=%s",
+        source,
+        res["imported"],
+        skipped + res["skipped"],
+        dedupe,
     )
-    return {"imported": imported, "skipped": skipped, "errors": errors}
+    return {
+        "imported": res["imported"],
+        "skipped": skipped + res["skipped"],
+        "errors": errors + res["errors"],
+    }
 
 
 def import_csv_file(path: str, source: str = "real") -> dict:
@@ -189,28 +199,6 @@ def _cmp_date(a, b) -> int:
     return (ka > kb) - (ka < kb)
 
 
-def _upsert_case(case: dict, source: str, tenant_id: str | None) -> str:
-    """按 case_id upsert 单条案件，返回 imported / updated / skipped。
-
-    去重策略（用户要求）：相同案件（同 case_id）
-      - 同日（日期相等）→ 跳过（skipped）
-      - 异日 → 保留最新记录、删除旧记录（updated）；若上传记录更旧则保留库中最新（skipped）
-    """
-    cid = case.get("case_id")
-    existing = get_case(source, cid, tenant_id) if cid else None
-    if existing is None:
-        save_case(source, case, tenant_id=tenant_id)
-        return "imported"
-    cmp = _cmp_date(case.get("date"), existing.get("date"))
-    if cmp == 0:
-        return "skipped"  # 同日 → 跳过
-    if cmp > 0:  # 上传更新 → 删旧存新
-        delete_case(source, cid, tenant_id=tenant_id)
-        save_case(source, case, tenant_id=tenant_id)
-        return "updated"
-    return "skipped"  # 上传更旧 → 保留库中最新
-
-
 def import_file(
     filename: str, content, source: str = "real", tenant_id: str | None = None, dedupe: bool = True
 ) -> dict:
@@ -255,18 +243,12 @@ def import_file(
         else:
             seen[cid] = c
 
-    for cid, c in seen.items():
-        try:
-            r = _upsert_case(c, source, tenant_id)
-            if r == "imported":
-                imported += 1
-            elif r == "updated":
-                updated += 1
-            else:
-                skipped += 1
-        except Exception as e:  # noqa: BLE001
-            skipped += 1
-            errors.append(f"{cid} 落库失败: {e}")
+    # 单事务批量 upsert（修复 P1-N+1：原逐行 get_case+save_case 各带独立事务）
+    res = bulk_upsert_cases(source, list(seen.values()), tenant_id=tenant_id)
+    imported = res["imported"]
+    updated = res["updated"]
+    skipped = res["skipped"]
+    errors = res["errors"]
 
     logger.info(
         "文件导入完成 file=%s type=%s source=%s imported=%d updated=%d skipped=%d file_dup=%d",

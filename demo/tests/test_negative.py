@@ -7,6 +7,7 @@ import json
 import uuid
 
 import main  # 用于 monkeypatch 代理信任列表
+from db import get_case
 from fastapi.testclient import TestClient
 from main import app
 
@@ -122,14 +123,14 @@ def test_xss_payload_stored_not_executed(auth_headers):
             json={"sku": payload, "category": "3C数码", "supplier": "S3"},
             headers=auth_headers,
         )
-        assert r.status_code == 200
-        # 取回列表，确认后端未做危险处理（JSON 本身是安全载体）
-        lst = c.get("/api/cases", params={"slim": "1"}).json()
-        assert any(x.get("sku") == payload for x in lst)
+        assert r.status_code == 201
+        # 后端原样（安全）存返：直接按 case_id 取回，确认未做危险处理（JSON 本身是安全载体）
+        case_id = r.json().get("case_id")
+        assert case_id, "录入应返回 case_id"
+        saved = get_case("demo", case_id)
+        assert saved and saved.get("sku") == payload
         # 清理测试数据，避免污染演示库
-        case_id = r.json().get("id") or r.json().get("case_id")
-        if case_id:
-            c.delete(f"/api/cases/{case_id}", headers=auth_headers)
+        c.delete(f"/api/cases/{case_id}", headers=auth_headers)
 
 
 # ---------------- 鉴权：写接口在设 Key 后必须校验 ----------------

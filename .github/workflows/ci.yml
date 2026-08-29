@@ -8,17 +8,23 @@ on:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
+    # B-测试：Python 版本矩阵（当前 3.11 / 3.12 双版本验证复现性；新增版本在此追加即可）
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     defaults:
       run:
         working-directory: demo
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: demo/requirements-dev.txt
 
       - name: Install dev dependencies
         run: pip install -r requirements-dev.txt
@@ -29,5 +35,21 @@ jobs:
       - name: Ruff lint
         run: ruff check .
 
+      # B-测试：mypy 类型检查（增量门禁）。
+      # 当前 check_untyped_defs=false，仅对「已标注类型」的代码做校验，避免无注解存量代码阻断流水线；
+      # 后续为函数补全注解后逐步收紧。作为门禁落地但不阻断（continue-on-error），提供可见性。
+      - name: Mypy type check
+        run: mypy demo
+        continue-on-error: true
+
       - name: Run tests with coverage
-        run: python -m pytest -q --cov=. --cov-report=term-missing --cov-fail-under=75
+        run: python -m pytest -q --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=75
+
+      # B-测试：测试覆盖率产物落盘，便于下载复盘
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: demo/coverage.xml
+          if-no-files-found: warn
