@@ -134,12 +134,20 @@ def get_engine(source: str = DEFAULT_SOURCE):
         # SQLite 并发加固：busy_timeout 抗 SQLITE_BUSY（多 worker/线程池写交替），
         # WAL 降低读写互斥（避免“database is locked”）。openGauss/PG 不在此列。
         if url.startswith("sqlite"):
+            # Docker 绑挂载（Windows/macOS）下 WAL 的 -shm 共享内存/mmap 语义在挂载点上
+            # 会触发 sqlite3 disk I/O error，导致应用启动即崩。容器化本地部署通过
+            # SQLITE_NO_WAL=1 关闭 WAL（改用默认 DELETE 日志模式，rollback journal 在
+            # 绑挂载上稳定），其余场景（宿主机原生 fs / openGauss）不受影响。
+            _no_wal = os.environ.get("SQLITE_NO_WAL") == "1"
 
             @event.listens_for(_engines[source], "connect")
             def _set_sqlite_pragmas(dbapi_conn, _record):
                 cur = dbapi_conn.cursor()
                 cur.execute("PRAGMA busy_timeout=5000")
-                cur.execute("PRAGMA journal_mode=WAL")
+                if not _no_wal:
+                    cur.execute("PRAGMA journal_mode=WAL")
+                else:
+                    cur.execute("PRAGMA synchronous=NORMAL")
                 cur.close()
 
         return _engines[source]
