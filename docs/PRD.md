@@ -93,7 +93,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 
 ## 7. 非功能性需求
 - **性能**：单案 mock < 500ms；live < 30s（受模型时延影响）。
-- **可用性**：live 失败自动回退 mock；数据库**双轨**（SQLite 开发 / openGauss 部署），业务代码零改动切换。
+- **可用性**：live 失败自动回退 mock；数据库**统一 openGauss**（开发与部署共用同一 openGauss 实例，业务代码零改动；仅离线 / CI 回退 SQLite）。
 - **部署**：Docker Compose（openGauss + FastAPI），build context 为仓库根（`..`）。
 - **安全**：`MODEL_ROUTER_API_KEY`、`PUBLIC_IMAGE_BASE` 仅以环境变量注入，不入库、不进前端、不写入镜像。
 
@@ -111,7 +111,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
         ▼
 FastAPI（demo/main.py）
    ├─ pipeline（取证 + 洞察业务逻辑）
-   ├─ db（SQLAlchemy 双轨：SQLite / openGauss）
+   ├─ db（SQLAlchemy：统一 openGauss，开发&部署共用）
    └─ models_router ──HTTPS(OpenAI 兼容)──► 阿里云百炼 Model Router
                                           （model-router.edu-aliyun.com/v1）
 ```
@@ -134,7 +134,7 @@ FastAPI（demo/main.py）
 ---
 
 ## 12. 里程碑（建议）
-- **M1** 双轨存储 + 容器化部署 ✅
+- **M1** 统一 openGauss 存储 + 容器化部署 ✅
 - **M2** live 模式全链路打通（待 Key + 图床）
 - **M3** 前端看板打磨 + 关键帧红框标注
 - **M4** 复赛录屏脚本 + 平台适配举证包

@@ -59,7 +59,7 @@ from cache import (  # noqa: E402, F401
     invalidate_insights_cache,
 )
 
-# 案件持久化已迁移到 db.py（SQLAlchemy 仓储层，SQLite / openGauss 双轨）。
+# 案件持久化已迁移到 db.py（SQLAlchemy 仓储层，统一 openGauss，离线回退 SQLite）。
 # 这里做 re-export，保持 main.py 的 import 路径不变。
 from db import get_generation, load_cases, save_case  # noqa: E402, F401
 
@@ -213,7 +213,7 @@ def analyze_case(
 
 
 # ===================== 案件持久化（数据沉淀）=====================
-# 持久化已迁移到 db.py（SQLAlchemy 仓储层，SQLite / openGauss 双轨）。
+# 持久化已迁移到 db.py（SQLAlchemy 仓储层，统一 openGauss，离线回退 SQLite）。
 # 这里只做 re-export，保持 main.py 的 import 路径不变。
 
 # ===================== 阶段B · 群体洞察（功能⑥）=====================

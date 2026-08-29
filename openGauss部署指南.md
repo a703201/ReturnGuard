@@ -1,7 +1,7 @@
 # ReturnGuard · openGauss 部署与真实数据自动导入指南
 
 > 适用：复赛部署期使用国产数据库 openGauss 承载**全部业务数据**——demo / real / auth 三库均落在 openGauss（`db:5432/returnguard`），用户库不再落容器 SQLite、跨重启不丢。
-> 开发期仍可零依赖用 SQLite，部署期仅改环境变量，**业务代码零改动**（双轨隔离已在 `db.py` 预埋）。
+> **开发与部署统一使用 openGauss**：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`），**业务代码零改动**。
 
 ---
 

@@ -28,6 +28,7 @@
 
 ### 文档（Docs）
 - **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「七牛云已激活」；公网体验地址更正为「已上线」（https://rg.a703201sworld.top ，`demo`/`demo123`）。
+- **开发与部署统一 openGauss**：`db.py` 默认连接改为 openGauss（本地 `localhost:5432/returnguard`，需先 `docker compose -f docker/docker-compose.yml up -d db`），移除「开发期回退 SQLite」表述；01_技术文档架构图、README/PRD/SCHEMA/答辩Q&A/部署指南同步更新；GitCode 镜像地址补全为 https://gitcode.com/a703201/ReturnGuard；`docker-compose.local.yml`（SQLite 版）标记弃用。
 - `docs/CODE_REVIEW.md` 新增第十一节「大厂标准审查结论摘要」（综合 5.8/10 六维评分 + 已闭环项 + 待跟进项）。
 - 初赛过程材料归档至本仓库 `docs/legacy/`（9 份初赛文档于 2026-08-29 由工作区根目录统一归档，原散落的 `docs_legacy/` 亦并入；根目录仅保留仓库与 `复赛交付物/`）。
 

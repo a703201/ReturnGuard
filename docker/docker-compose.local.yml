@@ -1,5 +1,5 @@
 # ============================================================
-# ReturnGuard · 轻量级本地开发版（纯 SQLite，无需数据库容器）
+# ⚠️ 已弃用（DEPRECATED）：开发现已统一使用 openGauss（见 docker-compose.yml 的 db 服务），本 SQLite 本地版仅作离线回退，勿用于开发 / 演示（会与 openGauss 部署口径不一致、掩盖部署问题）
 # ------------------------------------------------------------
 # 用法：
 #   cd returnguard
@@ -8,10 +8,10 @@
 #
 # 停止：docker compose -f docker/docker-compose.local.yml down
 #
-# 与 docker-compose.yml（openGauss 保真部署）的区别：
+# 与 docker-compose.yml（openGauss 统一开发&部署）的区别：
 #   - 无 openGauss 容器（省内存、省初始化时间）
-#   - 使用 SQLite（与本地开发一致，demo 数据内置）
-#   - 适合演示 / 本地开发 / 快速验证
+#   - 使用 SQLite（离线回退用，与 openGauss 部署口径不一致）
+#   - ⚠️ 仅限无 openGauss 的离线环境；日常开发与演示请用 openGauss 版（先 `up db` 再 `up app`）
 #
 # 开发期热更新（关键）：
 #   - 通过 `../demo:/app` 把主机源码绑定挂载进容器，改文件即时生效，无需重建镜像

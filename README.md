@@ -14,7 +14,7 @@
 
 - **公网体验地址**：https://rg.a703201sworld.top （Cloudflare Tunnel 固定域名）
 - **测试账号**：`demo` / `demo123`
-- **代码仓库**：GitHub `a703201/ReturnGuard`（主仓库）；Gitea 镜像 `git@100.103.184.33:a703201/ReturnGuard.git`；GitCode 镜像 `gitcode.com:a703201/ReturnGuard`（已公开，三路同步推送）
+- **代码仓库**：GitHub `a703201/ReturnGuard`（主仓库，https://github.com/a703201/ReturnGuard）；Gitea 镜像 `git@100.103.184.33:a703201/ReturnGuard.git`；GitCode 镜像 `https://gitcode.com/a703201/ReturnGuard`（已公开，三路同步推送）
 - **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
 - **演示数据集**：1206 条真实退货案件 · 9 个平台 · 胜诉率 34.6%
 - **图床**：七牛云对象存储**已激活**（`image_bed: qiniu`、`image_bed_public: true`），上传图回传真实公网 URL 供模型服务端回源
@@ -96,7 +96,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 # 浏览器打开 http://localhost:8000
 ```
-- 开发期默认 SQLite（demo 种子 + real 空库），零配置起跑；**生产部署统一用 openGauss（demo / real / auth 三库均落在 openGauss，见 [`openGauss部署指南.md`](openGauss部署指南.md)）**。
+- **开发与部署统一使用 openGauss**（华为开源国产库，兼容 PostgreSQL 协议）：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss，demo/real/auth 三库均落在 openGauss（见 [`openGauss部署指南.md`](openGauss部署指南.md)）；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`）。
 - 部署 openGauss：`docker compose -f docker/docker-compose.yml up -d`（含 openGauss 服务，三库全 openGauss）；或设 `DATABASE_URL`/`AUTH_DATABASE_URL`/`REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
 - 可选环境变量：`ANALYZE_API_KEY`（写接口鉴权）、`AUTH_SECRET`（令牌签名，生产必设）、`FORCE_RESEED=1`（重置 demo 种子）。
 - 安全相关环境变量（公网部署必设）：

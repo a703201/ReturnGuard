@@ -1,6 +1,6 @@
 """ReturnGuard · 业务常量（单一来源，避免重复定义与阈值漂移）
 
-双模式（mock/live）与双轨存储（SQLite/openGauss）共用本文件中的阈值与词表，
+双模式（mock/live）与统一存储（openGauss，离线回退 SQLite）共用本文件中的阈值与词表，
 确保 pipeline（规则归因）与 models_router（真实模型）对「同款阈值」「严重程度」
 的判断完全一致，杜绝两处各写一份导致的逻辑漂移。
 """
