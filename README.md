@@ -14,7 +14,7 @@
 
 - **公网体验地址**：https://rg.a703201sworld.top （Cloudflare Tunnel 固定域名）
 - **测试账号**：`demo` / `demo123`
-- **代码仓库**：GitHub `a703201/ReturnGuard`（Gitea 镜像同步）；GitCode 镜像地址**待补充**（见 `复赛交付物/00_交付物清单.md` 顶部「待补充信息」区块）
+- **代码仓库**：GitHub `a703201/ReturnGuard`（主仓库）；Gitea 镜像 `git@100.103.184.33:a703201/ReturnGuard.git`；GitCode 镜像 `gitcode.com:a703201/ReturnGuard`（已公开，三路同步推送）
 - **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
 - **演示数据集**：1206 条真实退货案件 · 9 个平台 · 胜诉率 34.6%
 - **图床**：七牛云对象存储**已激活**（`image_bed: qiniu`、`image_bed_public: true`），上传图回传真实公网 URL 供模型服务端回源
@@ -41,6 +41,7 @@
 | 进入复赛 | 2026-08-25 | 确认 AI+跨境黑客松巅峰赛复赛资格（场景三 · AI 市场洞察） |
 | 数据集真实化 | 2026-08-27 | 演示库替换为 **1206 条**真实退货案件、平台由 4 个扩展至 **9 个**（胜诉率 **34.6%**） |
 | 公网可体验 | 2026-08-27 | Cloudflare Tunnel 固定域名 https://rg.a703201sworld.top（测试账号 demo/demo123） |
+| 部署加固 | 2026-08-29 | 切换 openGauss 部署（demo/real/auth 三库全 openGauss）；修复 sku_name 长度溢出 / Docker 本地 WAL disk I/O error / 前端 ESM 拆分点击无反应 / 版本号 Vunknown；测试 86 → **88 passed** |
 | 复赛交付 | 2026-09-01 ~ 09-13 | 可运行 Demo + 演示视频 + 技术说明 + GitCode 镜像仓库 + 测试账号 + 阶段成果 |
 | 决赛路演 | 2026-09-25 | 数贸会现场路演（完成度 / 业务价值 / 技术创新 / 用户体验 / 商业落地） |
 
@@ -83,7 +84,7 @@ flowchart TB
 
 ## 复赛冲刺能力（1.1.2）
 
-> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **86 passed**，安全面达 A 区间。
+> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **88 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐），安全面达 A 区间。
 - **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**图床抽象**（七牛云 / OSS / `PUBLIC_IMAGE_BASE` / 本地回退）供模型服务端回源——**七牛云图床已激活**，上传图回传真实公网 URL；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
 - **B 组 · 数据闭环**：时间序列 + 次月预测预警；CSV 批量导入真实退货数据（`POST /api/import_csv`）+ 平台连接器位；相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
 - **C 组 · 多租户 + 合规 + 国产化**：注册/登录/令牌（一个用户=一个租户），real 源案件按租户隔离（私有严格隔离 + `public` 公共基准）；XSS 全量转义 + CSP 防御纵深；负向/一致性测试补齐；region/season 维度下钻；**openGauss 部署 + 启动自动导入**（`RG_AUTO_IMPORT_CSV`，幂等）。
@@ -95,8 +96,8 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 # 浏览器打开 http://localhost:8000
 ```
-- 开发期默认 SQLite（demo 种子 + real 空库），零配置起跑。
-- 部署 openGauss：设 `REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
+- 开发期默认 SQLite（demo 种子 + real 空库），零配置起跑；**生产部署统一用 openGauss（demo / real / auth 三库均落在 openGauss，见 [`openGauss部署指南.md`](openGauss部署指南.md)）**。
+- 部署 openGauss：`docker compose -f docker/docker-compose.yml up -d`（含 openGauss 服务，三库全 openGauss）；或设 `DATABASE_URL`/`AUTH_DATABASE_URL`/`REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
 - 可选环境变量：`ANALYZE_API_KEY`（写接口鉴权）、`AUTH_SECRET`（令牌签名，生产必设）、`FORCE_RESEED=1`（重置 demo 种子）。
 - 安全相关环境变量（公网部署必设）：
   - `AUTH_SECRET`：令牌 HMAC 签名密钥（`secrets.token_hex(32)` 生成，生产必设，否则每次重启令牌失效）。

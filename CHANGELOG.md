@@ -24,12 +24,23 @@
 - **P0 安全三洞**：大厂标准审查发现的 3 项 P0 安全问题已修复并回归验证。
 - **SQLite WAL 失控**：WAL 文件无节制增长问题已收口（checkpoint 策略修正）。
 - **AI 诚实性标注补齐**：真实模型输出与 mock 回退在前端与接口层均显式区分标注，杜绝把回退结果当真实能力呈现。
-- **CI 转绿**：流水线恢复全绿；当前测试 **86 passed**。
+- **CI 转绿**：流水线恢复全绿；当前测试 **88 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 两条此前零覆盖关键链路的补齐用例）。
 
 ### 文档（Docs）
 - **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「七牛云已激活」；公网体验地址更正为「已上线」（https://rg.a703201sworld.top ，`demo`/`demo123`）。
 - `docs/CODE_REVIEW.md` 新增第十一节「大厂标准审查结论摘要」（综合 5.8/10 六维评分 + 已闭环项 + 待跟进项）。
-- 初赛过程材料归档至工作区 `docs_legacy/`（不入本仓库）。
+- 初赛过程材料归档至本仓库 `docs/legacy/`（9 份初赛文档于 2026-08-29 由工作区根目录统一归档，原散落的 `docs_legacy/` 亦并入；根目录仅保留仓库与 `复赛交付物/`）。
+
+### 2026-08-29 部署加固与稳定性修复（同版本 1.1.2 内的补丁集合）
+
+> 审查报告 26 项路线图全部收口后，针对「公网复赛演示」做的部署层收口。版本号维持 1.1.2（`VERSION` 与 `/api/config` 一致），不另行发版。
+
+- **前端 ESM 拆分收口（#24 / 8cbf308）**：前端拆为 `store.js`(单一状态源) + `api.js` + `render.js` + `app.js`(入口编排)；修复拆分时遗留、会导致整文件 JS 语法损坏的游离字符；并修复 `$` 函数未从 `render.js` 导出导致 `init` 抛 `ReferenceError`、页面点击无反应的 bug。
+- **零覆盖测试补齐（#11）**：新增 `demo/tests/test_coverage_gap.py`，覆盖 `GET /api/export_pdf` 与 `POST /api/import_csv` 两条此前 0 覆盖链路；测试 **86 → 88 passed**。
+- **openGauss 部署切换（610fb0e）**：公网主力由 SQLite 版（`docker-compose.local.yml`）切到 openGauss 版（`docker-compose.yml`），**demo / real / auth 三库全部落在 openGauss**（`db:5432/returnguard`），用户库不再落容器内 SQLite、跨重启不丢；app 端口对齐隧道 `127.0.0.1:65432:8000`。
+- **sku_name 长度溢出修复（610fb0e）**：`db.py` 中 `sku_name` 由 `String(128)` 扩至 `String(256)`——cases.json 中有商品名长达 145 字符，openGauss 严格长度校验在批量插入种子时抛 `DataError: value too long for type character varying(128)`；重建镜像 + 清 `ogdata` 卷重播种子，openGauss 现承载 **1206 条** demo 案件。
+- **Docker 本地 WAL 崩溃修复（e614140）**：Docker 把主机 `demo/` 绑挂载进容器时，SQLite 在 `PRAGMA journal_mode=WAL` 因 `-shm`/mmap 在 Windows 挂载点不支持而抛 `disk I/O error`、启动即崩；新增 `SQLITE_NO_WAL` 环境变量开关（默认关），本地部署设 `1` 时改用 DELETE 日志模式，宿主机原生 fs / openGauss 不受影响。
+- **版本号 Vunknown 修复（c4b12ed）**：Dockerfile 原 `COPY demo/ .` 把源码拍平到 `/app`，使 `main.py` 按 `__file__/../VERSION` 计算版本时路径断裂、返回 `unknown`；改为 `COPY demo/ ./demo/` 保持与本地一致的目录结构，entrypoint 启动前 `cd demo`，并为 `_read_app_version()` 增加 `../VERSION → ./VERSION` fallback。现 `/api/config.version` 正确返回 `1.1.2`。
 
 ---
 
