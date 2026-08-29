@@ -57,11 +57,14 @@ services:
       # 双轨切换核心：部署期用 openGauss（postgresql+psycopg2 方言，协议兼容）
       # 密码里不含 @/#，可直接写明文；若后续改含保留字符的密码，需 URL 编码。
       DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+      AUTH_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+      REAL_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
       MODEL_ROUTER_API_KEY: ${MODEL_ROUTER_API_KEY:-}
       MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-}
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
     ports:
-      - "8000:8000"
+      # 本地测试：对外仅暴露给 cloudflared 隧道（rg-tunnel.yml 指向 localhost:65432）
+      - "127.0.0.1:65432:8000"
     # 安全加固（B-部署·防污染）：禁止容器提权，避免漏洞被利用做特权升级；
     # 不挂载宿主机源码/数据目录（无 bind-mount），镜像与宿主机相互隔离，运行期写仅落 volumes。
     security_opt:
