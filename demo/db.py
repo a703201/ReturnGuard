@@ -257,7 +257,7 @@ class Case(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     case_id = Column(String(64), index=True)  # RG-000001 / 上传时的临时 rid
     sku = Column(String(64), index=True)
-    sku_name = Column(String(128))
+    sku_name = Column(String(256))  # openGauss 严格校验长度；cases.json 最大 145
     category = Column(String(64), index=True)  # 3C数码/饰品配件/小家电/服饰鞋包
     supplier = Column(String(32), index=True)  # 供应商编号 S1~S8
     supplier_name = Column(String(128))
