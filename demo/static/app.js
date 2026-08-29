@@ -1,8 +1,6 @@
 import { state } from './store.js';
 import { apiFetch, authToken } from './api.js';
-import { _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier, esc, exportReport, pct, populateFilters, realColor, renderAnnot, renderBadge, renderBarh, renderDonut, renderForecast, renderMatrix, renderOrchestration, renderSourcingLoop, renderSuppliers, renderTrendLine, setStep, trendLabel, winRateCell, wrColor } from './render.js';
-
-const $ = s => document.querySelector(s);
+import { $, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier, esc, exportReport, pct, populateFilters, realColor, renderAnnot, renderBadge, renderBarh, renderDonut, renderForecast, renderMatrix, renderOrchestration, renderSourcingLoop, renderSuppliers, renderTrendLine, setStep, trendLabel, winRateCell, wrColor } from './render.js';
 
 // 胜诉率单元格：decided=0 表示该维度尚无已判定案件（全是「待分析」），
 
