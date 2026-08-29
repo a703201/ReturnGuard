@@ -35,10 +35,11 @@ COPY demo/requirements.txt .
 RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt \
     && rm -rf /wheels
 
-# 业务源码（demo/ 完整目录 → /app）
-COPY demo/ .
+# 业务源码（demo/ 完整目录 → /app/demo/，与本地仓库结构一致，
+# 避免 main.py 用 __file__ 计算相对路径时断裂）
+COPY demo/ ./demo/
 
-# 版本文件（仓库根 VERSION → /app/VERSION，main.py 启动时读取）
+# 版本文件（仓库根 VERSION → /app/VERSION，demo/main.py 通过 ../VERSION 读取）
 COPY VERSION .
 
 # 启动脚本（位于 docker/，与 compose 同目录），置于 /app 并赋可执行权限

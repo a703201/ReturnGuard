@@ -32,6 +32,9 @@ PY
   sleep 2
 done
 
+# 业务源码在 /app/demo/，与本地仓库结构一致
+cd demo
+
 # 建表 + 首次种子导入（幂等：库已有数据则跳过）
 python -c "from db import init_db; init_db()"
 
