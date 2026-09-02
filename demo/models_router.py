@@ -287,23 +287,29 @@ def cosine(a, b):
 
 
 # ===================== ② 瑕疵视觉识别（多模态理解）=====================
-def vl_chat(image_url, prompt):
+def vl_chat(image_url, prompt, second_image=None):
     """调用 qwen3-vl-plus，对图片提问题并返回文字回答。
     方案功能②用它做「破损/缺件/污渍/使用痕迹」等瑕疵标签识别。
+    second_image：可选第二张图（如本店主图），与 image_url 一同发送，
+    支持「退回件 vs 主图」双图对比取证（P3-18）。
     注意：当前网关未开通多模态理解，调用会报错并回退 mock。"""
     src = _img_source(image_url)
+    content = [{"type": "text", "text": prompt}]
+    content.append({"type": "image_url", "image_url": {"url": src}})
+    if second_image:
+        s2 = _img_source(second_image)
+        if s2:
+            content.append({"type": "image_url", "image_url": {"url": s2}})
     r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
             "model": MODELS["vl"],
+            "temperature": 0.0,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": src}},
-                    ],
+                    "content": content,
                 }
             ],
         },
@@ -313,28 +319,33 @@ def vl_chat(image_url, prompt):
     return r.json()["choices"][0]["message"]["content"]
 
 
-def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT, img_size=None):
+def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT, img_size=None, second_image=None):
     """调用 qwen3-vl-plus 做缺陷定位，返回归一化 bbox 列表（坐标 0~1，xywh）。
 
     返回：[{label, x, y, w, h, confidence}, ...]。用于「关键帧红框标注」真实坐标。
     网关开通多模态理解即真实；未开通/解析失败由 live_analyze 回退确定性示意框，
     保证演示不中断且如实标注（不替代平台裁决）。
 
+    second_image：可选第二张图（如本店主图），支持双图对比定位新增瑕疵（P3-18）。
     img_size=(w,h)：当模型返回像素坐标（任一值>1）时，用其归一化到 0~1；
     不传则遇到像素坐标按无法归一化跳过（由回退机制补全示意框）。"""
     src = _img_source(image_url)
+    content = [{"type": "text", "text": prompt}]
+    content.append({"type": "image_url", "image_url": {"url": src}})
+    if second_image:
+        s2 = _img_source(second_image)
+        if s2:
+            content.append({"type": "image_url", "image_url": {"url": s2}})
     r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
         json={
             "model": MODELS["vl"],
+            "temperature": 0.0,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": src}},
-                    ],
+                    "content": content,
                 }
             ],
         },
@@ -396,6 +407,7 @@ def vl_similarity(returned_url, product_url, prompt=SIMILARITY_PROMPT):
         headers=_headers(),
         json={
             "model": MODELS["vl"],
+            "temperature": 0.0,
             "messages": [
                 {
                     "role": "user",
@@ -671,9 +683,9 @@ def live_analyze(
     # 阈值用自标定值（calibration.get_active_threshold），网关开通视觉后即按真实分离点判定
     same = sim >= get_active_threshold()
 
-    # ② 瑕疵识别（网关开通 qwen3-vl-plus 即真实；真实 bbox 待视觉模型支持，live 不返回示意框）
+    # ② 瑕疵识别（双图对比：第一张主图 + 第二张退回件；模型定位退回件相对主图新增瑕疵）
     try:
-        raw = vl_chat(ret_src, DEFECT_RECOGNITION_PROMPT)
+        raw = vl_chat(prod_src, DEFECT_RECOGNITION_PROMPT, second_image=ret_src)
         defects = [x.strip() for x in raw.replace("，", ",").split(",") if x.strip()] or [
             "无明显瑕疵"
         ]
@@ -683,10 +695,9 @@ def live_analyze(
         defects = _fallback_defects(returned_path)
         caps["defects"] = False
 
-    # ②' 缺陷定位（关键帧红框）：网关开通 qwen3-vl-plus 即返回真实归一化 bbox；
-    # 未开通 / 解析失败 → 确定性示意框（不替代真实检测），并标记 boxes=False 让前端如实标注「回退」
+    # ②' 缺陷定位（关键帧红框）：双图对比定位新增瑕疵；网关未开通/解析失败 → 确定性示意框
     try:
-        boxes = vl_detect_boxes(ret_src, DEFECT_BBOX_PROMPT, img_size=_image_size(returned_path))
+        boxes = vl_detect_boxes(prod_src, DEFECT_BBOX_PROMPT, img_size=_image_size(returned_path), second_image=ret_src)
         if not boxes:
             raise ValueError("VL 未返回任何有效 bbox")
         caps["boxes"] = True
