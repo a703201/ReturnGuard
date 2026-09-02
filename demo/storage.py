@@ -23,6 +23,7 @@ import hmac
 import logging
 import os
 import secrets
+import shutil
 import sys
 import time
 from urllib.parse import quote as _urlquote
@@ -63,6 +64,10 @@ OSS_KEY = os.environ.get("RG_OSS_KEY", "")
 OSS_SECRET = os.environ.get("RG_OSS_SECRET", "")
 OSS_REGION = os.environ.get("RG_OSS_REGION", "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "").rstrip("/")
+# 自托管 HTTPS 图床（RG_SELF_IMAGE_BASE）：经本服务隧道暴露上传图，供视觉网关回源。
+# 设置后 storage 把本地图复制为 256-bit 不可猜测 key 并返回 <base>/<key>，URL 为 HTTPS、
+# 退货图不出境；与七牛公网图同等级隐私。优先级最高（覆盖 qiniu/oss）。
+SELF_IMAGE_BASE = os.environ.get("RG_SELF_IMAGE_BASE", "").rstrip("/")
 
 
 def _use_qiniu() -> bool:
@@ -84,6 +89,8 @@ def _qiniu_public_base() -> str:
 
 def backend_name() -> str:
     """当前生效的图床后端名，便于 /api/config 与日志透出。"""
+    if SELF_IMAGE_BASE:
+        return "self"
     if _use_qiniu():
         return "qiniu"
     if _use_oss():
@@ -95,7 +102,7 @@ def backend_name() -> str:
 
 def is_public_ready() -> bool:
     """live 模式能否拿到公网图：任一真实图床已配 或 PUBLIC_IMAGE_BASE 已配。"""
-    return _use_qiniu() or _use_oss() or bool(PUBLIC_IMAGE_BASE)
+    return bool(SELF_IMAGE_BASE) or _use_qiniu() or _use_oss() or bool(PUBLIC_IMAGE_BASE)
 
 
 def upload(local_path: str, filename: str) -> str:
@@ -112,6 +119,16 @@ def upload(local_path: str, filename: str) -> str:
     # （形如 <8位hex>_ret_<原名>.png），随机空间仅 32 bit，可被遍历爆破，
     # 而退货图属于买家 PII、且 URL 无鉴权无过期。现统一改用 256 bit 随机 key。
     public_key = _public_object_key(filename)
+    if SELF_IMAGE_BASE:
+        # 自托管 HTTPS 图床：把本地上传图复制为 256-bit 不可猜测 key，经本服务隧道暴露给视觉网关
+        # 回源（退货图不出境，与七牛公网图同等级隐私；文件随 UPLOAD_DIR 24h 清理）
+        dst = os.path.join(os.path.dirname(os.path.abspath(local_path)), public_key)
+        try:
+            shutil.copy2(local_path, dst)
+        except Exception:  # 复制失败降级到 qiniu/oss/public_base/本地，保证主流程不中断
+            logger.exception("self 图床复制失败，降级到下一后端")
+        else:
+            return f"{SELF_IMAGE_BASE}/{public_key}"
     if _use_qiniu():
         try:
             return _upload_qiniu(local_path, public_key)
