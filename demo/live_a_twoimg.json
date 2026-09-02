@@ -1,0 +1,33 @@
+{
+  "mode": "live(partial)",
+  "similarity": 0.98,
+  "same_item": true,
+  "defect_tags": [
+    "污渍/水渍",
+    "使用痕迹"
+  ],
+  "defect_description": "污渍/水渍, 使用痕迹",
+  "defect_boxes_live": true,
+  "capabilities": {
+    "similarity": true,
+    "defects": true,
+    "boxes": true,
+    "ocr": true,
+    "tts": false
+  },
+  "degraded": [
+    "tts"
+  ],
+  "consistency": "「一致性：高。」\n退回件与主图相似度高达0.98表明其为原商品的概率极大，且卖家未提供明确的商品状态承诺以构成比对差异。",
+  "elapsed_s": 53.3,
+  "defect_boxes": [
+    {
+      "label": "污渍/水渍",
+      "x": 0.52,
+      "y": 0.54,
+      "w": 0.84,
+      "h": 0.81,
+      "confidence": 0.9
+    }
+  ]
+}

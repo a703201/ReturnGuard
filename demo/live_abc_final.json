@@ -1,0 +1,94 @@
+{
+  "A": {
+    "desc": "同款+瑕疵(咖啡渍+划痕)",
+    "elapsed_s": 48.1,
+    "mode": "live(partial)",
+    "similarity": 0.98,
+    "same_item": true,
+    "defect_tags": [
+      "无明显瑕疵"
+    ],
+    "defect_boxes_live": true,
+    "defect_boxes": [
+      {
+        "label": "污渍/水渍",
+        "x": 0.52,
+        "y": 0.54,
+        "w": 0.84,
+        "h": 0.81,
+        "confidence": 0.9
+      }
+    ],
+    "capabilities": {
+      "similarity": true,
+      "defects": true,
+      "boxes": true,
+      "ocr": true,
+      "tts": false
+    },
+    "degraded": [
+      "tts"
+    ],
+    "consistency": "一致性：高。\n退回件与本店主图相似度高达0.98且无明显瑕疵，表明退回实物与展示商品高度吻合。",
+    "promise_ocr": null
+  },
+  "B": {
+    "desc": "调包(苹果 vs 书)",
+    "elapsed_s": 57.5,
+    "mode": "live(partial)",
+    "similarity": 0.0,
+    "same_item": false,
+    "defect_tags": [
+      "仿冒/假货"
+    ],
+    "defect_boxes_live": false,
+    "defect_boxes": [
+      {
+        "label": "仿冒/假货",
+        "x": 0.491,
+        "y": 0.034,
+        "w": 0.295,
+        "h": 0.22,
+        "confidence": 0.97
+      }
+    ],
+    "capabilities": {
+      "similarity": true,
+      "defects": true,
+      "boxes": false,
+      "ocr": true,
+      "tts": false
+    },
+    "degraded": [
+      "boxes",
+      "tts"
+    ],
+    "consistency": "一致性：低。\n退回件与本店主图相似度为0.00且肉眼可见仿冒特征，与商品原始展示形态存在根本性差异。",
+    "promise_ocr": null
+  },
+  "C": {
+    "desc": "同款+图文承诺(OCR)",
+    "elapsed_s": 57.5,
+    "mode": "live(partial)",
+    "similarity": 0.98,
+    "same_item": true,
+    "defect_tags": [
+      "无明显瑕疵"
+    ],
+    "defect_boxes_live": false,
+    "defect_boxes": [],
+    "capabilities": {
+      "similarity": true,
+      "defects": true,
+      "boxes": false,
+      "ocr": true,
+      "tts": false
+    },
+    "degraded": [
+      "boxes",
+      "tts"
+    ],
+    "consistency": "一致性：高。\n退回件与本店主图相似度高达0.98且无明显瑕疵，外观状态与原商品高度吻合。",
+    "promise_ocr": null
+  }
+}
