@@ -6,8 +6,9 @@
 
     profile      能力(④文本/⑥TTS)            其余(①向量/②VL/③OCR/⑤rerank)
     ──────────  ──────────────────────────  ──────────────────────────────────
-    tokenplan    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen/qwen3-vl-plus 等
-    official     qwen/qwen3.7-max / qwen/qwen3-tts-instruct-flash   qwen/qwen3-vl-plus 等
+    tokenplan    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen/qwen3-vl-plus 等（视觉未开通→回退）
+    official     qwen/qwen3.7-max / qwen/qwen3-tts-instruct-flash   qwen/qwen3-vl-plus 等（赛事指定）
+    dashscope    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen3-vl-plus 等（自购·视觉齐全·数据不出境）
 
 ⚠️ 两个网关「模型命名」不同：Token Plan 文本/TTS 为无 qwen/ 前缀旧名；赛事指定 Model Router
 （model-router.edu-aliyun.com）全部模型必须带 qwen/ 前缀（见 ModelRouter_API.docx）。切换 profile
@@ -15,6 +16,10 @@
 
 Token Plan 当前开通以「文本推理 / TTS 语音」为主；视觉/向量/rerank 在团队版模型列表未开通，
 调用会报错并由 pipeline 自动回退 mock（保持原模型名占位），保证演示不中断——网关渐进开通即生效。
+
+dashscope（阿里云百炼国内站按量付费）是「自购 token」通道：视觉/向量/OCR 模型齐全、数据不出境、
+合规首选。设 MODEL_ROUTER_PROFILE=dashscope + DASHSCOPE_API_KEY 即可让单案视觉真跑通，
+模型标识不带 qwen/ 前缀（与 Token Plan / 官方 Model Router 命名不同）。退回演示仍走 mock 回退。
 
 运行前提（live 模式必须）：
     - demo/.env 或环境变量 MODEL_ROUTER_API_KEY：Token Plan 专属 API Key
@@ -45,6 +50,7 @@ from prompts import (
     DEFECT_BBOX_PROMPT,
     DEFECT_RECOGNITION_PROMPT,
     OCR_PROMISE_PROMPT,
+    SIMILARITY_PROMPT,
     build_insights_prompt,
     consistency_prompt,
     dossier_prompt,
@@ -100,19 +106,41 @@ _MODEL_ROUTER_PROFILES = {
             "rerank": "qwen/qwen3-rerank",
         },
     },
+    # dashscope：阿里云百炼国内站「按量付费」自购通道（视觉模型齐全、数据不出境、合规首选）。
+    # 模型标识不带 qwen/ 前缀（与 Token Plan / 官方 Model Router 的命名不同），base_url 用百炼
+    # 通用兼容端点。自购 key 走这里即可让单案视觉（①向量/②VL/②'红框/③OCR）真跑通，
+    # 代码其余逻辑无需改动——拿到 key 后设 MODEL_ROUTER_PROFILE=dashscope + DASHSCOPE_API_KEY 即可。
+    "dashscope": {
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "key_env": "DASHSCOPE_API_KEY",
+        "models": {
+            "text": "qwen3.7-max",
+            "tts": "qwen-audio-3.0-tts-plus",
+            "vl": "qwen3-vl-plus",
+            "ocr": "qwen-vl-ocr",
+            "embed": "tongyi-embedding-vision-plus",
+            "rerank": "qwen3-rerank",
+        },
+    },
 }
 MODEL_ROUTER_PROFILE = os.environ.get("MODEL_ROUTER_PROFILE", "tokenplan")
 _PROFILE = _MODEL_ROUTER_PROFILES.get(MODEL_ROUTER_PROFILE, _MODEL_ROUTER_PROFILES["tokenplan"])
 # 当前 profile 的模型标识字典（随 profile 切换，杜绝 base_url/base_key/模型名错配）。
 MODELS = _PROFILE["models"]
-# base_url 解析规则（避免 tokenplan 的 .env 默认值把 official 端点错配成 Token Plan 地址）：
-#   - tokenplan profile：允许用 MODEL_ROUTER_BASE_URL 覆盖（本地反向代理 / 自定义地址）；否则取 Token Plan 专属默认。
-#   - official profile：固定用赛事指定端点；如需覆盖用 MODEL_ROUTER_OFFICIAL_BASE_URL（一般不改）。
-#     ⚠️ 不读 MODEL_ROUTER_BASE_URL，避免切换 profile 时 base_url 与 key 错配（用 Token Plan 地址 + 组委会 Key）。
-if MODEL_ROUTER_PROFILE == "official":
-    API_BASE = os.environ.get("MODEL_ROUTER_OFFICIAL_BASE_URL", _PROFILE["base_url"]).rstrip("/")
-else:
-    API_BASE = os.environ.get("MODEL_ROUTER_BASE_URL", _PROFILE["base_url"]).rstrip("/")
+# base_url 解析规则（每个 profile 用各自独立的覆盖变量，杜绝 .env 里某个 profile 的 base_url
+# 把其他 profile 的端点错配——此前 tokenplan 的 MODEL_ROUTER_BASE_URL 曾把 official/dashscope
+# 端点污染成 Token Plan 地址，导致"切了 profile 仍打旧网关"）：
+#   - tokenplan ：允许 MODEL_ROUTER_BASE_URL 覆盖；否则取 Token Plan 专属默认
+#   - official  ：固定赛事指定端点，可用 MODEL_ROUTER_OFFICIAL_BASE_URL 覆盖（一般不改）
+#   - dashscope ：固定百炼国内站端点，可用 DASHSCOPE_BASE_URL 覆盖
+_PROFILE_BASE_ENV = {
+    "tokenplan": "MODEL_ROUTER_BASE_URL",
+    "official": "MODEL_ROUTER_OFFICIAL_BASE_URL",
+    "dashscope": "DASHSCOPE_BASE_URL",
+}
+_base_env = _PROFILE_BASE_ENV.get(MODEL_ROUTER_PROFILE, "")
+_override = os.environ.get(_base_env, "") if _base_env else ""
+API_BASE = _override.rstrip("/") if _override else _PROFILE["base_url"]
 API_KEY = os.environ.get(_PROFILE["key_env"], "")
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
 # 默认文本推理模型：随 profile 取对应命名（official=qwen/qwen3.7-max，tokenplan=qwen3.7-max）；
@@ -164,16 +192,83 @@ def _headers():
     return {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
 
 
+# 视觉输入归一化：把「本地路径 / 公网 URL / data URI」统一成送给视觉网关的值。
+# 关键决策（P3-17 收口后的视觉实跑修复）：优先把本地上传图转成 base64 data URI 内联，
+# 彻底绕开「网关需回源拉取我们隧道图」这一最脆弱环节（cloudflared 进程一旦停，隧道 530，
+# 网关报 Failed to download multimodal content）。内联字节同样只流经阿里云国内站，数据不出境。
+_IMG_MIME = {
+    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "webp": "image/webp", "gif": "image/gif", "bmp": "image/bmp",
+}
+
+
+def _img_source(src: str | None) -> str | None:
+    """把图像来源归一化为视觉调用可用的输入。
+
+    - data:image/...  → 原样（已内联）
+    - http(s)://...   → 原样（网关可回源拉取，如七牛公网 https；隧道 http 此前被拒）
+    - 本地文件路径     → 读文件转 base64 data URI（最稳，无需公网可达）
+    - 其它/读取失败    → 原样返回（交由后续调用自然失败并回退）
+    """
+    if not src:
+        return src
+    if src.startswith("data:image/"):
+        return src
+    if src.startswith("http://") or src.startswith("https://"):
+        return src
+    try:
+        with open(src, "rb") as f:
+            raw = f.read()
+        ext = os.path.splitext(src)[1].lower().lstrip(".")
+        mime = _IMG_MIME.get(ext, "image/png")
+        return f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+    except Exception:  # noqa: BLE001
+        logger.warning("本地图转 base64 失败，保持原值: %s", src)
+        return src
+
+
+def _image_size(path: str) -> tuple[int, int] | None:
+    """读图片像素尺寸（PNG/JPEG），无需第三方库。用于把模型可能返回的像素坐标 bbox 归一化。"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(32)
+        if head[:8] == b"\x89PNG\r\n\x1a\n":
+            import struct as _st
+            w, h = _st.unpack(">II", head[16:24])
+            return (w, h)
+        if head[:2] == b"\xff\xd8":  # JPEG：扫描 SOF  marker
+            with open(path, "rb") as f:
+                data = f.read()
+            i = 2
+            n = len(data)
+            while i < n - 9:
+                if data[i] != 0xFF:
+                    i += 1
+                    continue
+                m = data[i + 1]
+                if m in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                         0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    h = int.from_bytes(data[i + 5:i + 7], "big")
+                    w = int.from_bytes(data[i + 7:i + 9], "big")
+                    return (w, h)
+                seg = int.from_bytes(data[i + 2:i + 4], "big")
+                i += 2 + seg
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 # ===================== ① 同款一致性比对（图像向量）=====================
 def embed_image(image_url):
     """调用 tongyi-embedding-vision-plus，把一张商品图转成向量。
     返回：浮点数列表（向量）。用于后续余弦相似度判断是否同一件。
     注意：当前 Token Plan 网关团队版模型列表未开通图像向量，调用会报错；
     由 pipeline 的 live 回退机制降级到 mock（确定性哈希），演示不中断。"""
+    src = _img_source(image_url)
     r = _post(
         f"{API_BASE}/embeddings",
         headers=_headers(),
-        json={"model": MODELS["embed"], "input": {"image": image_url}},
+        json={"model": MODELS["embed"], "input": {"image": src}},
         timeout=60,
     )
     r.raise_for_status()
@@ -196,6 +291,7 @@ def vl_chat(image_url, prompt):
     """调用 qwen3-vl-plus，对图片提问题并返回文字回答。
     方案功能②用它做「破损/缺件/污渍/使用痕迹」等瑕疵标签识别。
     注意：当前网关未开通多模态理解，调用会报错并回退 mock。"""
+    src = _img_source(image_url)
     r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -206,7 +302,7 @@ def vl_chat(image_url, prompt):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
+                        {"type": "image_url", "image_url": {"url": src}},
                     ],
                 }
             ],
@@ -217,12 +313,16 @@ def vl_chat(image_url, prompt):
     return r.json()["choices"][0]["message"]["content"]
 
 
-def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
+def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT, img_size=None):
     """调用 qwen3-vl-plus 做缺陷定位，返回归一化 bbox 列表（坐标 0~1，xywh）。
 
     返回：[{label, x, y, w, h, confidence}, ...]。用于「关键帧红框标注」真实坐标。
     网关开通多模态理解即真实；未开通/解析失败由 live_analyze 回退确定性示意框，
-    保证演示不中断且如实标注（不替代平台裁决）。"""
+    保证演示不中断且如实标注（不替代平台裁决）。
+
+    img_size=(w,h)：当模型返回像素坐标（任一值>1）时，用其归一化到 0~1；
+    不传则遇到像素坐标按无法归一化跳过（由回退机制补全示意框）。"""
+    src = _img_source(image_url)
     r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -233,7 +333,7 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
+                        {"type": "image_url", "image_url": {"url": src}},
                     ],
                 }
             ],
@@ -246,6 +346,7 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
     data = _extract_json(raw)
     items = data.get("boxes") or data.get("defects") or []
     boxes: list[dict] = []
+    iw, ih = (img_size or (None, None))
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -257,9 +358,14 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
             a = [float(c) for c in coords[:4]]
         except Exception:
             continue
-        # 要求归一化 0~1；越界（如像素坐标）无法可靠归一化则跳过，由回退机制补全
+        # 归一化 0~1；若为像素坐标（任一值>1）且已知图尺寸，则归一化；否则跳过
         if not all(0 <= v <= 1 for v in a):
-            continue
+            if iw and ih:
+                a = [a[0] / iw, a[1] / ih, a[2] / iw, a[3] / ih]
+            else:
+                continue
+            if not all(0 <= v <= 1 for v in a):
+                continue
         x, y, w, h = a
         conf = float(item.get("confidence", 0.0) or 0.0)
         boxes.append(
@@ -275,11 +381,54 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT):
     return boxes
 
 
+# ===================== ①' 同款一致性（VL 直接判同款）=====================
+def vl_similarity(returned_url, product_url, prompt=SIMILARITY_PROMPT):
+    """用多模态模型「同时看退回件 + 本店主图」直接判同款，返回相似度 0~1 + 理由。
+
+    用途：百炼工作空间 OpenAI 兼容模式**不支持**视觉向量模型
+    （tongyi-embedding-vision-plus → "Unsupported model ... for OpenAI compatibility mode"），
+    故 ① 同款一致性改用 VL 直接判定，比向量更贴合业务（同款/调包判定）。
+    返回 {similarity, same_item, reason}。调用失败抛异常，由 live_analyze 回退向量/哈希。"""
+    r_src = _img_source(returned_url)
+    p_src = _img_source(product_url)
+    r = _post(
+        f"{API_BASE}/chat/completions",
+        headers=_headers(),
+        json={
+            "model": MODELS["vl"],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": r_src}},
+                        {"type": "image_url", "image_url": {"url": p_src}},
+                    ],
+                }
+            ],
+        },
+        timeout=60,
+    )
+    r.raise_for_status()
+    msg = r.json()["choices"][0]["message"]
+    raw = msg.get("content") or msg.get("reasoning_content") or ""
+    data = _extract_json(raw)
+    sim = float(data.get("similarity", 0.0) or 0.0)
+    sim = max(0.0, min(1.0, sim))
+    same = bool(data.get("same_item", sim >= get_active_threshold()))
+    return {
+        "similarity": round(sim, 3),
+        "same_item": same,
+        "reason": str(data.get("reason", ""))[:200],
+    }
+
+
 # ===================== ③ listing 承诺提取（OCR）=====================
 def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
     """调用 qwen-vl-ocr，从本店主图/详情图里提取文字承诺（如「全新未拆/30天退换」）。
     方案功能③用它做「退回件实际状态 vs 本店承诺」的货不对板核验。
     注意：当前网关未开通 OCR 视觉模型，调用会报错并回退 mock。"""
+    src = _img_source(image_url)
     r = _post(
         f"{API_BASE}/chat/completions",
         headers=_headers(),
@@ -290,7 +439,7 @@ def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
                     "role": "user",
                     "content": [
                         {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
+                        {"type": "image_url", "image_url": {"url": src}},
                     ],
                 }
             ],
@@ -485,34 +634,46 @@ def live_analyze(
     """
     if not API_KEY:
         raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
+    # 视觉输入：优先本地文件内联 base64（无需公网可达，最稳），回退公网 URL。
+    # 不再强制 PUBLIC_IMAGE_BASE——只要调用方能给出本地图路径，视觉即可真跑（P3-17 视觉实跑修复）。
+    ret_src = _img_source(returned_path) or _img_source(returned_url)
+    prod_src = _img_source(product_path) or _img_source(product_url)
+    # 向量回退仍需 URL（embeddings 端点吃 {"image": url}）；没有则后续自然失败并降级哈希
     ret_url = returned_url or (
         f"{PUBLIC_IMAGE_BASE}/{os.path.basename(returned_path)}" if PUBLIC_IMAGE_BASE else None
     )
     prod_url = product_url or (
         f"{PUBLIC_IMAGE_BASE}/{os.path.basename(product_path)}" if PUBLIC_IMAGE_BASE else None
     )
-    if not ret_url or not prod_url:
-        raise RuntimeError("未配置 PUBLIC_IMAGE_BASE（live 模式需可公网访问的图片地址）")
+    if not ret_src or not prod_src:
+        raise RuntimeError("live 模式需本地图路径或可公网访问的图片地址（视觉输入缺失）")
 
     _enter_budget(LLM_TOTAL_BUDGET)
     caps: dict[str, bool] = {}
 
-    # ① 同款一致性：两张图向量 → 余弦相似度（网关开通 tongyi-embedding-vision-plus 即真实）
+    # ① 同款一致性：优先 VL 直接判同款（真实视觉；百炼工作空间兼容模式不支持视觉向量模型），
+    # 失败再回退视觉向量 embed（tokenplan/official 可能支持，吃 URL），最后回退确定性哈希
     try:
-        va = embed_image(ret_url)
-        vb = embed_image(prod_url)
-        sim = cosine(va, vb)
+        vs = vl_similarity(ret_src, prod_src)
+        sim = vs["similarity"]
         caps["similarity"] = True
     except Exception as e:
-        logger.warning("live 图向量失败，回退 mock 相似度: %s", e)
-        sim = _fallback_similarity(returned_path, product_path)
-        caps["similarity"] = False
+        logger.warning("live VL 同款判定失败，尝试向量: %s", e)
+        try:
+            va = embed_image(ret_url or ret_src)
+            vb = embed_image(prod_url or prod_src)
+            sim = cosine(va, vb)
+            caps["similarity"] = True
+        except Exception as e2:
+            logger.warning("live 图向量也失败，回退 mock 相似度: %s", e2)
+            sim = _fallback_similarity(returned_path, product_path)
+            caps["similarity"] = False
     # 阈值用自标定值（calibration.get_active_threshold），网关开通视觉后即按真实分离点判定
     same = sim >= get_active_threshold()
 
     # ② 瑕疵识别（网关开通 qwen3-vl-plus 即真实；真实 bbox 待视觉模型支持，live 不返回示意框）
     try:
-        raw = vl_chat(ret_url, DEFECT_RECOGNITION_PROMPT)
+        raw = vl_chat(ret_src, DEFECT_RECOGNITION_PROMPT)
         defects = [x.strip() for x in raw.replace("，", ",").split(",") if x.strip()] or [
             "无明显瑕疵"
         ]
@@ -525,7 +686,7 @@ def live_analyze(
     # ②' 缺陷定位（关键帧红框）：网关开通 qwen3-vl-plus 即返回真实归一化 bbox；
     # 未开通 / 解析失败 → 确定性示意框（不替代真实检测），并标记 boxes=False 让前端如实标注「回退」
     try:
-        boxes = vl_detect_boxes(ret_url, DEFECT_BBOX_PROMPT)
+        boxes = vl_detect_boxes(ret_src, DEFECT_BBOX_PROMPT, img_size=_image_size(returned_path))
         if not boxes:
             raise ValueError("VL 未返回任何有效 bbox")
         caps["boxes"] = True
@@ -536,7 +697,7 @@ def live_analyze(
 
     # ③ + ④ 一致性核验与卷宗（OCR + LLM；网关开通 qwen-vl-ocr 即真实承诺提取）
     try:
-        promise = ocr(prod_url)
+        promise = ocr(prod_src)
         caps["ocr"] = True
     except Exception as e:
         logger.warning("live OCR 失败，回退 listing_text: %s", e)

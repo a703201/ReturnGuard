@@ -541,6 +541,22 @@ async def serve_upload(sig: str, f: str = Query(...), e: int = Query(...)):
     return FileResponse(abs_path)
 
 
+@app.get("/api/img/{key}")
+async def serve_img(key: str):
+    """自托管 HTTPS 取图（RG_SELF_IMAGE_BASE）：退货图经本服务隧道暴露给视觉网关回源。
+
+    key 为 256-bit 不可猜测随机名（storage._public_object_key），与七牛公网图同等级隐私；
+    文件随 UPLOAD_DIR 24h 清理（cleanup_old_uploads）。校验越界/不存在/含路径符 -> 404。"""
+    if not key or "/" in key or "\\" in key or ".." in key:
+        raise HTTPException(status_code=404, detail="not found")
+    path = os.path.join(UPLOAD_DIR, key)
+    abs_path = os.path.abspath(path)
+    abs_dir = os.path.abspath(UPLOAD_DIR)
+    if not abs_path.startswith(abs_dir + os.sep) or not os.path.isfile(abs_path):
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(abs_path)
+
+
 @app.get("/health")
 def health():
     """健康检查探针（编排 healthcheck / 负载均衡用）。"""
