@@ -258,7 +258,7 @@ export function reportText(d){
   L.push('ReturnGuard 选品·品控洞察报告');
   const cat=$('#catSel').value||'', plat=$('#platSel').value||'';
   const scope=(cat?cat+' / ':'')+(plat||'全平台');
-  L.push(`生成时间：${new Date().toLocaleString('zh-CN')}｜数据源：${state.source==='real'?'实际数据':'演示数据'}｜筛选：${scope}`);
+  L.push(`生成时间：${new Date().toLocaleString('zh-CN')}｜模式：${state.source==='real'?'AI 实算':'演示布局'}｜筛选：${scope}`);
   L.push('');
   L.push(`【核心指标】已分析退货 ${d.total_cases} 笔｜累计退款 ¥${Number(d.total_refund||0).toLocaleString('zh-CN',{maximumFractionDigits:2})}｜维权胜诉率 ${pct(d.win_rate||0)}｜货不对板嫌疑率 ${pct(d.avg_dispute_rate||0)}`);
   L.push(`【退货成本】物流成本（估算）¥${Number(d.logistics_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}｜退货总成本（退款+物流）¥${Number(d.total_return_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}`);
@@ -296,7 +296,7 @@ export function exportReport(){
   $('#ovBody').innerHTML=`
     <div class="report">
       <h3 style="margin:0 0 2px;font-size:18px">ReturnGuard 选品 · 品控洞察报告</h3>
-      <div class="r-meta">生成时间：${new Date().toLocaleString('zh-CN')} ｜ 数据源：${state.source==='real'?'实际数据':'演示数据'} ｜ 筛选：${esc(scope)}</div>
+      <div class="r-meta">生成时间：${new Date().toLocaleString('zh-CN')} ｜ 模式：${state.source==='real'?'AI 实算':'演示布局'} ｜ 筛选：${esc(scope)}</div>
       <div class="r-kpis">
         <div class="r-kpi"><b>${Number(d.total_cases).toLocaleString()}</b><span>已分析退货（笔）</span></div>
         <div class="r-kpi"><b style="color:${wrColor(d.win_rate||0)}">${pct(d.win_rate||0)}</b><span>维权胜诉率</span></div>
