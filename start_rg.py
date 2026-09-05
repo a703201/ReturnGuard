@@ -28,12 +28,14 @@ TUNNEL_CONFIG = r"D:\rg-tunnel.yml"          # ASCII 路径，避免中文
 TUNNEL_NAME = "rg"
 PUBLIC_URL = "https://rg.a703201sworld.top"
 LOCAL_HEALTH = "http://127.0.0.1:65432/health"
-TUNNEL_METRICS = "http://127.0.0.1:4559/metrics"
 APP_CONTAINER = "rg_app"
 DB_CONTAINER = "rg_opengauss"
 INIT_CONTAINER = "rg_realdb_init"
 
 CONTAINERS = [APP_CONTAINER, DB_CONTAINER, INIT_CONTAINER]
+
+# 隧道 PID 记录文件（stop_rg.py 据此精确杀进程；Windows 下 cloudflared 是独立进程）
+PID_FILE = os.path.join(HERE, ".rg_tunnel.pid")
 
 
 def _run(cmd, **kw):
@@ -84,17 +86,34 @@ def wait_health(timeout=120):
     return False
 
 
-def tunnel_running():
+def cloudflared_process_exists():
     try:
-        with urllib.request.urlopen(TUNNEL_METRICS, timeout=2) as r:
-            return r.status == 200
+        if os.name == "nt" or sys.platform.startswith("win"):
+            r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq cloudflared.exe"],
+                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+            return b"cloudflared.exe" in (r.stdout or b"")
+        r = subprocess.run(["pgrep", "-f", "cloudflared"],
+                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=5)
+        return bool(r.stdout.strip())
     except Exception:
         return False
 
 
+def tunnel_running():
+    # 优先看公网是否已通；否则看 cloudflared 进程是否已在跑（避免重复拉起同名隧道）。
+    # 注意：cloudflared 默认指标端口不固定，故不依赖 metrics 端口探测。
+    try:
+        with urllib.request.urlopen(PUBLIC_URL + "/health", timeout=4) as r:
+            if r.status == 200:
+                return True
+    except Exception:
+        pass
+    return cloudflared_process_exists()
+
+
 def start_tunnel():
     if tunnel_running():
-        print("[隧道] 已在运行（metrics 端口 4559 响应），跳过。")
+        print("[隧道] 已在运行（公网/进程已存在），跳过。")
         return True
     if not os.path.exists(CLOUDFLARED):
         print(f"    ⚠️ 未找到 {CLOUDFLARED}，跳过隧道启动。")
@@ -102,17 +121,31 @@ def start_tunnel():
     if not os.path.exists(TUNNEL_CONFIG):
         print(f"    ⚠️ 未找到 {TUNNEL_CONFIG}，跳过隧道启动。")
         return False
-    # DETACHED_PROCESS：独立于本脚本生命周期，关机才停。
+    # 先尝试「脱离作业对象(CREATE_BREAKAWAY_FROM_JOB) + 无控制台(DETACHED_PROCESS)」启动，
+    # 使其在受限沙箱/作业环境中也能在父进程退出后继续存活；若作业不允许脱离
+    # (CreateProcess 失败)，回退到普通 DETACHED_PROCESS。
+    cmd = [CLOUDFLARED, "tunnel", "--config", TUNNEL_CONFIG, "run", TUNNEL_NAME]
+    flags_try = [0x00000008 | 0x01000000, 0x00000008]
+    proc = None
     print(f"[隧道] 启动 cloudflared tunnel --config {TUNNEL_CONFIG} run {TUNNEL_NAME} …")
-    try:
-        subprocess.Popen(
-            [CLOUDFLARED, "tunnel", "--config", TUNNEL_CONFIG, "run", TUNNEL_NAME],
-            creationflags=0x00000008,  # DETACHED_PROCESS
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-    except Exception as e:
-        print(f"    ⚠️ 隧道启动失败：{e}")
+    for flags in flags_try:
+        try:
+            proc = subprocess.Popen(
+                cmd, creationflags=flags,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            break
+        except Exception:
+            proc = None
+    if proc is None:
+        print("    ⚠️ 隧道启动失败（两种启动 flag 均无法创建进程），请手动启动。")
         return False
+    # 记录 PID，供 stop_rg.py 精确终止（避免 taskkill 误伤其他 cloudflared）
+    try:
+        with open(PID_FILE, "w", encoding="utf-8") as f:
+            f.write(str(proc.pid))
+    except Exception:
+        pass
     # 等隧道连通
     for _ in range(20):
         try:
