@@ -119,8 +119,10 @@ _CORS_ALLOW_ORIGINS = [
 
 # 登录失败计数 / 封禁（按用户名）：靶向爆破防护，已外置到 shared_state（SEC-12 跨 worker 共享）。
 
-# 演示态可选鉴权：设置 ANALYZE_API_KEY 后，/api/analyze 须带 X-API-Key 头或 ?key=
-_API_KEY = os.environ.get("ANALYZE_API_KEY", "")
+# 写接口鉴权只保留「登录会话」一条通道（_require_session），不再提供 API Key 免登录通道，
+# 公网演示统一使用预置的 demo/demo123 账户。历史版本留有 ANALYZE_API_KEY 常量，
+# 但其校验函数 _require_api_key 从未被任何端点调用，属「配了却不生效」的伪防护，
+# 易造成安全错觉，故整体移除；脚本化调用请走 POST /api/auth/login 取令牌后带 Bearer。
 
 # 上传图访问前缀（P3-5）：返回 /uploads/<文件名> 而非内联整图 base64
 UPLOAD_URL_PREFIX = "/uploads/"
@@ -252,19 +254,6 @@ def _resolve_tenant(request: Request) -> str | None:
     return auth.verify_token(token)
 
 
-def _require_api_key(request: Request) -> None:
-    """写接口可选鉴权：设置 ANALYZE_API_KEY 后，所有写接口
-    （/api/analyze、POST /api/cases、DELETE /api/cases/{id}）须携带
-    `X-API-Key` 请求头或 `?key=` 查询参数；未设置密钥时退化为免鉴权（演示态）。
-    统一收口，避免各写接口重复散落鉴权逻辑。密钥比较使用常量时间，避免时序侧信道（P3）。"""
-    if not _API_KEY:
-        return
-    provided = request.headers.get("X-API-Key", "") or request.query_params.get("key", "")
-    # 常量时间比较：即便 provided 为空（未带 Key）也不会因长度差异泄露信息
-    if not hmac.compare_digest(provided, _API_KEY):
-        raise HTTPException(status_code=401, detail="需要有效的 API Key")
-
-
 def _require_session(request: Request) -> str:
     """写接口会话鉴权（SEC-1）：要求已登录（持有有效令牌），返回 tenant(=username)。
 
@@ -276,7 +265,7 @@ def _require_session(request: Request) -> str:
     return username
 
 
-# 管理动作密钥（独立变量，与 ANALYZE_API_KEY 解耦）：用于 /api/calibrate 等管理动作。
+# 管理动作密钥（独立变量，与写接口的登录会话鉴权解耦）：用于 /api/calibrate 等管理动作。
 # 设了 ADMIN_API_KEY 则必须携带 X-Admin-Key 头或 admin_key 查询参数；未设则退化为要求登录，
 # 确保匿名仍无法执行管理动作。
 _ADMIN_KEY = os.environ.get("ADMIN_API_KEY", "")
@@ -588,6 +577,13 @@ def analyze(
     source = _resolve_source(request)
     # SEC-1 写接口会话鉴权：取证沉淀必须登录，避免匿名写入与资源滥用
     _require_session(request)
+    # 写操作一律落到 real 源（与 import_csv 同款保护）：demo 是共享只读演示库，
+    # 且删除被显式禁止（见 delete_case_api），若放任写入会造成「只增不减」的永久污染，
+    # 演示数字（1206 条 / 胜诉率 34.6%）会被逐次改写，恢复只能靠 FORCE_RESEED 重建。
+    # 归正必须在 tenant_id 解析之前，否则取证结果会落进 public 公共桶而非当前租户。
+    if source == "demo":
+        logger.warning("单案取证强制落到 real 源（忽略 source=demo），避免污染演示种子库")
+        source = "real"
     # P2-8 限流：按客户端 IP 固定窗口
     client_ip = get_client_ip(request)
     if not _check_rate_limit(client_ip):
@@ -896,6 +892,12 @@ def add_case(c: ManualCase, request: Request):
     """
     source = _resolve_source(request)
     _require_session(request)
+    # 同 /api/analyze：数据录入一律落 real 源，避免污染共享演示库。
+    # demo 禁止删除且允许匿名读，若任由录入写入会只增不减地改写演示基准数据。
+    # 归正必须在 tenant_id 解析之前，确保录入行归属当前登录租户。
+    if source == "demo":
+        logger.warning("数据录入强制落到 real 源（忽略 source=demo），避免污染演示种子库")
+        source = "real"
     tenant_id = (_resolve_tenant(request) or "public") if source == "real" else None
     data = c.model_dump()
     data["case_id"] = "RG-" + uuid.uuid4().hex[:8].upper()
@@ -917,7 +919,7 @@ def add_case(c: ManualCase, request: Request):
 
 @app.delete("/api/cases/{case_id}")
 def delete_case_api(case_id: str, request: Request):
-    """删除指定 source 下的一条案件（实际数据管理用）。写接口：需 API Key（_require_api_key）。
+    """删除指定 source 下的一条案件（实际数据管理用）。写接口：须登录会话（_require_session），匿名 → 401。
     real 源仅能删除当前租户的案件，跨租户不可见不可删。
 
     SEC-P0: demo 源为共享演示库且测试账号公开，此前任何登录者都能把 1206 条种子数据
