@@ -2,5 +2,5 @@ tunnel: d59bd848-dcc9-476d-a34f-4ce772eecadb
 credentials-file: C:/Users/a7032/.cloudflared/d59bd848-dcc9-476d-a34f-4ce772eecadb.json
 ingress:
   - hostname: rg.a703201sworld.top
-    service: http://localhost:65432
+    service: http://127.0.0.1:65432
   - service: http_status:404
