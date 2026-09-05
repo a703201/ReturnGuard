@@ -500,6 +500,34 @@ def init_db(
                 logger.info("[%s] 案件库已存在 %d 条，跳过种子导入", source, count)
     else:
         logger.info("[%s] 实际数据库就绪（空库，待录入）", source)
+        _seed_demo_tenant()  # 预置 demo 演示租户，使 demo/demo123 登录即有数据（live AI 链路）
+
+
+def _seed_demo_tenant(seed_json: str | None = None) -> None:
+    """real 源：为预置演示租户（tenant_id='demo'，即 demo/demo123 登录所见）填充种子数据。
+
+    使登录 demo 账户即可看到与匿名演示布局同源、但走 live AI 实算链路的看板，
+    避免「演示账户没数据」的空屏体验。仅填充 tenant_id=='demo'，不影响其他真实租户；
+    已存在数据则跳过（幂等），多次 init_db 安全。
+    """
+    with get_session("real") as s:
+        n = s.query(Case).filter(Case.tenant_id == "demo").count()
+        if n > 0:
+            logger.info("[real] demo 租户已有 %d 条，跳过预填", n)
+            return
+        if seed_json is None:
+            seed_json = os.path.join(BASE, "cases.json")
+        if not os.path.exists(seed_json):
+            logger.warning("[real] 未找到种子文件 %s，跳过 demo 租户预填", seed_json)
+            return
+        with open(seed_json, encoding="utf-8") as f:
+            rows = json.load(f)
+        for c in rows:
+            row = _dict_to_row(c)
+            row.tenant_id = "demo"
+            s.add(row)
+        s.commit()
+        logger.info("[real] 已为 demo 租户预填 %d 条种子", len(rows))
 
 
 def load_cases(source: str = DEFAULT_SOURCE, tenant_id: str | None = None) -> list[dict]:
