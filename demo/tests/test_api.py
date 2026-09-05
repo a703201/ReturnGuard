@@ -69,9 +69,10 @@ def test_analyze_persists_dimensions(auth_headers):
         assert r.status_code == 200
         d = r.json()
         assert d["outcome"] == "待分析"
-        # 落库后在案件库中应能查到该单并带维度（直接按 case_id 取，避免依赖分页页序）
-        saved = get_case("demo", d["case_id"])
-        assert saved, "上传单案应进入案件库"
+        # 落库后在案件库中应能查到该单并带维度（直接按 case_id 取，避免依赖分页页序）。
+        # P1-A：取证写入强制落 real 源（即便 source=demo），故按 real + 当前租户查询。
+        saved = get_case("real", d["case_id"], tenant_id="demo")
+        assert saved, "上传单案应进入 real 源案件库"
         assert saved["category"] == "3C数码"
         assert saved["supplier"] == "S3"
         assert saved["outcome"] == "待分析"

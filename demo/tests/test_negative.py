@@ -127,9 +127,10 @@ def test_xss_payload_stored_not_executed(auth_headers):
         # 后端原样（安全）存返：直接按 case_id 取回，确认未做危险处理（JSON 本身是安全载体）
         case_id = r.json().get("case_id")
         assert case_id, "录入应返回 case_id"
-        saved = get_case("demo", case_id)
+        # P1-A：录入写入强制落 real 源（即便 source=demo），故按 real + 当前租户查询。
+        saved = get_case("real", case_id, tenant_id="demo")
         assert saved and saved.get("sku") == payload
-        # 清理测试数据，避免污染演示库
+        # 清理测试数据（real 源可删），避免污染真实库
         c.delete(f"/api/cases/{case_id}", headers=auth_headers)
 
 

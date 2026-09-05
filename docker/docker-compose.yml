@@ -62,6 +62,11 @@ services:
       MODEL_ROUTER_API_KEY: ${MODEL_ROUTER_API_KEY:-}
       MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-}
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
+      # P1-C 透传：写接口的演示种子重置开关（FORCE_RESEED=1 仅重置 demo，real 不动）。
+      # 此前 compose 未暴露该变量导致宿主 env 无法传入容器，重建只能进容器手动 init_db。
+      FORCE_RESEED: ${FORCE_RESEED:-}
+      # 跨 worker 共享状态（限流/登录锁/KV）落 openGauss，避免多 worker 各持本地 SQLite 不一致。
+      STATE_DB_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
     ports:
       # 本地测试：对外仅暴露给 cloudflared 隧道（rg-tunnel.yml 指向 localhost:65432）
       - "127.0.0.1:65432:8000"

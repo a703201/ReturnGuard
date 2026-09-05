@@ -506,7 +506,7 @@ export async function submitEntry(e){
     payload.defect_tags=(payload.defect_tags||'').split(',').map(s=>s.trim()).filter(Boolean);
     const r=await apiFetch('/api/cases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await r.json();
-    if(!r.ok) throw new Error(d.detail||'提交失败');
+    if(!r.ok){ if(r.status===401){ openAuthModal(); } throw new Error(d.detail||'提交失败'); }
     $('#entryMsg').textContent='✓ 已添加到「'+(state.source==='real'?'实际数据':'演示数据')+'」：'+d.case_id;
     $('#entryMsg').className='entry-msg ok';
     $('#entryForm').reset();
@@ -612,6 +612,7 @@ $('#entryTableWrap').addEventListener('click',async e=>{
     if(r.ok){
       loadEntryList(); loadInsights();
     } else {
+      if(r.status===401){ openAuthModal(); }
       const d=await r.json().catch(()=>({}));
       btn.textContent='删除失败';
       if($('#entryErr')) $('#entryErr').textContent='删除失败：'+(d.detail||r.status);
@@ -636,8 +637,15 @@ $('#entryTableWrap').addEventListener('click',async e=>{
 export function updateAuthBtnVisibility(){
   const isReal = state.source==='real';
   const btn=$('#authBtn'), tag=$('#userTag');
-  if(btn) btn.style.display = isReal ? '' : 'none';
-  if(tag && !isReal) tag.style.display='none';
+  // P1-E：登录入口始终可见。demo 模式下用户须能登录预置 demo/demo123 账户，
+  // 否则取证/录入（写入强制落 real 且需会话）会因找不到登录入口而卡死。
+  // 登录态下按钮显示「退出」，未登录显示「登录」。
+  if(btn) btn.style.display = '';
+  // 租户标签：仅登录后展示（无论 demo/real），登出即隐藏
+  if(tag){
+    const hasToken = !!authToken();
+    tag.style.display = hasToken ? 'inline-block' : 'none';
+  }
 }
 
 export function updateAuthUI(){

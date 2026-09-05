@@ -46,8 +46,10 @@ export DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/r
 export AUTH_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
 export REAL_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
 
-# 可选：写接口鉴权（生产必开）
-export ANALYZE_API_KEY="一个强随机串"
+# 写接口鉴权：免登录 API Key 通道已移除，统一走登录会话（内置 demo/demo123 账户；
+# 公网演示建议 REGISTRATION_ENABLED=false）。无需再设 ANALYZE_API_KEY。
+# 可选：重置演示种子（仅 demo 库，real 实际库不动）
+export FORCE_RESEED=
 # 可选：上传图清理阈值（小时）
 export UPLOAD_MAX_AGE_HOURS=24
 ```
