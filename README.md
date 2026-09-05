@@ -29,7 +29,7 @@
 - **后端编排层**：FastAPI DAG（并行取证 + 洞察聚合 + 多租户）
 - **模型能力层**：阿里云百炼 Model Router（7 能力，live/mock 韧性切换）
 - **洞察层（产品核心）**：聚类归因 / 预测预警 / 选品避坑 / 供应商品控
-- **数据层**：demo 库（演示种子）+ real 库（真实·隔离），双源物理隔离
+- **数据层**：demo 库（演示种子，openGauss `returnguard`）+ real 库（真实数据，独立库 `returnguard_real`），**双库物理隔离**（real 写入绝不污染 demo 看板，P0 已验证）
 
 ## 项目里程碑时间线（P0-3）
 
@@ -96,9 +96,9 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 # 浏览器打开 http://localhost:8000
 ```
-- **开发与部署统一使用 openGauss**（华为开源国产库，兼容 PostgreSQL 协议）：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss，demo/real/auth 三库均落在 openGauss（见 [`openGauss部署指南.md`](openGauss部署指南.md)）；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`）。
-- 部署 openGauss：`docker compose -f docker/docker-compose.yml up -d`（含 openGauss 服务，三库全 openGauss）；或设 `DATABASE_URL`/`AUTH_DATABASE_URL`/`REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
-- 可选环境变量：`AUTH_SECRET`（令牌签名，生产必设）、`FORCE_RESEED=1`（重置 demo 种子，compose 已透传）。写接口鉴权统一走**登录会话**（内置 demo/demo123 账户），不再有免登录 API Key 通道（`ANALYZE_API_KEY` 已废弃移除）。
+- **开发与部署统一使用 openGauss**（华为开源国产库，兼容 PostgreSQL 协议）：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss；demo 与 auth 落在 `returnguard`，real 落在**独立库 `returnguard_real`**（见 [`openGauss部署指南.md`](openGauss部署指南.md)）；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`）。
+- 部署 openGauss：`docker compose -f docker/docker-compose.yml up -d`（含 openGauss 服务 + `realdb-init` 自动建独立 real 库）；或设 `DATABASE_URL`/`AUTH_DATABASE_URL`/`REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
+- 可选环境变量：`AUTH_SECRET`（令牌签名，生产必设）、`FORCE_RESEED=1`（重置 demo 种子，compose 已透传）。写接口鉴权统一走**登录会话**（内置 demo/demo123 账户），不再有免登录 API Key 通道（`ANALYZE_API_KEY` 已废弃移除）。`STATE_DB_URL` 默认留空、回退内置 SQLite（`rg_state.db`）承载跨 worker 限流/登录锁 KV——openGauss 不支持 `ON CONFLICT` upsert，故刻意不指向 openGauss。
 - 安全相关环境变量（公网部署必设）：
   - `AUTH_SECRET`：令牌 HMAC 签名密钥（`secrets.token_hex(32)` 生成，生产必设，否则每次重启令牌失效）。
   - `AUTH_TRUSTED_PROXIES`：可信任的反代网段（Cloudflare Tunnel 部署设 `127.0.0.1`，使限流/防爆破按真实客户端 IP 生效）。

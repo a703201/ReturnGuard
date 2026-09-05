@@ -28,15 +28,26 @@ from sqlalchemy import (
 )
 from sqlalchemy.pool import NullPool
 
+# openGauss 复用 db.py 的方言版本探测补丁：openGauss 的 `version()` 字符串非标准，
+# 不经补丁时 SQLAlchemy 会在引擎初始化期抛 AssertionError（见 db._patch_opengauss_dialect）。
+# 此处仅在指向 PostgreSQL/openGauss 时挂接，SQLite 不受影响。db.py 不反向依赖本模块，无循环导入。
+from db import _patch_opengauss_dialect  # noqa: E402
+
 BASE = os.path.dirname(os.path.abspath(__file__))
 _STATE_URL = os.environ.get("STATE_DB_URL") or ("sqlite:///" + os.path.join(BASE, "rg_state.db"))
 
 # check_same_thread=False：uvicorn 默认线程池跑同步端点，多线程会并发访问该引擎。
 # NullPool：状态库全是单行 upsert，连接创建开销可忽略；关键收益是连接用完即关，SQLite
 # 在最后一个连接关闭时自动 checkpoint，杜绝 WAL 无限膨胀（实测曾达主库 200 倍）。
+# 注意：check_same_thread 是 SQLite 专属选项，PostgreSQL/openGauss 不支持，须按 URL 区分
+# （P1-C 起 STATE_DB_URL 可指向 openGauss，避免多 worker 各自持本地 SQLite 不一致）。
+_connect_args = {"check_same_thread": False} if _STATE_URL.startswith("sqlite") else {}
+# 指向 openGauss/PostgreSQL 时先挂接方言补丁，否则 create_engine 初始化即抛版本探测 AssertionError。
+if not _STATE_URL.startswith("sqlite"):
+    _patch_opengauss_dialect(_STATE_URL)
 _engine = create_engine(
     _STATE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args=_connect_args,
     poolclass=NullPool,
 )
 

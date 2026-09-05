@@ -75,9 +75,10 @@ def _patch_opengauss_dialect(url: str) -> None:
         logger.info("已挂接 openGauss 版本探测补丁")
 
 
-# ---- 连接配置：开发&部署统一 openGauss（localhost:5432/returnguard）；仅离线/CI 才显式回退 SQLite ----
-# 演示数据（demo）与实际数据（real）均落在同一 openGauss 实例、按 source 物理隔离；
-# 切换零代码（env 或前端 source 参数）。
+# ---- 连接配置：开发&部署统一 openGauss（localhost:5432）；仅离线/CI 才显式回退 SQLite ----
+# demo 源（returnguard）与 real 源（returnguard_real）为 openGauss 上的**两个独立库**，
+# 实现物理隔离：写入 real 不会进入 demo 库的 cases 表，demo 看板数字恒定不被污染。
+# 两库 URL 经 DATABASE_URL / REAL_DATABASE_URL 分别注入（见 docker/docker-compose.yml）。
 BASE = os.path.dirname(os.path.abspath(__file__))
 # 默认即 openGauss（开发&部署统一）；本地需先启动 openGauss 容器（见 docker/docker-compose.yml 的 db 服务）。
 DEFAULT_OG = "postgresql+psycopg2://gaussdb:Gauss-2026@localhost:5432/returnguard"
