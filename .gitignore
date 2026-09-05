@@ -50,3 +50,6 @@ resp.json
 # 数据集获取方式见 demo/convert_datasets.py 文件头 docstring。
 # ============================================================
 Dataset/
+
+# 启动脚本写入的隧道 PID 文件（运行时产物，stop_rg.py 据此精确杀进程）
+.rg_tunnel.pid
