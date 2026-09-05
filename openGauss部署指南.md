@@ -33,18 +33,20 @@ compose 中已设：
 environment:
   DATABASE_URL:        postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
   AUTH_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
-  REAL_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+  # P0 物理隔离：real 源使用独立库 returnguard_real（由 compose 的 realdb-init 一次性服务创建），
+  # 与 demo/认证库（returnguard）分库，杜绝「写入 real 却污染 demo 看板」的部署态缺陷。
+  REAL_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard_real
 ```
 
-> 关键：demo / real / auth **三库均指向同一 openGauss `returnguard` 库**（按 `source` 物理隔离），用户库不再落容器 SQLite，跨容器重启不丢账号与令牌。
+> 关键：demo 与 auth 同库 `returnguard`（按 `source`/`tenant_id` 隔离），而 **real 源独立库 `returnguard_real`**——二者为 openGauss 上的两个数据库，实现真正的物理隔离：real 写入不会进入 demo 看板、demo 种子数字恒定不被污染。用户库不再落容器 SQLite，跨容器重启不丢账号与令牌。`returnguard_real` 由 compose 的 `realdb-init` 服务幂等创建（全新 `docker compose up` 自动就绪）。
 
 ### 2.1 手动环境变量方式（非容器，可选）
 
 ```bash
-# 三库全部指向 openGauss
+# 三库全部指向 openGauss（real 用独立库 returnguard_real）
 export DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
 export AUTH_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
-export REAL_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
+export REAL_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard_real"
 
 # 写接口鉴权：免登录 API Key 通道已移除，统一走登录会话（内置 demo/demo123 账户；
 # 公网演示建议 REGISTRATION_ENABLED=false）。无需再设 ANALYZE_API_KEY。
@@ -121,7 +123,7 @@ curl "http://127.0.0.1:65432/api/cases?source=demo&slim=1" | python -c "import s
 
 ## 6. 注意事项
 
-- **三库物理隔离在 openGauss 内**：demo 永远来自种子，real 来自录入/导入，auth 存账号/令牌；三者按 `source`/`tenant_id` 隔离，切换零代码（`?source=demo|real` 或前端顶栏）。
+- **物理隔离（P0 修正）**：demo 与 auth 同库 `returnguard`，real 源独立库 `returnguard_real`（`realdb-init` 创建）。demo 永远来自种子、real 来自录入/导入、auth 存账号/令牌；三者切换零代码（`?source=demo|real` 或前端顶栏）。因 real 为独立库，`init_db('real', force=True)` 重置实际库时**不会**误清 demo 种子（旧设计共享同库时会，已根治）。
 - **`sku_name` 长度**：模型定义为 `VARCHAR(256)`；cases.json 中有商品名长达 145 字符，openGauss 严格长度校验会在 `VARCHAR(128)` 下批量插入报 `DataError`，已扩列规避。
 - **Docker 本地 SQLite 绑挂载坑**：若用 `docker-compose.local.yml`（SQLite + 绑挂载）在 Windows 上启动会遇 `PRAGMA journal_mode=WAL` 的 `disk I/O error`，可设 `SQLITE_NO_WAL=1` 改用 DELETE 日志模式；**生产部署请用本指南的 openGauss compose**，无此问题。
 - 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
