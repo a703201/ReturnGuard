@@ -6,29 +6,10 @@ import { $, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier,
 
 // 不能直接显示 0%——那会读成「这个平台/地区全输」，实际只是还没判定。
 
-// ---- 数据源开关（演示数据 / 实际数据）----
-
-// 当前数据源，持久化到 localStorage，刷新页面不丢失；所有数据接口经 apiFetch 附带 ?source=
-
-export async function setSource(s){
-  state.source = (s==='real') ? 'real' : 'demo';
-  localStorage.setItem('rg_source', state.source);
-  document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===state.source));
-  updateAuthBtnVisibility(); // demo 时隐藏登录按钮，real 时显示
-  $('#entryTarget').textContent = '将写入：' + (state.source==='real'?'实际数据':'演示数据');
-  const banner = $('#entryBanner');
-  if(state.source==='real'){
-    banner.querySelector('.sb-body').textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。';
-    banner.classList.add('show');
-    banner.classList.remove('hidden');
-  } else {
-    banner.classList.remove('show');
-  }
-  // 切换数据源：先看板（写入 state.ins）再填筛选下拉，避免用旧源数据填充；列表也等看板就绪
-  await loadInsights();
-  if(typeof populateFilters==='function') populateFilters();
-  await loadEntryList();
-}
+// 数据源不再由顶部开关切换，改由登录态自动决定（store.js 中 source 为派生属性）：
+//   - 未登录 → demo（演示布局，预置种子数据）
+//   - 已登录 → real（AI 实算，数据按租户隔离）
+// 所有数据接口仍经 apiFetch 附带 ?source=，无需前端手动维护。
 
 // 统一给接口地址附加当前数据源（?source=）
 
@@ -130,7 +111,7 @@ export async function loadInsights(){
   const r=await apiFetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error('洞察接口 '+r.status);
   const d=await r.json();
   state.ins = d;  // 供供应商下钻本地计算
-  // C组：实际数据(real)未登录时显示登录门；已登录但 AI 仍在计算时显示加载态
+  // C组：real 源（登录态）未登录时显示登录门；已登录但 AI 仍在计算时显示加载态
   const _board=document.querySelector('.board');
   if(d.requires_login){
     // 已有令牌说明用户已登录，API 仍返回 requires_login 说明 AI 正在计算（或租户初始化中）→ 显示加载态而非登录门
@@ -147,7 +128,7 @@ export async function loadInsights(){
       if(!_load){
         _load=document.createElement('div'); _load.id='computingHint';
         _load.className='card';
-        _load.innerHTML='<div style="text-align:center;padding:40px 20px"><div class="analyzing" style="display:inline-flex;justify-content:center;margin-bottom:14px"><span class="spin"></span><span>AI 正在计算洞察结果</span></div><p class="desc" style="margin:0">首次切换到实际数据需要运行 AI 聚类分析，通常需要 10–30 秒。</p></div>';
+        _load.innerHTML='<div style="text-align:center;padding:40px 20px"><div class="analyzing" style="display:inline-flex;justify-content:center;margin-bottom:14px"><span class="spin"></span><span>AI 正在计算洞察结果</span></div><p class="desc" style="margin:0">首次登录后需要运行 AI 聚类分析，通常需要 10–30 秒。</p></div>';
         _load.style.display='';
         const _b=document.querySelector('.board');
         if(_b) _b.insertBefore(_load, _b.firstChild);
@@ -157,7 +138,7 @@ export async function loadInsights(){
     // 未登录 → 显示登录门
     if(_board) _board.classList.add('gated');
     const _lgm=document.getElementById('loginGateMsg');
-    if(_lgm) _lgm.textContent=d.message||'请登录后查看实际数据';
+    if(_lgm) _lgm.textContent=d.message||'请登录后查看 AI 实算数据';
     status.textContent='请登录'; status.classList.remove('loading');
     // 隐藏加载提示
     const _load=document.getElementById('computingHint');
@@ -168,16 +149,16 @@ export async function loadInsights(){
   const _load=document.getElementById('computingHint');
   if(_load) _load.style.display='none';
   if(_board) _board.classList.remove('gated');
-  // 实际数据为空时给出引导（演示数据默认有种子，不会空）
+  // 实算数据为空时给出引导（演示布局默认有种子，不会空）
   const emptyHint=$('#scopeTag');
   if(d.source==='real' && d.total_cases===0){
-    emptyHint.textContent='实际数据为空 · 去「数据录入」添加';
+    emptyHint.textContent='实算数据为空 · 去「数据录入」添加';
     emptyHint.style.background='var(--warn)';
   }
-  // 模式标签：实际数据源统一显示"AI 实算"（表示该源走 AI 计算链路，无论当前是否已回退 mock）
+  // 模式标签：登录态走 AI 实算；未登录为演示布局
   const isRealSource = state.source==='real';
-  const modeLabel= isRealSource ? 'AI 实算' : '演示数据';
-  $('#insModeTag').textContent=modeLabel+(d.error&&!isRealSource?' (已切回演示)':'');
+  const modeLabel= isRealSource ? 'AI 实算' : '演示布局';
+  $('#insModeTag').textContent=modeLabel+(d.error&&!isRealSource?' (已切回演示布局)':'');
   $('#insModeTag').style.background=isRealSource?'var(--ok)':'var(--warn)';
   $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台')+(reg?' / '+reg:'')+(seas?' / '+seas:'');
 
@@ -268,7 +249,7 @@ export async function loadInsights(){
     const div=document.createElement('div'); div.style.cssText='background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:13px;color:var(--txt)';
     div.textContent='▸ '+t; adv.appendChild(div);
   });
-  if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示数据：'+d.error;
+  if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示布局：'+d.error;
 
   // ⑬ 地区分布
   const rt=$('#regionTbl').querySelector('tbody'); rt.innerHTML='';
@@ -507,7 +488,7 @@ export async function submitEntry(e){
     const r=await apiFetch('/api/cases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await r.json();
     if(!r.ok){ if(r.status===401){ openAuthModal(); } throw new Error(d.detail||'提交失败'); }
-    $('#entryMsg').textContent='✓ 已添加到「'+(state.source==='real'?'实际数据':'演示数据')+'」：'+d.case_id;
+    $('#entryMsg').textContent='✓ 已添加到「'+(state.source==='real'?'真实案件库':'演示布局')+'」：'+d.case_id;
     $('#entryMsg').className='entry-msg ok';
     $('#entryForm').reset();
     loadEntryList(); loadInsights();  // 同步刷新列表与看板
@@ -536,7 +517,7 @@ export async function submitImport(){
       '<span class="k">跳过(同日/更旧)</span> <span class="v skip">'+d.skipped+'</span>　'+
       '<span class="k">文件内重复</span> <span class="v skip">'+d.file_duplicates+'</span></div>';
     if(d.errors && d.errors.length){ res.innerHTML += '<div class="k">提示：'+esc(d.errors.slice(0,5).join('；'))+'</div>'; }
-    msg.textContent='✓ 导入完成（实际数据），看板已刷新。'; msg.className='entry-msg ok';
+    msg.textContent='✓ 导入完成（真实案件库），看板已刷新。'; msg.className='entry-msg ok';
     loadInsights(); loadEntryList();
   }catch(err){ msg.textContent='错误：'+err.message; msg.className='entry-msg err'; }
   finally{ btn.disabled=false; btn.textContent='导入并去重'; }
@@ -552,11 +533,16 @@ export async function submitImport(){
     if(c.version) $('#appVer').textContent='V'+String(c.version).replace(/^v/i,'');
   }catch(e){ /* 网络异常则用默认 0.82 兜底 */ }
 
-  // 设定初始数据源 UI（不在此处触发重载，避免与下方 loadInsights 重复）
-  document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.classList.toggle('active', b.dataset.src===state.source));
-  $('#entryTarget').textContent='将写入：'+(state.source==='real'?'实际数据':'演示数据');
+  // 清理旧版手动数据源开关的 localStorage 残留；source 现由登录态自动推导。
+  localStorage.removeItem('rg_source');
+
+  // 数据录入页提示：登录后写入租户真实案件库；未登录则提示需登录。
+  $('#entryTarget').textContent='将写入：'+(state.source==='real'?'真实案件库':'请登录后录入');
   const banner=$('#entryBanner');
-  if(state.source==='real'){ banner.querySelector('.sb-body').textContent='⚠ 当前为「实际数据」：看板与录入均作用于真实案件库（cases_real.db），与演示数据物理隔离。'; banner.classList.add('show'); banner.classList.remove('hidden'); }
+  if(state.source==='real'){
+    banner.querySelector('.sb-body').textContent='⚠ 当前已登录：看板与录入均作用于您的租户真实案件库（与演示布局物理隔离）。';
+    banner.classList.add('show'); banner.classList.remove('hidden');
+  }
 
   await loadInsights();
   populateFilters();
@@ -567,8 +553,6 @@ export async function submitImport(){
 
 
 // 事件绑定
-
-document.querySelectorAll('#srcToggle .src-btn').forEach(b=>b.addEventListener('click',()=>setSource(b.dataset.src)));
 
 $('#f').addEventListener('submit',doAnalyze);
 
@@ -628,11 +612,11 @@ $('#entryTableWrap').addEventListener('click',async e=>{
 
 // ===================== C组：账户体系 + 多租户登录 =====================
 
-// 令牌存 localStorage（rg_token）。登录后 real 源数据自动按当前租户隔离；
+// 令牌存 localStorage（rg_token）。登录后 source 自动为 real，数据按当前租户隔离；
 
-// 未登录为匿名（public 公共基准）。登录态在初始化与每次刷新看板后校验一次。
+// 未登录为匿名（public 公共基准），source 自动为 demo（演示布局）。登录态在初始化与每次刷新看板后校验一次。
 
-// 演示数据(demo)时隐藏登录按钮/租户标签；实际数据(real)才显示（实际数据需登录查看）
+// 登录入口始终可见（P1-E）：未登录时可点登录进入 demo/demo123 演示账户体验 AI 实算。
 
 export function updateAuthBtnVisibility(){
   const isReal = state.source==='real';
@@ -734,7 +718,7 @@ $('#authTab').addEventListener('click',()=>{
   const el=$('#authTab'); el.dataset.mode = el.dataset.mode==='register' ? 'login' : 'register';
   el.textContent = el.dataset.mode==='register' ? '登录' : '注册';
   $('#authTenantWrap').style.display = el.dataset.mode==='register' ? 'flex' : 'none';
-  $('#authHint').textContent = el.dataset.mode==='register' ? '注册即创建一个独立租户空间，实际数据按租户隔离。' : '登录后查看按本租户隔离的实际数据；未登录不可见。';
+  $('#authHint').textContent = el.dataset.mode==='register' ? '注册即创建一个独立租户空间，AI 实算数据按租户隔离。' : '登录后查看按本租户隔离的 AI 实算数据；未登录时仅展示演示布局。';
 });
 
 updateAuthUI();

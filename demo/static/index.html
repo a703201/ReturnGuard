@@ -378,7 +378,8 @@
   .ov-close{background:transparent;color:#94a3b8;font-size:18px;padding:4px 10px}
   .ov-close:hover{background:rgba(255,255,255,.08);color:#fff;box-shadow:none}
 
-  /* 数据源开关（演示数据 / 实际数据）*/
+  /* 已弃用：数据源开关 CSS 保留兼容（顶部「演示数据 / 实际数据」切换已移除，
+     source 由登录态自动决定：未登录=demo 演示布局，已登录=real AI 实算）。 */
   .src-toggle{display:inline-flex;border:1px solid #334155;border-radius:999px;overflow:hidden;margin-right:10px;flex:none}
   .src-btn{background:transparent;color:#94a3b8;border:0;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600;transition:all .2s ease}
   .src-btn:hover{color:#e2e8f0}
@@ -399,7 +400,7 @@
   .src-banner code{background:#0b1220;border:1px solid #334155;border-radius:5px;padding:1px 5px;font-size:11px;color:#fbbf24}
   .src-banner.hidden{display:none}
 
-  /* 数据录入表单（实际数据添加接口）*/
+  /* 数据录入表单（写入真实案件库）*/
   /* 数据录入页：tabpane 本身 flex 占满 content；wrap 占满剩余高度；两列卡片各自内部滚动 */
   #tab-entry.active{display:flex;flex-direction:column;overflow:hidden}
   .entry-wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px;flex:1;min-height:0;overflow:hidden}
@@ -638,7 +639,7 @@
           <span id="appVer" style="display:inline-block;margin-left:10px;padding:2px 9px;border:1px solid #334155;border-radius:999px;font-size:12px;color:#94a3b8;vertical-align:middle;font-weight:600">V…</span>
           <div class="sub">把每一笔退货变成市场情报 · 大屏实时洞察（左：给老板看的洞察看板；右：取证工具）</div>
         </div>
-        <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：实际数据按租户隔离"></span>
+        <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：AI 实算数据按租户隔离"></span>
         <div class="kpis">
           <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">已分析退货</div></div>
           <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款¥</div></div>
@@ -648,10 +649,6 @@
       </div>
       <div class="hrow2">
         <div class="bar-top">
-          <div class="src-toggle" id="srcToggle" title="切换使用演示数据还是实际数据">
-            <button type="button" class="src-btn active" data-src="demo">演示数据</button>
-            <button type="button" class="src-btn" data-src="real">实际数据</button>
-          </div>
           <select id="catSel"><option value="">全部品类</option></select>
           <select id="platSel"><option value="">全部平台</option></select>
           <select id="regionSel" title="按销售地区下钻（维度扩展）">
@@ -666,7 +663,7 @@
             <option value="春">春</option><option value="夏">夏</option>
             <option value="秋">秋</option><option value="冬">冬</option>
           </select>
-          <!-- 洞察模式由数据源自动路由：demo→演示数据(mock)，real→AI实算(live)，无需手动选择 -->
+          <!-- 洞察模式由登录态自动路由：未登录→演示布局(mock)，已登录→AI 实算(live)，无需手动选择 -->
           <button id="loadIns">刷新看板</button>
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
@@ -693,7 +690,7 @@
           </div>
           <div class="jg-body">
             <div class="jg-steps">
-              <span><b>1</b> <code>演示数据</code> 仅展示布局、不调用 AI；切顶栏「数据源→<code>实际数据</code>」并登录 <code>demo / demo123</code> 才能看到调用 AI 的实算看板</span>
+              <span><b>1</b> 未登录时为 <code>演示布局</code>（预置种子、不调用 AI）；点击右上角「登录」使用 <code>demo / demo123</code> 即可体验调用 AI 的 <code>AI 实算</code> 看板</span>
               <span class="jg-step" data-go="entry"><b>2</b> 切「数据录入」导入真实数据集（xlsx / csv）或手动录入</span>
               <span><b>3</b> 回「市场洞察」看板查看平台 / 品类维度的避坑信号与品控地图</span>
             </div>
@@ -846,12 +843,12 @@
             </div>
             <p class="roi-formula">测算逻辑：年挽回 ≈ 年退货量 × 客单价 × 争议占比 × 胜诉率提升；人力节省 = 年退货量 ×（2h − 3min）× 时薪。示例值已预填，改任意项即重算。</p>
           </div>
-          <!-- C组：实际数据(real)未登录时的全宽登录门（默认隐藏） -->
+          <!-- C组：AI 实算（real 源）未登录时的全宽登录门（默认隐藏） -->
           <div id="loginGate" class="card">
             <div style="text-align:center;padding:36px 20px">
               <div style="font-size:42px;line-height:1;margin-bottom:12px">🔒</div>
-              <h3 style="margin:0 0 8px">实际数据按租户隔离</h3>
-              <p id="loginGateMsg" class="desc" style="max-width:480px;margin:0 auto 18px">请登录后查看您的数据。</p>
+              <h3 style="margin:0 0 8px">AI 实算按租户隔离</h3>
+              <p id="loginGateMsg" class="desc" style="max-width:480px;margin:0 auto 18px">请登录后查看您的 AI 实算数据。</p>
               <button id="loginGateBtn" type="button" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
             </div>
           </div>
@@ -947,7 +944,7 @@
         </div>
       </section>
 
-      <!-- 标签页：数据录入（实际数据添加接口）-->
+      <!-- 标签页：数据录入（写入真实案件库）-->
       <section id="tab-entry" class="tabpane" role="tabpanel" aria-labelledby="tabBtn-entry">
         <div class="src-banner" id="entryBanner">
           <div class="sb-head">
@@ -960,7 +957,7 @@
           <div class="card import-file" style="grid-column:1 / -1">
             <h3>批量文件导入（真实数据集）</h3>
             <p class="desc">导入卖家真实退货数据集（.xlsx/.csv，类型同三大数据集：Amazon 退货 / UCI Online Retail / TheLook 订单，或 RG 格式 CSV）。
-              相同案件按案件号去重：<b>同日跳过</b>、<b>异日保留最新记录并删除旧记录</b>。导入落入「当前数据源」（实际数据）。</p>
+              相同案件按案件号去重：<b>同日跳过</b>、<b>异日保留最新记录并删除旧记录</b>。导入落入您的租户真实案件库。</p>
             <div class="row2">
               <div>
                 <label>选择数据集文件</label>
@@ -1070,7 +1067,7 @@
           <h3 id="authDlgTitle" style="margin:0">账户 / 租户</h3>
           <button id="authClose" type="button" style="background:none;border:none;color:var(--acc);font-size:20px;cursor:pointer">×</button>
         </div>
-        <p id="authHint" style="font-size:12px;color:var(--txt3);margin:0 0 12px">登录后实际数据按本租户隔离。</p>
+        <p id="authHint" style="font-size:12px;color:var(--txt3);margin:0 0 12px">登录后 AI 实算数据按本租户隔离；未登录时仅展示演示布局。</p>
         <form id="authForm">
           <label style="font-size:12px;color:var(--txt3)">用户名（租户标识）</label>
           <input id="authUser" required autocomplete="username" placeholder="如 acme" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
