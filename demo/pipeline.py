@@ -111,10 +111,12 @@ def _mock(
     """mock 模式的单案取证：用确定性规则模拟一单结果（无需模型）。
     字段含义与 live 模式一致，便于前端/洞察层无缝切换。"""
     sim = _mock_similarity(returned_path, product_path)
-    # 用图片内容种子决定瑕疵数量与种类（确定性，避免随机文件名导致结果漂移）
-    random.seed(_content_seed(returned_path))
-    n_def = random.randint(0, 3)
-    defects = random.sample(DEFECT_POOL, n_def) if n_def > 0 else ["无明显瑕疵"]
+    # 用图片内容种子决定瑕疵数量与种类（确定性，避免随机文件名导致结果漂移）。
+    # P2-④ 改用局部 random.Random 实例，避免 random.seed() 污染进程全局 RNG，
+    # 影响同进程内其他依赖随机性的模块（如测试、抽样）。
+    _rng = random.Random(_content_seed(returned_path))
+    n_def = _rng.randint(0, 3)
+    defects = _rng.sample(DEFECT_POOL, n_def) if n_def > 0 else ["无明显瑕疵"]
     same = sim >= get_active_threshold()  # 阈值：≥阈值 视为同一件商品（标定值或默认 0.82）
 
     # 功能③ 一致性判断：同款且无瑕疵→倾向于买家责任；否则存在货不对板/质量瑕疵

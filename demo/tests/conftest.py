@@ -58,3 +58,24 @@ def demo_token() -> str:
 def auth_headers(demo_token: str) -> dict:
     """已登录 demo 账户的请求头（Authorization: Bearer）。"""
     return {"Authorization": f"Bearer {demo_token}"}
+
+
+@pytest.fixture
+def real_user_headers() -> dict:
+    """注册并登录一个**全新**真实租户（非 demo/demo123），用于验证多租户隔离。
+
+    演示账户 demo 现已随 redesign 物理驻留在 real 源（tenant_id='demo'，1206 条种子），
+    因此「real 源不应含 demo 种子」这类旧断言不再成立——正确不变量是：
+    任意新租户的 real 视图互不串台、不混入 demo 演示种子。
+    """
+    import uuid
+
+    u = "rgtest_" + uuid.uuid4().hex[:8]
+    with TestClient(app) as c:
+        r = c.post(
+            "/api/auth/register",
+            json={"username": u, "password": "secret123", "tenant_name": u},
+        )
+        assert r.status_code == 200, f"注册真实租户失败: {r.status_code} {r.text}"
+        tok = r.json()["token"]
+    return {"Authorization": f"Bearer {tok}"}

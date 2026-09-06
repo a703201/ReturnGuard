@@ -632,7 +632,14 @@ def query_cases(
             page_q = _apply_filters(page_q, category, platform, region, outcome)
         else:
             page_q = filtered
-        rows = page_q.limit(page_size).offset((page - 1) * page_size).all()
+        # P1-① 确定性排序：最新录入/取证的案件排在最前。无 ORDER BY 时 SQLite 行序不定，
+        # 新案件可能落到末页，导致翻页/断言漏看（已致 test_manual_add_routes_to_source 偶发失败）。
+        rows = (
+            page_q.order_by(Case.id.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+            .all()
+        )
     items = [_row_to_slim_dict(r) if slim else _row_to_dict(r) for r in rows]
     return {
         "items": items,

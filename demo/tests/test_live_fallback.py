@@ -1,11 +1,22 @@
 """live 逐能力回退单测：网关渐进开通即生效；无 Key 整体回退 mock。
 
 验证 A组「把假能力变真」的代码前提：每个模型独立可用/回退，不再因单点失败整体回退 mock。
-不依赖外部网络——所有 models_router 能力函数均 monkeypatch 模拟网关行为。
+不依赖外部网络——所有 models_router 能力函数（含 vl_similarity/embed/vl_chat/vl_detect_boxes）
+均 monkeypatch 模拟网关行为，确保单测确定性、可在 CI 离线运行。
 """
 
 import models_router
 import pipeline
+
+
+def _raise_sim(*_a, **_k):
+    """模拟「视觉同款服务端未开通」：vl_similarity 直接抛异常。"""
+    raise RuntimeError("gateway 未开通视觉同款")
+
+
+def _sim_ok(*_a, **_k):
+    """模拟「视觉同款服务端可用」：返回确定性同款结论。"""
+    return {"similarity": 0.95, "same_item": True, "reason": "ok"}
 
 
 def test_no_key_falls_back_to_mock(monkeypatch):
@@ -16,7 +27,7 @@ def test_no_key_falls_back_to_mock(monkeypatch):
 
 
 def test_per_capability_fallback_mixed(monkeypatch):
-    # 模拟网关：图向量不可用；瑕疵 / OCR / TTS 可用
+    # 模拟网关：视觉同款 + 图向量 + 视觉定位均不可用；瑕疵 / OCR / TTS / 文本 LLM 可用
     monkeypatch.setattr(models_router, "API_KEY", "test-key")
     monkeypatch.setattr(models_router, "PUBLIC_IMAGE_BASE", "https://img.example.com/uploads")
 
@@ -26,21 +37,23 @@ def test_per_capability_fallback_mixed(monkeypatch):
     def _raise_boxes(*_a, **_k):
         raise RuntimeError("gateway 未开通视觉定位")
 
+    monkeypatch.setattr(models_router, "vl_similarity", _raise_sim)  # 视觉同款服务端未开通
     monkeypatch.setattr(models_router, "embed_image", _raise)
     monkeypatch.setattr(models_router, "vl_detect_boxes", _raise_boxes)
-    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt: "破损,缺件")
-    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None: "全新未拆封")
-    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None: "一致性结论")
-    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie": "BASE64AUDIO")
+    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt=None, **kw: "破损,缺件")
+    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "全新未拆封")
+    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "一致性结论")
+    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")
 
     res = pipeline.analyze_case("r.png", "p.png", "全新", "SKU-X", 10.0, mode="live")
     # 部分能力真实、部分回退 → 诚信标注 live(partial)（而非恒为 live）
     assert res["mode"] == "live(partial)"
     caps = res["capabilities"]
-    assert caps["similarity"] is False  # 向量回退
+    assert caps["similarity"] is False  # 视觉同款 + 向量均回退
     assert caps["defects"] is True  # 瑕疵真实
     assert caps["ocr"] is True
     assert caps["tts"] is True
+    assert caps["text"] is True  # 文本 LLM 真实
     assert "similarity" in res["degraded"] and "boxes" in res["degraded"]
     assert res["defect_tags"] == ["破损", "缺件"]  # 真实瑕疵标签
     assert "error" not in res
@@ -50,19 +63,20 @@ def test_all_capabilities_real(monkeypatch):
     # 模拟网关全开：各能力均真实
     monkeypatch.setattr(models_router, "API_KEY", "test-key")
     monkeypatch.setattr(models_router, "PUBLIC_IMAGE_BASE", "https://img.example.com/uploads")
-    monkeypatch.setattr(models_router, "embed_image", lambda url: [0.1] * 8)
+    monkeypatch.setattr(models_router, "vl_similarity", _sim_ok)  # 视觉同款服务端可用
+    monkeypatch.setattr(models_router, "embed_image", lambda url, **kw: [0.1] * 8)
     monkeypatch.setattr(models_router, "cosine", lambda a, b: 0.95)
-    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt: "功能故障")
+    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt=None, **kw: "功能故障")
     monkeypatch.setattr(
         models_router,
         "vl_detect_boxes",
-        lambda url, prompt=None: [
+        lambda url, prompt=None, **kw: [
             {"label": "功能故障", "x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3, "confidence": 0.9}
         ],
     )
-    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None: "承诺")
-    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None: "结论")
-    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie": "BASE64AUDIO")
+    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "承诺")
+    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
+    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")
 
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
     assert res["mode"] == "live"
@@ -113,16 +127,17 @@ def test_live_keypoint_boxes_real(monkeypatch):
     """网关开通 qwen3-vl-plus：红框为真实坐标，caps.boxes=True 且 defect_boxes_live=True。"""
     monkeypatch.setattr(models_router, "API_KEY", "test-key")
     monkeypatch.setattr(models_router, "PUBLIC_IMAGE_BASE", "https://img.example.com/uploads")
-    monkeypatch.setattr(models_router, "embed_image", lambda url: [0.1] * 8)
+    monkeypatch.setattr(models_router, "vl_similarity", _sim_ok)
+    monkeypatch.setattr(models_router, "embed_image", lambda url, **kw: [0.1] * 8)
     monkeypatch.setattr(models_router, "cosine", lambda a, b: 0.9)
-    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt: "外包装破损")
-    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None: "承诺")
-    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None: "结论")
-    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie": "BASE64AUDIO")
+    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt=None, **kw: "外包装破损")
+    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "承诺")
+    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
+    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")
     monkeypatch.setattr(
         models_router,
         "vl_detect_boxes",
-        lambda url, prompt=None: [
+        lambda url, prompt=None, **kw: [
             {"label": "外包装破损", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4, "confidence": 0.9}
         ],
     )
@@ -137,16 +152,17 @@ def test_live_keypoint_boxes_fallback(monkeypatch):
     """网关未开通视觉定位：红框回退为确定性示意框，caps.boxes=False、defect_boxes_live=False，但仍可见。"""
     monkeypatch.setattr(models_router, "API_KEY", "test-key")
     monkeypatch.setattr(models_router, "PUBLIC_IMAGE_BASE", "https://img.example.com/uploads")
-    monkeypatch.setattr(models_router, "embed_image", lambda url: [0.1] * 8)
+    monkeypatch.setattr(models_router, "vl_similarity", _sim_ok)
+    monkeypatch.setattr(models_router, "embed_image", lambda url, **kw: [0.1] * 8)
     monkeypatch.setattr(models_router, "cosine", lambda a, b: 0.9)
-    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt: "外包装破损")  # 瑕疵标签真实
-    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None: "承诺")
-    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None: "结论")
-    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie": "BASE64AUDIO")
+    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt=None, **kw: "外包装破损")  # 瑕疵标签真实
+    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "承诺")
+    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
+    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")
     monkeypatch.setattr(
         models_router,
         "vl_detect_boxes",
-        lambda url, prompt=None: (_ for _ in ()).throw(RuntimeError("未开通")),
+        lambda url, prompt=None, **kw: (_ for _ in ()).throw(RuntimeError("未开通")),
     )
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
     assert res["capabilities"]["boxes"] is False

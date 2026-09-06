@@ -106,39 +106,35 @@ def test_metrics_endpoint(auth_headers):
             assert k in d, f"metrics 缺少字段 {k}"
 
 
-def test_real_source_isolated_and_empty(auth_headers):
-    """库级隔离：real 源与 demo 种子物理隔离。
+def test_real_source_isolated_and_empty(real_user_headers):
+    """库级隔离（redesign 后版本）：全新真实租户的初始 real 视图为空，且不混入 demo 种子。
 
-    说明：demo/real 为独立库文件/实例，real 的初始数据来自录入/导入（含 C组多租户 public 基准）。
-    由于同一进程内全量测试的执行顺序不保证（部分测试会向 real 写入），这里断言的是
-    「物理隔离」这一不变量：real 源绝不混入 demo 种子 SKU。
+    redesign 后 demo/demo123 物理驻留 real 源（tenant_id='demo'，1206 条种子），
+    因此隔离不变量不再是「real 无 demo SKU」，而是「任意新租户互不串台、初始为空」。
     """
     with TestClient(app) as c:
-        r = c.get("/api/insights", params={"mode": "mock", "source": "real"})
-        assert r.status_code == 200
-        d = r.json()
-        assert d["source"] == "real"
-        # 物理隔离：demo 种子库的 SKU 绝不应出现在 real 源
-        demo_skus = {
-            x["sku"] for x in c.get("/api/cases", params={"source": "demo"}).json()["items"]
-        }
         # SEC-P0：real 源真实退货数据已要求登录，匿名一律 401
         anon = c.get("/api/cases", params={"source": "real"})
         assert anon.status_code == 401, "real 源真实数据不可匿名拉取"
-        real_skus = {
-            x["sku"]
-            for x in c.get("/api/cases", params={"source": "real"}, headers=auth_headers).json()[
-                "items"
-            ]
+
+        demo_skus = {
+            x["sku"] for x in c.get("/api/cases", params={"source": "demo"}).json()["items"]
         }
-        assert demo_skus and real_skus.isdisjoint(demo_skus), "real 源不应混入 demo 种子数据"
+        assert demo_skus, "demo 源应有种子数据"
+
+        # 全新真实租户的初始 real 视图：应为空，且不包含任何 demo 种子 SKU（多租户隔离）
+        my = c.get("/api/cases", params={"source": "real"}, headers=real_user_headers).json()
+        my_skus = {x["sku"] for x in my["items"]}
+        assert not my_skus, "全新真实租户初始 real 视图应为空"
+        assert my_skus.isdisjoint(demo_skus), "新租户不应看到 demo 演示种子"
+
         # demo 源仍是种子数据，不受影响
         d2 = c.get("/api/insights", params={"mode": "mock", "source": "demo"}).json()
         assert d2["source"] == "demo" and d2["total_cases"] > 0
 
 
-def test_manual_add_routes_to_source(auth_headers):
-    """手动录入落到指定 source，且 demo/real 互不污染（库级隔离实锤）。"""
+def test_manual_add_routes_to_source(real_user_headers, auth_headers):
+    """手动录入落到当前租户，且与 demo 源 / demo 账户视图互不污染（多租户隔离实锤）。"""
     with TestClient(app) as c:
         sku = "SKU-ISOLATE-" + uuid.uuid4().hex[:6]
         payload = {
@@ -152,25 +148,35 @@ def test_manual_add_routes_to_source(auth_headers):
             "same_item": True,
             "defect_tags": ["无明显瑕疵"],
         }
-        # 写入 real 源（需登录）
-        r = c.post("/api/cases?source=real", json=payload, headers=auth_headers)
+        # 写入 real 源（需登录），归属当前真实租户
+        r = c.post("/api/cases?source=real", json=payload, headers=real_user_headers)
         assert r.status_code == 201
         body = r.json()
         assert body["ok"] and body["source"] == "real"
         cid = body["case_id"]
 
-        # real 源能查到该单（按当前登录租户隔离，须带会话读取）
-        real_cases = c.get("/api/cases", params={"source": "real"}, headers=auth_headers).json()[
+        # 自己的 real 视图能查到该单（P1-① 排序后必现首页）
+        my_cases = c.get("/api/cases", params={"source": "real"}, headers=real_user_headers).json()[
             "items"
         ]
-        assert any(x.get("sku") == sku for x in real_cases), "real 源应含刚录入案件"
+        assert any(x.get("sku") == sku for x in my_cases), "real 源应含刚录入案件"
 
         # demo 源不应被污染
         demo_cases = c.get("/api/cases", params={"source": "demo"}).json()["items"]
         assert not any(x.get("sku") == sku for x in demo_cases), "demo 源不应出现 real 录入"
 
-        # 清理：删除 real 源该单（需登录）
-        del_r = c.delete(f"/api/cases/{cid}", params={"source": "real"}, headers=auth_headers)
+        # demo 账户（tenant='demo'）的 real 视图也不应看到本租户案件（跨租户隔离）
+        demo_real = c.get("/api/cases", params={"source": "real"}, headers=auth_headers).json()[
+            "items"
+        ]
+        assert not any(x.get("sku") == sku for x in demo_real), "跨租户不应串台"
+
+        # 清理：删除 real 源该单（需登录且属本租户）
+        del_r = c.delete(
+            f"/api/cases/{cid}", params={"source": "real"}, headers=real_user_headers
+        )
         assert del_r.status_code == 200 and del_r.json()["deleted"] == 1
-        after = c.get("/api/cases", params={"source": "real"}, headers=auth_headers).json()["items"]
+        after = c.get("/api/cases", params={"source": "real"}, headers=real_user_headers).json()[
+            "items"
+        ]
         assert not any(x.get("sku") == sku for x in after), "删除后应不存在"

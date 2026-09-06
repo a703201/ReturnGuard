@@ -714,9 +714,31 @@ def live_analyze(
         logger.warning("live OCR 失败，回退 listing_text: %s", e)
         promise = listing_text
         caps["ocr"] = False
-    consistency = llm(consistency_prompt(sim, defects, promise or listing_text))
-    dossier = llm(dossier_prompt(sku, sim, defects, consistency))
-    voice_text = llm(voice_prompt(sim, defects))
+    # ③ + ④ 文本生成（LLM）：任一环节失败即整体回退确定性文本，并如实标注 caps["text"]=False，
+    # 使 _honest_mode 给出 "mock(fallback)" 而非继续冒称 "live"（P1-②：杜绝脱网静默造假）。
+    try:
+        consistency = llm(consistency_prompt(sim, defects, promise or listing_text))
+        dossier = llm(dossier_prompt(sku, sim, defects, consistency))
+        voice_text = llm(voice_prompt(sim, defects))
+        caps["text"] = True
+    except Exception as e:
+        logger.warning("live 文本生成失败，回退确定性卷宗/陈述: %s", e)
+        consistency = (
+            "一致（同款且无明显质量瑕疵，倾向买家责任）"
+            if (same and defects == ["无明显瑕疵"])
+            else "存在差异（货不对板 / 运输或质量瑕疵）"
+        )
+        dossier = (
+            f"《ReturnGuard 举证报告》\nSKU：{sku}\n相似度：{sim:.2f}\n"
+            f"判定：{'疑似同款' if same else '疑似货不对板'}\n"
+            f"瑕疵：{', '.join(defects)}\n（文本生成服务暂不可用，已回退确定性模板）"
+        )
+        voice_text = (
+            f"您的订单商品 SKU {sku} 相似度 {sim:.2f}，"
+            f"{'疑似为同一件商品' if same else '疑似货不对板'}，"
+            f"主要问题：{', '.join(defects)}。建议保留开箱视频作为举证。"
+        )
+        caps["text"] = False
 
     # ⑥ 母语语音（网关开通 TTS 即真实）
     try:

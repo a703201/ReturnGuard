@@ -631,7 +631,9 @@ def analyze(
             returned_url=ret_url,
             product_url=prod_url,
         )
-        result["case_id"] = rid
+        # P2-② 案件号统一：单案取证与手动录入共用 "RG-" + 8 位大写十六进制前缀，
+        # 此前取证用裸 8 位小写 hex、录入用 "RG-" 前缀，格式不一致影响检索/展示。
+        result["case_id"] = "RG-" + rid.upper()
         result["platform"] = platform
         # P1-1 单案无法判定输赢，标记「待分析」：不稀释胜诉率 KPI、在分布中单独分组
         result["outcome"] = "待分析"

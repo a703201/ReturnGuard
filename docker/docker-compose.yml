@@ -63,8 +63,13 @@ services:
       # P0 物理隔离：real 源使用独立库 returnguard_real（由 realdb-init 一次性服务创建），
       # 与 demo 源（returnguard）分库，杜绝「写入 real 却污染 demo 看板」的部署态缺陷。
       REAL_DATABASE_URL: ${REAL_DATABASE_URL:-postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard_real}
+      # AI 网关（live 模式）：密钥/端点一律从宿主 .env（仓库根，已 gitignore）注入，
+      # 防止密钥误提交公网仓库。profile 缺省 tokenplan；切 dashscope（视觉全开）改宿主 .env 即可。
+      MODEL_ROUTER_PROFILE: ${MODEL_ROUTER_PROFILE:-tokenplan}
       MODEL_ROUTER_API_KEY: ${MODEL_ROUTER_API_KEY:-}
       MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-}
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-}
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
       # P1-C 透传：写接口的演示种子重置开关（FORCE_RESEED=1 仅重置 demo，real 不动）。
       # 此前 compose 未暴露该变量导致宿主 env 无法传入容器，重建只能进容器手动 init_db。
