@@ -17,5 +17,7 @@ psycopg2-binary==2.9.10
 # ---- PDF 报告导出（服务端生成，替代浏览器 window.print） ----
 reportlab==5.0.0
 
-# ---- 图床（P3-17）：七牛云对象存储上传，live 模式视觉/向量/OCR 服务端公网回源 ----
-qiniu==7.18.0
+# ---- 上传图存储（本地自持） ----
+# 退货图一律落本机 demo/uploads/，经 HMAC 签名短链 /api/file/{sig} 访问；
+# 可选的公网回源走自托管隧道（RG_SELF_IMAGE_BASE + /api/img/{key}），
+# 均不依赖第三方对象存储 SDK，故此处不再引入 qiniu / boto3。

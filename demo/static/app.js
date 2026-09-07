@@ -394,8 +394,12 @@ export async function doAnalyze(e){
   setStep(2);
   try{
     const r=await apiFetch('/api/analyze',{method:'POST',body:fd});
-    const d=await r.json();
-    if(!r.ok) throw new Error(d.detail||'请求失败');
+    const d=await r.json().catch(()=>({}));
+    // 取证是写接口，匿名会被 401 拒：弹出登录框衔接上，而不是只留一行"请先登录"红字
+    if(!r.ok){
+      if(r.status===401){ openAuthModal(); throw new Error('取证需先登录，请在弹窗输入 demo / demo123'); }
+      throw new Error(d.detail||'请求失败');
+    }
     $('#sim').textContent=Math.round(d.similarity*100)+'%';
     $('#simbar').style.width=Math.round(d.similarity*100)+'%';
     // P2-4 前端：阈值统一取自 /api/config（state.threshold），不再硬编码 0.82
@@ -455,7 +459,7 @@ export async function loadEntryList(page){
     const total=res.total||0;
     const totalPages=Math.max(1, Math.ceil(total/state.pageSize));
     let html='<table><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>金额</th><th>判定</th><th></th></tr></thead><tbody>';
-    list.slice().reverse().forEach(x=>{
+    list.forEach(x=>{
       html+=`<tr><td>${esc(x.sku)}</td><td>${esc(x.category)}</td><td>${esc(x.supplier)}</td>`
         +`<td>¥${Number(x.amount||0).toFixed(0)}</td><td>${esc(x.outcome||'待分析')}</td>`
         +`<td><button class="entry-del" data-id="${esc(x.case_id)}">删除</button></td></tr>`;
@@ -509,6 +513,8 @@ export async function submitImport(){
     fd.append('file', f.files[0]);
     const r=await apiFetch('/api/import_file',{method:'POST',body:fd});
     const d=await r.json();
+    // 匿名写入 -> 401：弹登录框而不是只抛一行错误，避免演示卡在"点了没反应"
+    if(r.status===401){ openAuthModal(); throw new Error('导入需先登录'); }
     if(!r.ok || !d.ok) throw new Error(d.error||d.detail||'导入失败');
     res.innerHTML =
       '<div>识别类型：<span class="v">'+esc(d.detected||'未知')+'</span></div>'+
@@ -519,8 +525,54 @@ export async function submitImport(){
     if(d.errors && d.errors.length){ res.innerHTML += '<div class="k">提示：'+esc(d.errors.slice(0,5).join('；'))+'</div>'; }
     msg.textContent='✓ 导入完成（真实案件库），看板已刷新。'; msg.className='entry-msg ok';
     loadInsights(); loadEntryList();
-  }catch(err){ msg.textContent='错误：'+err.message; msg.className='entry-msg err'; }
+  }catch(err){
+    msg.textContent='错误：'+err.message; msg.className='entry-msg err';
+  }
   finally{ btn.disabled=false; btn.textContent='导入并去重'; }
+}
+
+
+// CSV 文本粘贴导入 → POST /api/import_csv（与文件导入并列的第二个数据回流入口）
+
+export async function submitCsvImport(){
+  const btn=$('#importCsvBtn'); const ta=$('#importCsvText'); const msg=$('#importMsg'); const res=$('#importResult');
+  msg.textContent=''; msg.className='entry-msg'; res.innerHTML='';
+  const csv=(ta.value||'').trim();
+  if(!csv){ msg.textContent='请先粘贴 CSV 内容（首行为表头，至少含 sku 列）'; msg.className='entry-msg err'; return; }
+  btn.disabled=true; btn.textContent='解析中…';
+  try{
+    const fd=new FormData();
+    fd.append('csv_text', csv);
+    const r=await apiFetch('/api/import_csv',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!r.ok){
+      // 匿名 -> 401：直接弹出登录框，而不是只留一行错误（否则演示链路断在这里）
+      if(r.status===401){ openAuthModal(); throw new Error('导入需先登录'); }
+      throw new Error(d.detail||d.error||'导入失败');
+    }
+    const skipped=d.skipped||0, errs=d.errors||[];
+    res.innerHTML =
+      '<div><span class="k">新增</span> <span class="v">'+d.imported+'</span>　'+
+      '<span class="k">跳过(缺字段/重复)</span> <span class="v skip">'+skipped+'</span></div>'+
+      (errs.length ? '<div class="k">提示：'+esc(errs.slice(0,5).join('；'))+'</div>' : '');
+    msg.textContent = d.imported>0
+      ? '✓ 已导入 '+d.imported+' 条（真实案件库），看板已刷新。'
+      : '⚠ 未导入任何行，请检查 sku 列是否存在。';
+    msg.className = d.imported>0 ? 'entry-msg ok' : 'entry-msg err';
+    if(d.imported>0){ ta.value=''; loadInsights(); loadEntryList(); }
+  }catch(err){
+    msg.textContent='错误：'+err.message; msg.className='entry-msg err';
+  }
+  finally{ btn.disabled=false; btn.textContent='解析并导入'; }
+}
+
+
+// 导入方式分段切换：上传文件 / 粘贴 CSV
+
+export function switchImportPane(which){
+  document.querySelectorAll('.imp-tab').forEach(b=>b.classList.toggle('active', b.dataset.imp===which));
+  $('#impPaneFile').classList.toggle('hide', which!=='file');
+  $('#impPaneText').classList.toggle('hide', which!=='text');
 }
 
 

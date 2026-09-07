@@ -220,14 +220,27 @@ def _invalidate_cache(source: str = DEFAULT_SOURCE) -> None:
 
 
 def bump_generation(source: str = DEFAULT_SOURCE) -> None:
-    """写库后自增代际，使依赖聚合结果的缓存失效（SEC-12：落库，跨 worker 一致）。"""
+    """写库后自增代际，使依赖聚合结果的缓存失效（SEC-12：落库，跨 worker 一致）。
+
+    ⚠️ openGauss 兼容（易踩坑）：openGauss 5.0 内核源自 PG 9.2/9.4，**不支持** PostgreSQL
+    9.5 才引入的 ``INSERT ... ON CONFLICT(k) DO NOTHING``（实测直接报
+    ``syntax error at or near "CONFLICT("``）。原写法使每次写库都在本函数抛异常并被
+    except 静默吞掉，rg_kv 表恒为空 → get_generation 恒返回 0 → 代际/缓存失效机制
+    彻底空转（仅靠进程内 invalidate_insights_cache 兜底，多 worker 即出问题）。
+    现改为 ``INSERT ... SELECT ... WHERE NOT EXISTS``，SQLite / PostgreSQL / openGauss
+    三者通用，语义等价且幂等。
+    """
     source = _normalize_source(source)
     engine = get_engine(source)
     key = f"gen:{source}"
     try:
         with engine.begin() as conn:
             conn.execute(
-                text("INSERT INTO rg_kv(k,v) VALUES(:k,0) ON CONFLICT(k) DO NOTHING"), {"k": key}
+                text(
+                    "INSERT INTO rg_kv(k,v) SELECT :k, 0 "
+                    "WHERE NOT EXISTS (SELECT 1 FROM rg_kv WHERE k = :k)"
+                ),
+                {"k": key},
             )
             conn.execute(text("UPDATE rg_kv SET v = v + 1 WHERE k = :k"), {"k": key})
     except Exception:

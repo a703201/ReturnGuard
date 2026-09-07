@@ -71,6 +71,31 @@ services:
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
       DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-}
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
+      # ---- 上传图存储：本机自持（默认），可选自托管隧道回源 ----
+      # 退货图一律落本机 demo/uploads/；视觉调用默认走 base64 内联本地文件，
+      # 故留空即可纯本地运行。仅当希望 live 视觉由服务端回源拉图时，
+      # 再配 RG_SELF_IMAGE_BASE=https://<隧道域名>/api/img。
+      RG_SELF_IMAGE_BASE: ${RG_SELF_IMAGE_BASE:-}
+      UPLOAD_URL_TTL: ${UPLOAD_URL_TTL:-3600}
+      # ---- 安全加固必配项 ----
+      # 此前仅有文档指引而 compose 未透传，容器内这些变量全为空并静默降级：
+      # 公开账号可改写全局阈值、令牌重启即失效、限流坍缩成单桶。现统一透传。
+      # AUTH_SECRET：令牌 HMAC 签名密钥，不设则重启后所有令牌失效（应用会打 CRITICAL）。
+      #   生成：python -c "import secrets;print(secrets.token_hex(32))"
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      # ADMIN_API_KEY：/api/calibrate、/metrics 管理动作密钥；不设则退化为"已登录即可"，
+      #   而公网体验账号 demo/demo123 是公开的，等同任何人都能改判定阈值。
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      # 公网演示默认关闭开放注册；如需开放再配 REGISTRATION_INVITE_CODE 走邀请制。
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
+      REGISTRATION_INVITE_CODE: ${REGISTRATION_INVITE_CODE:-}
+      # 经 Cloudflare Tunnel 部署时直连 IP 恒为 127.0.0.1，须设为 127.0.0.1 才能还原真实
+      # 访客 IP，否则限流 / 防爆破会坍缩成全局单桶。
+      AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1}
+      LOGIN_MAX_FAILS: ${LOGIN_MAX_FAILS:-5}
+      LOGIN_LOCK_MIN: ${LOGIN_LOCK_MIN:-15}
+      # 公网跨域白名单（逗号分隔具体域名，禁止 *）；留空 = 不挂 CORS
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
       # P1-C 透传：写接口的演示种子重置开关（FORCE_RESEED=1 仅重置 demo，real 不动）。
       # 此前 compose 未暴露该变量导致宿主 env 无法传入容器，重建只能进容器手动 init_db。
       FORCE_RESEED: ${FORCE_RESEED:-}

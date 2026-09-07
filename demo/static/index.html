@@ -427,6 +427,15 @@
   .import-result .v{color:var(--ok);font-weight:600}
   .import-result .v.upd{color:#facc15}
   .import-result .v.skip{color:#94a3b8}
+  /* CSV 粘贴导入（第二个数据回流入口）：与文件上传同卡片，用分段控件切换 */
+  .imp-tabs{display:flex;gap:8px;margin:12px 0 14px}
+  .imp-tab{background:var(--bg2);border:1px solid var(--border);color:var(--txt2);border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .imp-tab.active{background:var(--acc);border-color:var(--acc);color:#fff}
+  .imp-pane.hide{display:none}
+  .import-file textarea{width:100%;padding:9px 10px;border:1px solid var(--border);background:var(--bg2);border-radius:8px;color:var(--txt);font-size:13px;line-height:1.6;box-sizing:border-box;resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .import-file #importCsvBtn{background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;font-size:13px;white-space:nowrap}
+  .import-file .hint{font-size:12px;color:var(--txt3);margin-top:8px;line-height:1.6}
+  .import-file .hint code{background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11px}
   @media (max-width:640px){ .import-file .row2{grid-template-columns:1fr} .import-file #importBtn{width:100%;min-height:46px} }
   @media (max-width:900px){ .entry-wrap{grid-template-columns:1fr} }
 
@@ -955,17 +964,33 @@
         </div>
         <div class="entry-wrap">
           <div class="card import-file" style="grid-column:1 / -1">
-            <h3>批量文件导入（真实数据集）</h3>
-            <p class="desc">导入卖家真实退货数据集（.xlsx/.csv，类型同三大数据集：Amazon 退货 / UCI Online Retail / TheLook 订单，或 RG 格式 CSV）。
-              相同案件按案件号去重：<b>同日跳过</b>、<b>异日保留最新记录并删除旧记录</b>。导入落入您的租户真实案件库。</p>
-            <div class="row2">
+            <h3>批量导入（真实数据集）</h3>
+            <p class="desc">两种入口任选其一，导入结果均落入您的租户真实案件库，相同案件号去重：<b>同日跳过</b>、<b>异日保留最新并删除旧记录</b>。</p>
+            <div class="imp-tabs">
+              <button type="button" class="imp-tab active" data-imp="file">上传文件</button>
+              <button type="button" class="imp-tab" data-imp="text">粘贴 CSV</button>
+            </div>
+            <div class="imp-pane" id="impPaneFile">
+              <div class="row2">
+                <div>
+                  <label>选择数据集文件（.xlsx / .csv）</label>
+                  <input type="file" id="importFile" accept=".xlsx,.csv">
+                </div>
+                <div style="display:flex;align-items:flex-end;gap:10px">
+                  <button type="button" id="importBtn">导入并去重</button>
+                </div>
+              </div>
+              <div class="hint">支持 Amazon 退货 / UCI Online Retail / TheLook 订单（returned_at 非空）/ RG 格式 CSV，自动识别类型。</div>
+            </div>
+            <div class="imp-pane hide" id="impPaneText">
               <div>
-                <label>选择数据集文件</label>
-                <input type="file" id="importFile" accept=".xlsx,.csv">
+                <label>粘贴 CSV 内容（首行为表头）</label>
+                <textarea id="importCsvText" rows="7" placeholder="sku,category,supplier,platform,region,amount,date,similarity,outcome,defect_tags"></textarea>
               </div>
-              <div style="display:flex;align-items:flex-end;gap:10px">
-                <button type="button" id="importBtn">导入并去重</button>
+              <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:10px">
+                <button type="button" id="importCsvBtn">解析并导入</button>
               </div>
+              <div class="hint">列名支持中英文与常见别名（<code>sku</code> / <code>品类 category</code> / <code>供应商 supplier</code> / <code>平台 platform</code> / <code>金额 amount</code> / <code>日期 date</code> / <code>相似度 similarity</code> / <code>结果 outcome</code> / <code>缺陷 defect_tags</code>），大小写与下划线不敏感；<code>sku</code> 为必填，缺失该行会被跳过。</div>
             </div>
             <div class="entry-msg" id="importMsg"></div>
             <div id="importResult" class="import-result"></div>

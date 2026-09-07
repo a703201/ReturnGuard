@@ -1,19 +1,22 @@
-"""ReturnGuard · 图床（上传图公网可达，P3-17 收口）
+"""ReturnGuard · 上传图存储（本地自持，P3-17 收口 → 去云端化）
 
-live 模式下的视觉/图像向量/OCR 模型需要「服务端能公网回源拉取」上传的退货图。本模块把
-"本地上传图如何变成公网可访问 URL" 抽象成可插拔后端，消除此前 live 模式拿不到图的硬伤：
+上传的退货图一律**落本机磁盘**，不外传任何第三方对象存储（此前支持七牛云 / OSS，
+已按「不用云端、降低资源消耗与依赖体积」的决策整体移除相关 SDK 依赖与代码分支）。
 
-- 七牛云对象存储（Qiniu，个人图床首选）：配置了 QINIU_ACCESS_KEY/SECRET/BUCKET/DOMAIN 时，
-  上传即 PUT 到七牛并返回公网 URL（真实图床，跨网络可达）。SDK 延迟导入，无 qiniu 环境不必安装。
-- 对象存储（OSS / S3 兼容）：配置了 RG_OSS_BUCKET/ENDPOINT/KEY/SECRET 时，上传即 PUT 到
-  对象存储并返回公网 URL（真实图床，跨网络可达）。boto3 延迟导入，无对象存储环境不必安装。
-- PUBLIC_IMAGE_BASE：仅配置该变量（如反代 / 内网 DNS 把本服务的 /uploads 暴露为公网）时，
-  返回 PUBLIC_IMAGE_BASE + 文件名（由应用自身托管上传目录）。
-- 兜底：返回应用相对路径 /uploads/<文件名>（仅同主机 demo 可用；live 需公网可达，否则
-  live_analyze 会主动抛错并回退 mock，保证演示不中断）。
+对外仍保留两个可选的自托管通道（均为**自己这台机器**，不引入第三方云服务）：
 
-优先级：qiniu > oss > public_base > local。任一失败自动降级，保证上传主流程不中断。
-select_backend() / is_public_ready() 让调用方在 live 前判断是否具备公网图能力。
+- local（默认）：落在 ``demo/uploads/``，经 HMAC 签名短链 ``/api/file/{sig}?f=..&e=..``
+  短期可读，且签名短链本身就在本机放行。
+- self：配 ``RG_SELF_IMAGE_BASE``（如 Cloudflare Tunnel 域名 + ``/api/img``），把本地图
+  复制为 256-bit 不可猜测 key 后经 ``/api/img/{key}`` 暴露，供 live 视觉模型回源。
+- public_base：已有自建反代把 uploads 目录暴露为公网时，配 ``PUBLIC_IMAGE_BASE``。
+
+live 模式的视觉/图像向量/OCR 是否受影响：
+    视觉调用优先走 **base64 内联本地文件**（见 models_router._img_source），不经公网图，
+    因此默认 local 模式也能让单案视觉真跑通；公网图 URL 只是可选的回源增强通道。
+
+优先级：self > public_base > local。任一失败自动降级，保证上传主流程不中断。
+backend_name() / is_public_ready() 让调用方判断是否具备公网图能力。
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ from urllib.parse import quote as _urlquote
 
 from dotenv import load_dotenv
 
-# 必须在读取 QINIU_*/RG_OSS_*/PUBLIC_IMAGE_BASE 等环境变量前加载 .env，
+# 必须在读取 RG_SELF_IMAGE_BASE / PUBLIC_IMAGE_BASE 等环境变量前加载 .env，
 # 否则若本模块在 models_router(其内调用 load_dotenv) 之前被 import，
 # 模块级 os.environ.get 会捕获到空值且后续不再刷新（曾导致 running 服务误判图床为 local）。
 # 测试环境跳过：pytest 在启动期就把自身注入 sys.modules（早于任何业务模块 import），
@@ -46,106 +49,68 @@ import auth  # noqa: E402
 
 logger = logging.getLogger("returnguard.storage")
 
-# ---- 七牛云（Qiniu）个人图床 ----
-QINIU_ACCESS_KEY = os.environ.get("QINIU_ACCESS_KEY", "")
-QINIU_SECRET_KEY = os.environ.get("QINIU_SECRET_KEY", "")
-QINIU_BUCKET = os.environ.get("QINIU_BUCKET", "")
-QINIU_DOMAIN = os.environ.get("QINIU_DOMAIN", "").rstrip(
-    "/"
-)  # 公网域名，如 http://tuchuang.xxx.top
-QINIU_KEY_PREFIX = os.environ.get("QINIU_KEY_PREFIX", "").strip(
-    "/"
-)  # 存储键前缀（"文件夹"），如 ReturnGuard
-
-# ---- OSS / S3 兼容对象存储 ----
-OSS_BUCKET = os.environ.get("RG_OSS_BUCKET", "")
-OSS_ENDPOINT = os.environ.get("RG_OSS_ENDPOINT", "")
-OSS_KEY = os.environ.get("RG_OSS_KEY", "")
-OSS_SECRET = os.environ.get("RG_OSS_SECRET", "")
-OSS_REGION = os.environ.get("RG_OSS_REGION", "")
-PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "").rstrip("/")
-# 自托管 HTTPS 图床（RG_SELF_IMAGE_BASE）：经本服务隧道暴露上传图，供视觉网关回源。
-# 设置后 storage 把本地图复制为 256-bit 不可猜测 key 并返回 <base>/<key>，URL 为 HTTPS、
-# 退货图不出境；与七牛公网图同等级隐私。优先级最高（覆盖 qiniu/oss）。
+# ---- 自托管（可选，非第三方云）----
+# 经本服务隧道暴露上传图，供视觉网关回源；退货图不出境，文件随 UPLOAD_DIR 到期清理。
+# 例：RG_SELF_IMAGE_BASE=https://rg.a703201sworld.top/api/img
 SELF_IMAGE_BASE = os.environ.get("RG_SELF_IMAGE_BASE", "").rstrip("/")
-
-
-def _use_qiniu() -> bool:
-    return bool(QINIU_ACCESS_KEY and QINIU_SECRET_KEY and QINIU_BUCKET and QINIU_DOMAIN)
-
-
-def _use_oss() -> bool:
-    return bool(OSS_BUCKET and OSS_ENDPOINT and OSS_KEY and OSS_SECRET)
-
-
-def _oss_public_base() -> str:
-    # OSS 公网域名约定：<bucket>.<endpoint>
-    return f"https://{OSS_BUCKET}.{OSS_ENDPOINT}".rstrip("/")
-
-
-def _qiniu_public_base() -> str:
-    return QINIU_DOMAIN
+# 自建反代 / 内网 DNS 把本服务的上传目录暴露为公网时配置。
+PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "").rstrip("/")
 
 
 def backend_name() -> str:
-    """当前生效的图床后端名，便于 /api/config 与日志透出。"""
+    """当前生效的存储后端名，便于 /api/config 与日志透出。
+
+    取值：self（自托管隧道）/ public_base（自建反代）/ local（纯本地签名短链）。
+    """
     if SELF_IMAGE_BASE:
         return "self"
-    if _use_qiniu():
-        return "qiniu"
-    if _use_oss():
-        return "oss"
     if PUBLIC_IMAGE_BASE:
         return "public_base"
     return "local"
 
 
 def is_public_ready() -> bool:
-    """live 模式能否拿到公网图：任一真实图床已配 或 PUBLIC_IMAGE_BASE 已配。"""
-    return bool(SELF_IMAGE_BASE) or _use_qiniu() or _use_oss() or bool(PUBLIC_IMAGE_BASE)
+    """上传图是否具备公网可达地址（live 视觉回源的可选增强项，非必需）。"""
+    return bool(SELF_IMAGE_BASE) or bool(PUBLIC_IMAGE_BASE)
 
 
 def upload(local_path: str, filename: str) -> str:
-    """把本地上传图变成公网可访问 URL（可能就地把文件同步到对象存储）。
+    """把本地上传图变成「可经 HTTP 拿到」的 URL，全程不依赖任何第三方云对象存储。
 
-    返回公网 URL 字符串：
-        - 七牛云：<QINIU_DOMAIN>/<QINIU_KEY_PREFIX>/<filename>
-        - 对象存储：https://<bucket>.<endpoint>/<filename>
-        - PUBLIC_IMAGE_BASE：<base>/<filename>
-        - 兜底：/uploads/<filename>
-    任一真实图床失败不影响主流程：逐层降级到下一后端并记日志。
+    返回：
+        - self        ：<RG_SELF_IMAGE_BASE>/<256bit key>
+        - public_base ：<PUBLIC_IMAGE_BASE>/<256bit key>
+        - local（兜底）：/api/file/<sig>?f=..&e=.. 签名短链（SEC-8）
+    任一环节失败降级到下一档并记日志，保证上传主流程不中断。
     """
-    # SEC-P0: 公网图床的对象 key 必须不可猜测。此前直接沿用上传文件名
+    # SEC-P0: 暴露给外部的 URL 必须不可猜测。此前直接沿用上传文件名
     # （形如 <8位hex>_ret_<原名>.png），随机空间仅 32 bit，可被遍历爆破，
-    # 而退货图属于买家 PII、且 URL 无鉴权无过期。现统一改用 256 bit 随机 key。
+    # 而退货图属于买家 PII、且 URL 无校验。对外键统一用 256 bit 随机串。
     public_key = _public_object_key(filename)
     if SELF_IMAGE_BASE:
-        # 自托管 HTTPS 图床：把本地上传图复制为 256-bit 不可猜测 key，经本服务隧道暴露给视觉网关
-        # 回源（退货图不出境，与七牛公网图同等级隐私；文件随 UPLOAD_DIR 24h 清理）
-        dst = os.path.join(os.path.dirname(os.path.abspath(local_path)), public_key)
-        try:
-            shutil.copy2(local_path, dst)
-        except Exception:  # 复制失败降级到 qiniu/oss/public_base/本地，保证主流程不中断
-            logger.exception("self 图床复制失败，降级到下一后端")
-        else:
+        # 自托管：把本地上传图复制为不可猜测 key，经 /api/img/{key} 暴露给视觉网关回源。
+        # 文件仍留在本机 UPLOAD_DIR，随 24h 清理策略回收，不占用额外存储配额。
+        if _copy_to_public_key(local_path, public_key):
             return f"{SELF_IMAGE_BASE}/{public_key}"
-    if _use_qiniu():
-        try:
-            return _upload_qiniu(local_path, public_key)
-        except Exception:  # 七牛异常降级，保证上传主流程不中断
-            logger.exception("Qiniu 上传失败，降级到 OSS / PUBLIC_IMAGE_BASE / 本地路径")
-    if _use_oss():
-        try:
-            return _upload_oss(local_path, public_key)
-        except Exception:  # 对象存储异常降级，保证上传主流程不中断
-            logger.exception("OSS 回传失败，降级到 PUBLIC_IMAGE_BASE / 本地路径")
     if PUBLIC_IMAGE_BASE:
-        return f"{PUBLIC_IMAGE_BASE}/{public_key}"
-    return sign_upload_url(filename)  # 本地兜底：签名短链（SEC-8），不再公开静态可读
+        if _copy_to_public_key(local_path, public_key):
+            return f"{PUBLIC_IMAGE_BASE}/{public_key}"
+    return sign_upload_url(filename)  # 本地兜底：签名短链（SEC-8）
+
+
+def _copy_to_public_key(local_path: str, public_key: str) -> bool:
+    """把上传图复制成同目录下的不可猜测文件名，成功返回 True（失败已记日志）。"""
+    try:
+        dst = os.path.join(os.path.dirname(os.path.abspath(local_path)), public_key)
+        shutil.copy2(local_path, dst)
+        return True
+    except Exception:
+        logger.exception("本地图复制失败，降级到下一后端")
+        return False
 
 
 def _public_object_key(filename: str) -> str:
-    """为公网图床生成不可猜测的对象 key（保留扩展名，便于 CDN 正确设置 Content-Type）。"""
+    """为对外暴露的图生成不可猜测的对象 key（保留扩展名，便于 CDN 正确设置 Content-Type）。"""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"):
         ext = ".png"
@@ -156,42 +121,9 @@ def sign_upload_url(filename: str, ttl: int | None = None) -> str:
     """生成本地上传图的签名短链（SEC-8）：HMAC(filename|exp, AUTH_SECRET) + TTL。
 
     替代原公开静态 /uploads/<file>：URL 带 ?f=<文件名>&e=<过期时间戳>，sig 为 HMAC 前缀；
-    服务端 /api/file/{sig} 校验签名与过期，失败/过期/越界均 404（不泄露是否存在）。
-    OSS / 七牛 / PUBLIC_IMAGE_BASE 公网 URL 不受影响。"""
+    服务端 /api/file/{sig} 校验签名与过期，失败/过期/越界均 404（不泄露是否存在）。"""
     ttl = int(os.environ.get("UPLOAD_URL_TTL", "3600")) if ttl is None else ttl
     exp = int(time.time()) + ttl
     payload = f"{filename}|{exp}"
     sig = hmac.new(auth._SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
     return f"/api/file/{sig}?f={_urlquote(filename)}&e={exp}"
-
-
-def _qiniu_key(filename: str) -> str:
-    return f"{QINIU_KEY_PREFIX}/{filename}" if QINIU_KEY_PREFIX else filename
-
-
-def _upload_qiniu(local_path: str, filename: str) -> str:
-    """上传到七牛云对象存储（qiniu SDK 延迟导入，避免无 qiniu 环境也必须安装）。"""
-    from qiniu import Auth, put_file  # noqa: PLC0415
-
-    q = Auth(QINIU_ACCESS_KEY, QINIU_SECRET_KEY)
-    key = _qiniu_key(filename)
-    token = q.upload_token(QINIU_BUCKET, key, 3600)
-    ret, info = put_file(token, key, local_path)
-    if info is None or getattr(info, "status_code", None) != 200:
-        raise RuntimeError(f"Qiniu 上传失败: {info}")
-    return f"{_qiniu_public_base()}/{key}"
-
-
-def _upload_oss(local_path: str, filename: str) -> str:
-    """上传到 OSS / S3 兼容对象存储（boto3 延迟导入，避免无对象存储环境也必须安装）。"""
-    import boto3  # noqa: PLC0415
-
-    client = boto3.client(
-        "s3",
-        endpoint_url=f"https://{OSS_ENDPOINT}",
-        aws_access_key_id=OSS_KEY,
-        aws_secret_access_key=OSS_SECRET,
-        region_name=OSS_REGION or None,
-    )
-    client.upload_file(local_path, OSS_BUCKET, filename)
-    return f"{_oss_public_base()}/{filename}"
