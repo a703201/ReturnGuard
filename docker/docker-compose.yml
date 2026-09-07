@@ -119,6 +119,10 @@ services:
       retries: 10
       start_period: 30s
     restart: unless-stopped
+    # 上传图持久化（去云端化后退货图落本机 demo/uploads/）：挂 named volume，
+    # 容器重建/升级不丢图；named volume 而非 bind-mount，维持与宿主机隔离的加固基调。
+    volumes:
+      - rg_uploads:/app/demo/uploads
 
   # ---------- real 源独立库一次性初始化（P0 物理隔离）----------
   # demo 源用 returnguard 库；real 源用独立 returnguard_real 库（见上方 REAL_DATABASE_URL），
@@ -153,3 +157,4 @@ services:
 
 volumes:
   ogdata:
+  rg_uploads:
