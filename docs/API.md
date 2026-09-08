@@ -209,7 +209,7 @@ live 模式经**阿里云百炼 Model Router** 调用多模态大模型，协议
 | ① 同款一致性比对 | `qwen/tongyi-embedding-vision-plus` | `POST /v1/embeddings` |
 | ② 瑕疵视觉识别 | `qwen/qwen3-vl-plus` | `POST /v1/chat/completions` |
 | ③ Listing 承诺提取 | `qwen/qwen-vl-ocr` | `POST /v1/chat/completions` |
-| ④ 卷宗 / 陈述 / 聚类归因 | `qwen/qwen3-max`（可选 `deepseek-r1`） | `POST /v1/chat/completions` |
+| ④ 卷宗 / 陈述 / 聚类归因 | `qwen/qwen3.7-max`（tokenplan 下无前缀；对比实验可选 `deepseek-v4-pro` / `kimi-k2.6` / `glm-5.2`） | `POST /v1/chat/completions` |
 | ⑤ 案件优先级排序 | `qwen/qwen3-rerank` | `POST /v1/rerank` |
 | ⑥ 母语语音陈述 | `qwen/qwen3-tts-instruct-flash` | `POST /v1/audio/speech` |
 
@@ -237,8 +237,8 @@ live 模式经**阿里云百炼 Model Router** 调用多模态大模型，协议
 模型 `qwen/qwen-vl-ocr`，messages 仅含 `image_url`，返回图文承诺文本。
 
 **④ 文本生成 / 聚类归因 —— `POST /v1/chat/completions`**
-模型 `qwen/qwen3-max`，`stream: false`。洞察归因使用 `llm_json()` 稳健抽取 JSON（兼容 `deepseek-r1` 的 `<think>` 包裹）。
-> 注：`deepseek-r1` / `qwq` 系列**仅支持 stream**，本服务统一用 `qwen3-max` 保证同步可用。
+模型 `qwen/qwen3.7-max`，`stream: false`。洞察归因使用 `llm_json()` 稳健抽取 JSON（兼容 `deepseek` / `qwen3.6+` 的 `<think>` 包裹）。
+> 注：`deepseek` / `qwq` 系列**仅支持 stream**，本服务统一用 `qwen/qwen3.7-max` 保证同步可用。tokenplan 自测网关下该模型名为无前缀的 `qwen3.7-max`。
 
 **⑤ 优先级重排 —— `POST /v1/rerank`**
 ```json
@@ -263,7 +263,7 @@ live_analyze:
   → 任意异常 → pipeline 回退 _mock，mode="mock(fallback)" + error
 
 build_insights_live(aggregated):
-  将 pipeline._aggregate 的统计喂给 qwen3-max（JSON 输出）
+  将 pipeline._aggregate 的统计喂给 qwen/qwen3.7-max（JSON 输出）
   → {root_cause, sku_insights, recommendations, report}
   → 异常回退 mock 归因
 ```

@@ -43,6 +43,23 @@
 - **Docker 本地 WAL 崩溃修复（e614140）**：Docker 把主机 `demo/` 绑挂载进容器时，SQLite 在 `PRAGMA journal_mode=WAL` 因 `-shm`/mmap 在 Windows 挂载点不支持而抛 `disk I/O error`、启动即崩；新增 `SQLITE_NO_WAL` 环境变量开关（默认关），本地部署设 `1` 时改用 DELETE 日志模式，宿主机原生 fs / openGauss 不受影响。
 - **版本号 Vunknown 修复（c4b12ed）**：Dockerfile 原 `COPY demo/ .` 把源码拍平到 `/app`，使 `main.py` 按 `__file__/../VERSION` 计算版本时路径断裂、返回 `unknown`；改为 `COPY demo/ ./demo/` 保持与本地一致的目录结构，entrypoint 启动前 `cd demo`，并为 `_read_app_version()` 增加 `../VERSION → ./VERSION` fallback。现 `/api/config.version` 正确返回 `1.1.2`。
 
+### 2026-09-08 复赛材料合规与全仓文档口径统一（同版本 1.1.2 内的补丁集合）
+
+> 针对「复赛提交材料」做的合规整改与文档收口。**仅改文档与提交材料，不改运行时逻辑**，版本号维持 1.1.2。
+
+- **提交模板合规（P0）**：`复赛交付物/ReturnGuard_复赛作品_官方模板填写版.docx` 按官方模板逐项核对，修正 3 类问题：
+  - **团队名错填**：原填「ReturnGuard（跨境退件法医）」把产品名当团队名，更正为 **Lumio**。
+  - **章节号错位**：模板实为五部分，原文多处引用「第七部分」，统一改为「第五部分」（采用**单次正则整体替换**，避免链式替换把「第五部分」二次改写）。
+  - **模型标识不合规（P0）**：原按 `tokenplan` 命名书写，赛事要求 Model Router（`official`）口径。已全部补 `qwen/` 前缀。
+- **TTS 模型更正（P0）**：原提交材料写的 `qwen-audio-3.0-tts-plus` **不在 `ModelRouter_API.docx` 的 126 个官方模型名单内**；官方 TTS 仅 `qwen/qwen3-tts-instruct-flash` 一个，已统一更正。6 个模型全部对照官方名单核验通过（详见 `复赛交付物/模板合规检查报告.md`）。
+- **产品命名统一**：全仓统一为「**ReturnGuard 退货情报站**」。旧称「退件法医 / 跨境退货举证官」仅存于 `docs/legacy/` 历史材料，新文档一律不再使用（此前审查报告第 14 项「产品名三套并存」至此收口）。
+- **全仓模型命名整改**：
+  - `README.md` 模型映射表改为 **official / tokenplan 双列**对照，并修正误写的 `qwen/qwen3-max` → `qwen/qwen3.7-max`；删除不存在的 `qwen/deepseek-r1`（洞察层复用文本模型，`deepseek-v4-pro` 等仅存在于 `compare_models.py` 对比实验）。
+  - `demo/README.md` 补全三 profile 对照表与命名差异警告。
+  - `docs/PRD.md`、`docs/API.md`、`复赛交付物/01_技术文档.md`、`03_测试账号与部署说明.md`、`04_分阶段成果说明.md`、`00_交付物清单.md`、`答辩Q&A话术.md` 同步改为 official 口径。
+- **陈旧表述清理**：`评审一页纸.md` 的「双 SQLite 物理隔离」更正为 openGauss 独立库（`returnguard` / `returnguard_real`）；演示路径章节的 4 分钟 V2 镜序标注作废、指向 V3（3:00）。
+- **新增**：`复赛交付物/模板合规检查报告.md`（逐项合规结论 + P0/P1 清单）、`_fix_template_docx.py`（模板修正脚本，备份 `_备份_20260908.docx`）、`_docx_read.py`（纯标准库 docx 读取器，python-docx 环境异常时的兜底）。
+
 ---
 
 ## [1.1.1] — 2026-08-27

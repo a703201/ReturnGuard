@@ -65,9 +65,11 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 |---|---|---|---|
 | ① | 同款一致性比对 | 退回图 vs 本店主图，输出相似度与「是否同一件」（阈值 0.82） | `qwen/tongyi-embedding-vision-plus` 图像向量 + 余弦 |
 | ② | 瑕疵视觉识别 | 识别破损 / 缺件 / 污渍 / 使用痕迹 / 功能故障等标签 | `qwen/qwen3-vl-plus` |
-| ③ | Listing 承诺核验 | 提取本店图文承诺，比对退回件状态，判断货不对板 | `qwen/qwen-vl-ocr` + `qwen3-max` |
-| ④ | 证据卷宗 + 母语语音 | 生成举证报告文本 + 60 字口头陈述 + 可播放语音 | `qwen3-max` + `qwen3-tts-instruct-flash` |
-| ⑤ | 案件优先级排序 | 相似度低 / 缺陷重 / 金额高 → 优先处理 | `qwen3-rerank`（无额度时本地公式退化） |
+| ③ | Listing 承诺核验 | 提取本店图文承诺，比对退回件状态，判断货不对板 | `qwen/qwen-vl-ocr` + `qwen/qwen3.7-max` |
+| ④ | 证据卷宗 + 母语语音 | 生成举证报告文本 + 60 字口头陈述 + 可播放语音 | `qwen/qwen3.7-max` + `qwen/qwen3-tts-instruct-flash` |
+| ⑤ | 案件优先级排序 | 相似度低 / 缺陷重 / 金额高 → 优先处理 | `qwen/qwen3-rerank`（无额度时本地公式退化） |
+
+> 上表为 **official（赛事指定 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。详见 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
 
 ### 5.2 阶段 B · 群体洞察（功能⑥）
 聚合维度：

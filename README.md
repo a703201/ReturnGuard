@@ -1,9 +1,11 @@
-# ReturnGuard（退件法医）· 跨境退货举证官
+# ReturnGuard · 跨境退货情报站
 
 > 参赛赛道：**AI 市场洞察 · AI 智能选品引擎**（退货纠纷数据驱动的选品避坑与品控洞察）
-> 赛事：AI+跨境黑客松巅峰赛 · 复赛
+> 赛事：AI+跨境黑客松巅峰赛 · 复赛　|　团队：**Lumio**
 > 核心 AI 能力全部经 **阿里云百炼 Model Router** 调用
 > 初赛过程材料见 `docs/legacy/`
+
+> **命名约定**：全仓统一使用「**ReturnGuard 退货情报站**」。旧称「退件法医 / 跨境退货举证官」为单案取证时代的旧名（偏"鉴定/追责"），仅存于 `docs/legacy/` 历史材料中，新文档一律不再使用。
 
 ## 电梯陈述（一句话）
 
@@ -18,7 +20,7 @@
 - **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
 - **演示数据集**：1206 条真实退货案件 · 9 个平台 · 胜诉率 34.6%
 - **图床**：七牛云对象存储**已激活**（`image_bed: qiniu`、`image_bed_public: true`），上传图回传真实公网 URL 供模型服务端回源
-- **Live 合规**：默认 `tokenplan` 网关（文本洞察真实）；切赛事指定 Model Router 见 `复赛交付物/LIVE_COMPLIANCE.md`
+- **Live 合规**：支持 `official`（**赛事指定 Model Router，提交口径**）/ `tokenplan`（Token Plan 自测网关）/ `dashscope`（自购通道）三 profile，改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动；逐项核对见 `复赛交付物/LIVE_COMPLIANCE.md`。
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
 ## 系统架构一览
@@ -51,15 +53,19 @@
 ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一致性比对、瑕疵识别、listing 承诺核验、一键证据卷宗 + 母语语音），并把沉淀的退货数据聚合成**「选品 / 品控洞察」**，反哺选品决策。把售后成本中心变成市场洞察数据源——用已成交的真实退货负面信号驱动选品，比公开评论更可信。
 
 ## 核心能力 → 模型映射（阿里云百炼 Model Router）
-| 能力 | 模型 |
-|---|---|
-| 多模态图像向量（同款一致性） | `qwen/tongyi-embedding-vision-plus` |
-| 视觉理解（瑕疵识别 / 一致性） | `qwen/qwen3-vl-plus` |
-| OCR（提取 listing 承诺） | `qwen/qwen-vl-ocr` |
-| 文本生成 / 多语（卷宗 / 陈述） | `qwen/qwen3-max` |
-| 排序（案件优先级） | `qwen/qwen3-rerank` |
-| 语音合成（母语陈述） | `qwen/qwen3-tts-instruct-flash` |
-| 推理 / 聚类（洞察层） | `qwen/deepseek-r1` |
+
+> ⚠️ **两个网关的模型命名不同**：赛事指定 Model Router（`model-router.edu-aliyun.com`）要求**全部模型带 `qwen/` 前缀**；Token Plan 网关的文本/TTS 用无前缀旧名。切换 profile 时 base_url + key + 模型标识三者一并切换，否则 404。代码单一来源：`demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
+
+| 能力 | `official`（赛事指定 · 提交口径） | `tokenplan`（Token Plan 自测） |
+|---|---|---|
+| 多模态图像向量（同款一致性） | `qwen/tongyi-embedding-vision-plus` | 同左 |
+| 视觉理解（瑕疵识别 / 一致性 / 红框） | `qwen/qwen3-vl-plus` | 同左 |
+| OCR（提取 listing 承诺） | `qwen/qwen-vl-ocr` | 同左 |
+| 文本生成 / 多语（卷宗 / 陈述 / 洞察归因） | `qwen/qwen3.7-max` | `qwen3.7-max` |
+| 排序（案件优先级） | `qwen/qwen3-rerank` | `qwen3-rerank` |
+| 语音合成（母语陈述） | `qwen/qwen3-tts-instruct-flash` | `qwen-audio-3.0-tts-plus` |
+
+> 说明：洞察层（聚类归因 / 选品建议）复用文本模型，**不单独调用 deepseek 系列**；`demo/compare_models.py` 中的 `deepseek-v4-pro` / `kimi-k2.6` 等仅供模型对比实验，非线上链路。
 
 ## 取证工作流（双闭环）
 ```mermaid
@@ -110,7 +116,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ## 验证脚本
 `verify_api.py`：纯标准库、零依赖，验证两项关键能力是否真能跑通：
-- **图向量比对**（核心）：`tongyi-embedding-vision-plus` 嵌入两张图 → 余弦相似度。
+- **图向量比对**（核心）：`qwen/tongyi-embedding-vision-plus`（tokenplan 下为无前缀 `tongyi-embedding-vision-plus`）嵌入两张图 → 余弦相似度。
 - **TTS → ASR 闭环**：用 API 自身 TTS 合成语音 → `qwen3-asr-flash` 转写回来，验证语音端点。
 
 运行：

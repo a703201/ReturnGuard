@@ -36,8 +36,19 @@ python main.py
 export MODEL_ROUTER_API_KEY=sk-xxx
 export PUBLIC_IMAGE_BASE=https://your-oss-bucket.example.com/returnguard/uploads
 ```
-前端模式选 `live` 即可走真实 `tongyi-embedding-vision-plus` / `qwen3-vl-plus` / `qwen-vl-ocr` / `qwen3-max` / `qwen3-tts-instruct-flash` 链路。
-（若 live 调用失败，自动回退 mock，保证演示不中断。）
+3. 选定网关 profile（三选一，改 `MODEL_ROUTER_PROFILE` 即可，`base_url` + key + 模型标识三者联动切换）：
+
+   | profile | 基地址 | 用途 |
+   |---|---|---|
+   | `official` | `https://model-router.edu-aliyun.com/v1` | **赛事指定 Model Router**，提交口径 |
+   | `tokenplan` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Token Plan 自测网关（文本/TTS 已开通） |
+   | `dashscope` | 阿里云百炼国内站兼容端点 | 自购按量，视觉/向量/OCR 齐全、数据不出境 |
+
+前端模式选 `live` 即可走真实链路。以 **official（赛事指定）** 为准的模型清单：
+`qwen/tongyi-embedding-vision-plus`（同款向量）· `qwen/qwen3-vl-plus`（瑕疵 + 红框）· `qwen/qwen-vl-ocr`（Listing OCR）· `qwen/qwen3.7-max`（卷宗 / 陈述 / 洞察归因）· `qwen/qwen3-rerank`（优先级）· `qwen/qwen3-tts-instruct-flash`（母语语音）。
+
+> ⚠️ 命名差异：tokenplan 下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（均无 `qwen/` 前缀）；official 下**必须带 `qwen/` 前缀**。且官方模型名单中 TTS 仅 `qwen/qwen3-tts-instruct-flash` 一个，`qwen-audio-3.0-tts-plus` 不在名单内。
+> （若 live 调用失败，自动回退 mock，保证演示不中断。）
 
 ## 复赛交付映射
 - **可运行 Demo**：本服务即最小 Demo，可容器化部署为公开体验地址。
