@@ -44,7 +44,7 @@ COPY VERSION .
 
 # 启动脚本（位于 docker/，与 compose 同目录），置于 /app 并赋可执行权限
 COPY docker/entrypoint.sh /app/entrypoint.sh
-RUN mkdir -p uploads \
+RUN mkdir -p uploads demo/state \
     && chmod +x /app/entrypoint.sh \
     && useradd -m -u 10001 appuser \
     && chown -R appuser:appuser /app

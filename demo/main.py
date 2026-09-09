@@ -29,6 +29,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 import auth  # C组：账户体系 + 多租户隔离
+import quota  # SEC-13：live 模式独立配额闸（防公开演示账号刷付费 Key）
 import shared_state  # SEC-12：跨 worker 共享状态（限流 / 登录封禁）
 from calibration import get_active_threshold, save_calibration, suggest_threshold  # B组：阈值自标定
 from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
@@ -576,7 +577,7 @@ def analyze(
     """
     source = _resolve_source(request)
     # SEC-1 写接口会话鉴权：取证沉淀必须登录，避免匿名写入与资源滥用
-    _require_session(request)
+    tenant = _require_session(request)
     # 写操作一律落到 real 源（与 import_csv 同款保护）：demo 是共享只读演示库，
     # 且删除被显式禁止（见 delete_case_api），若放任写入会造成「只增不减」的永久污染，
     # 演示数字（1206 条 / 胜诉率 34.6%）会被逐次改写，恢复只能靠 FORCE_RESEED 重建。
@@ -593,6 +594,15 @@ def analyze(
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
     if platform and not is_valid_platform(platform):
         raise HTTPException(status_code=400, detail="platform 不在支持列表")
+
+    # SEC-13 live 独立配额闸：live 链路真实消耗服务端付费 Key，而公网演示账号
+    # demo/demo123 是已对外发布的公开凭据，通用限流（60 次/分钟）挡不住"低频持续"
+    # 刷量（一天仍可累积出巨额账单）。故 live 另设按天计费周期的闸门，超限直接
+    # 拒绝并说明原因——不做静默降级，否则用户会把 mock 结果误当作 AI 结论。
+    if mode == "live":
+        allowed, reason = quota.check_live_quota(tenant, client_ip)
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
 
     # 校验 + 读取两张图原始字节（UploadFile 只读一次，先读后写）
     ret_bytes = _validate_image(returned_image)

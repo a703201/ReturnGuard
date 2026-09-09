@@ -21,14 +21,20 @@ services:
     container_name: rg_opengauss
     privileged: true            # openGauss 需调整内核参数，必须提权
     environment:
-      # 默认密码 Gauss-2026（注意：不含 @/# 等 URL 保留字符，避免 DATABASE_URL 解析错误）
-      GS_PASSWORD: ${GS_PASSWORD:-Gauss-2026}
+      # SEC-13：口令必须由 docker/.env 显式提供，**不再内置默认值**（此前缺省为
+      # 公开示例口令 Gauss-2026，任何人照搬仓库即可登录数据库）。缺失时 compose 直接
+      # 报错中止，避免"以为配了其实用了默认口令"。口令仍不含 @/# 等 URL 保留字符。
+      GS_PASSWORD: ${GS_PASSWORD:?GS_PASSWORD 必须在 docker/.env 中显式设置}
       GS_USERNAME: gaussdb       # 业务连接用户（默认即 gaussdb）
       GS_DB: returnguard         # 初始化时自动创建的库
       GS_PORT: 5432
       TZ: Asia/Shanghai
     ports:
-      - "5432:5432"              # 对外暴露，便于运维/本地直连（生产可仅留内网）
+      # SEC-13：数据库**仅监听本机回环**。此前 "5432:5432" 等价 0.0.0.0:5432，
+      # 数据库端口直接暴露到局域网/公网（实测 docker ps 显示 0.0.0.0:5432->5432），
+      # 叠加示例口令即可被直连。应用经 compose 内网 db:5432 访问，不受影响；
+      # 运维需本地直连时用 127.0.0.1:5432 或进容器执行。
+      - "127.0.0.1:5432:5432"
     volumes:
       - ogdata:/var/lib/opengauss   # 数据持久化，容器重建不丢数据
     shm_size: 2gb            # openGauss/PostgreSQL 类数据库需要足够共享内存；WSL2 建议 ≥2GB
@@ -58,11 +64,11 @@ services:
     environment:
       # 统一 openGauss（postgresql+psycopg2 方言，协议兼容；开发与部署同一套）
       # 密码里不含 @/#，可直接写明文；若后续改含保留字符的密码，需 URL 编码。
-      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
-      AUTH_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
+      AUTH_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
       # P0 物理隔离：real 源使用独立库 returnguard_real（由 realdb-init 一次性服务创建），
       # 与 demo 源（returnguard）分库，杜绝「写入 real 却污染 demo 看板」的部署态缺陷。
-      REAL_DATABASE_URL: ${REAL_DATABASE_URL:-postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard_real}
+      REAL_DATABASE_URL: ${REAL_DATABASE_URL:-postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard_real}
       # AI 网关（live 模式）：密钥/端点一律从宿主 .env（仓库根，已 gitignore）注入，
       # 防止密钥误提交公网仓库。profile 缺省 tokenplan；切 dashscope（视觉全开）改宿主 .env 即可。
       MODEL_ROUTER_PROFILE: ${MODEL_ROUTER_PROFILE:-tokenplan}
@@ -94,6 +100,13 @@ services:
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1}
       LOGIN_MAX_FAILS: ${LOGIN_MAX_FAILS:-5}
       LOGIN_LOCK_MIN: ${LOGIN_LOCK_MIN:-15}
+      # ---- SEC-13 live 模式独立配额闸（0 = 关闭该层）----
+      # 公网演示账号 demo/demo123 是已对外发布的公开凭据，live 链路真实消耗服务端
+      # 付费 Key；通用限流（60 次/分钟）挡不住"低频持续"刷量，故按天另设闸门：
+      # 全局日配额是账单兜底线，账号日配额管单账号，IP 小时配额抑制突发。
+      LIVE_QUOTA_GLOBAL_DAY: ${LIVE_QUOTA_GLOBAL_DAY:-300}
+      LIVE_QUOTA_TENANT_DAY: ${LIVE_QUOTA_TENANT_DAY:-60}
+      LIVE_QUOTA_IP_HOUR: ${LIVE_QUOTA_IP_HOUR:-20}
       # 公网跨域白名单（逗号分隔具体域名，禁止 *）；留空 = 不挂 CORS
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
       # P1-C 透传：写接口的演示种子重置开关（FORCE_RESEED=1 仅重置 demo，real 不动）。
@@ -103,7 +116,9 @@ services:
       # shared_state 的限流计数用 ON CONFLICT...DO UPDATE upsert，openGauss 不支持该 PG 9.5+
       # 语法（实测 Upsert 解析报错），而 SQLite 原生支持；单容器部署多 worker 共享同一文件即一致。
       # 多主机部署才需改为 Redis/PG 后端（届时 shared_state 须重写 upsert 分支）。
-      # 故此处不设置 STATE_DB_URL，由 shared_state 回退到内置 SQLite 默认。
+      # 故此处不指向 openGauss，而是把该 SQLite 库落到**持久化卷** rg_state（见下方 volumes），
+      # 避免容器重建导致计数清零、配额闸被绕过。（SQLite 绝对路径需 4 个斜杠）
+      STATE_DB_URL: ${STATE_DB_URL:-sqlite:////app/demo/state/rg_state.db}
     ports:
       # 本地测试：对外仅暴露给 cloudflared 隧道（rg-tunnel.yml 指向 localhost:65432）
       - "127.0.0.1:65432:8000"
@@ -123,6 +138,11 @@ services:
     # 容器重建/升级不丢图；named volume 而非 bind-mount，维持与宿主机隔离的加固基调。
     volumes:
       - rg_uploads:/app/demo/uploads
+      # SEC-13：限流 / 登录封禁 / **live 配额**的计数库必须持久化。此前 rg_state.db
+      # 落在容器可写层，容器一重建计数即清零 —— "按天配额"实际退化成"按容器生命周期"，
+      # 重建一次就能绕开闸门。改挂 named volume，并在镜像内预建目录（Dockerfile 的
+      # mkdir demo/state），保证空卷首次挂载时属主为 appuser、可写。
+      - rg_state:/app/demo/state
 
   # ---------- real 源独立库一次性初始化（P0 物理隔离）----------
   # demo 源用 returnguard 库；real 源用独立 returnguard_real 库（见上方 REAL_DATABASE_URL），
@@ -134,7 +154,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      GS_PASSWORD: ${GS_PASSWORD:-Gauss-2026}
+      # 同 db 服务：口令由 .env 显式提供，不内置默认值
+      GS_PASSWORD: ${GS_PASSWORD:?GS_PASSWORD 必须在 docker/.env 中显式设置}
     restart: "no"
     entrypoint: ["/bin/bash", "-c"]
     command:
@@ -158,3 +179,4 @@ services:
 volumes:
   ogdata:
   rg_uploads:
+  rg_state:
