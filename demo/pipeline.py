@@ -44,6 +44,7 @@ from constants import (
     SUPPLIER_LEVEL_THRESHOLDS,
     SUPPLIER_LEVEL_TOP,
 )
+from imghash import content_seed
 
 # re-export：保留历史内部引用名 _REGION_MAP（数据本体已迁到 constants 单一来源）
 _REGION_MAP = REGION_MAP
@@ -67,24 +68,18 @@ from db import get_generation, load_cases, save_case  # noqa: E402, F401
 
 
 # ===================== 工具函数 =====================
-def _content_seed(*paths) -> int:
-    """用图片**内容**（而非路径，路径含随机 rid 前缀）生成稳定随机种子，
-    保证同一张图每次取证结果一致、可复现（修复 mock 相似度因随机文件名而漂移的隐患）。"""
-    h = hashlib.md5()
-    for p in paths:
-        try:
-            with open(p, "rb") as f:
-                for chunk in iter(lambda: f.read(65536), b""):
-                    h.update(chunk)
-        except Exception:  # noqa: BLE001
-            h.update(str(p).encode("utf-8"))
-    return int(h.hexdigest(), 16)
+# 图片内容种子已下沉到 imghash.content_seed：pipeline 的 mock 路径与 models_router 的
+# live 回退路径共用同一实现，避免"一个按内容、一个按路径"的口径分叉（审查 P0-3）。
+# 详见 imghash 模块 docstring。
 
 
 def _mock_similarity(returned_path: str, product_path: str) -> float:
     """mock 相似度：由两张图内容算出的确定性值（0.55~0.98），仅用于免 Key 演示。
-    注意：这不是模型真实能力，真实相似度在 live 模式由图向量余弦得到。"""
-    s = _content_seed(returned_path, product_path)
+
+    注意：这不是模型真实能力。live 模式的主路径是 **VL 模型直接判同款**
+    （models_router.vl_similarity）——百炼 OpenAI 兼容模式不支持视觉向量模型，
+    故图像向量仅作回退；回退到底时走本函数同口径的内容哈希。"""
+    s = content_seed(returned_path, product_path)
     return round(0.55 + (s % 1000) / 1000 * 0.43, 3)
 
 
@@ -114,7 +109,7 @@ def _mock(
     # 用图片内容种子决定瑕疵数量与种类（确定性，避免随机文件名导致结果漂移）。
     # P2-④ 改用局部 random.Random 实例，避免 random.seed() 污染进程全局 RNG，
     # 影响同进程内其他依赖随机性的模块（如测试、抽样）。
-    _rng = random.Random(_content_seed(returned_path))
+    _rng = random.Random(content_seed(returned_path))
     n_def = _rng.randint(0, 3)
     defects = _rng.sample(DEFECT_POOL, n_def) if n_def > 0 else ["无明显瑕疵"]
     same = sim >= get_active_threshold()  # 阈值：≥阈值 视为同一件商品（标定值或默认 0.82）
@@ -147,7 +142,7 @@ def _mock(
     # 缺陷区域示意框（mock 确定性占位；live 接通后由视觉模型返回真实 bbox）
     # 归一化坐标(0~1)，前端按比例绘制红框；演示数据仅作"示意"，不替代真实检测。
     defect_boxes: list[dict] = []
-    rng = random.Random(_content_seed(returned_path, "boxes"))
+    rng = random.Random(content_seed(returned_path, "boxes"))
     for d in defects:
         if d == "无明显瑕疵":
             continue

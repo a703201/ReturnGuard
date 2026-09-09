@@ -29,7 +29,6 @@ dashscope（阿里云百炼国内站按量付费）是「自购 token」通道�
 
 import base64
 import contextvars
-import hashlib
 import io
 import json
 import logging
@@ -44,7 +43,8 @@ import wave
 
 import requests
 from calibration import get_active_threshold
-from constants import SEVERITY
+from constants import DEFECT_POOL, SEVERITY
+from imghash import content_seed
 from dotenv import load_dotenv
 from prompts import (
     DEFECT_BBOX_PROMPT,
@@ -558,29 +558,36 @@ def tts(text, voice="Chelsie"):
 
 # ===================== live 模式逐能力回退（网关渐进开通即生效）=====================
 def _fallback_similarity(returned_path: str, product_path: str) -> float:
-    """live 图向量不可用时，用与 pipeline 同口径的确定性哈希相似度兜底（仅演示，非模型真实能力）。
-    放本模块内避免反向 import pipeline 造成循环依赖。"""
-    h = hashlib.md5(f"{returned_path}|{product_path}".encode()).hexdigest()
-    return round(0.55 + (int(h, 16) % 1000) / 1000 * 0.43, 3)
+    """live 同款判定不可用时，用**图片内容**确定性哈希兜底（仅演示，非模型真实能力）。
+
+    口径与 pipeline._mock_similarity **完全一致**（同为 imghash.content_seed）：
+    早期本函数按**文件路径**取哈希，而上传路径含随机 rid 前缀，导致同一张图两次
+    上传结果不同、且与 mock 路径口径分叉（审查 P0-3）。现统一到共享实现，保证
+    live 回退值与 mock 值逐位相同、可复现。
+
+    放本模块内调用共享 imghash（而非 import pipeline），避免反向依赖成环。"""
+    s = content_seed(returned_path, product_path)
+    return round(0.55 + (s % 1000) / 1000 * 0.43, 3)
 
 
 def _fallback_defects(returned_path: str) -> list[str]:
-    """live 瑕疵视觉不可用时，确定性哈希兜底标签（仅演示）。"""
-    h = int(hashlib.md5(str(returned_path).encode("utf-8")).hexdigest(), 16)
-    rng = random.Random(h)
-    pool = ["外包装破损", "商品缺件", "污渍划痕", "使用痕迹", "功能故障", "货不对板", "色差明显"]
+    """live 瑕疵视觉不可用时，确定性哈希兜底标签（仅演示）。
+
+    与 pipeline._mock 同口径：同一份文件内容 → 同一组标签；词表统一取
+    constants.DEFECT_POOL（此前本函数内联了一份重复词表，易与主线漂移）。"""
+    rng = random.Random(content_seed(returned_path))
     n = rng.randint(0, 3)
-    return rng.sample(pool, n) if n > 0 else ["无明显瑕疵"]
+    return rng.sample(DEFECT_POOL, n) if n > 0 else ["无明显瑕疵"]
 
 
 def _fallback_defect_boxes(returned_path: str, defects: list[str]) -> list[dict]:
     """live 缺陷定位（bbox）不可用时，确定性示意框（仅演示，不替代真实检测坐标）。
 
     与 pipeline._mock 的示意框口径一致：按缺陷标签生成归一化 [x,y,w,h] + 演示置信度；
-    live 路径下会如实通过 capabilities["boxes"]=False 向前端标注「示意回退」。"""
+    live 路径下会如实通过 capabilities["boxes"]=False 向前端标注「示意回退」。
+    种子同取 imghash.content_seed(path, "boxes")，与 mock 路径逐位一致。"""
     out: list[dict] = []
-    h = int(hashlib.md5(f"{returned_path}|boxes".encode()).hexdigest(), 16)
-    rng = random.Random(h)
+    rng = random.Random(content_seed(returned_path, "boxes"))
     for d in defects:
         if d == "无明显瑕疵":
             continue

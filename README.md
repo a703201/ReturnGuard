@@ -18,7 +18,8 @@
 - **测试账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主仓库，https://github.com/a703201/ReturnGuard）；Gitea 镜像 `git@100.103.184.33:a703201/ReturnGuard.git`；GitCode 镜像 `https://gitcode.com/a703201/ReturnGuard`（已公开，三路同步推送）
 - **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
-- **演示数据集**：1206 条真实退货案件 · 9 个平台 · 胜诉率 34.6%
+- **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
+  - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
 - **图床**：七牛云对象存储**已激活**（`image_bed: qiniu`、`image_bed_public: true`），上传图回传真实公网 URL 供模型服务端回源
 - **Live 合规**：支持 `official`（**赛事指定 Model Router，提交口径**）/ `tokenplan`（Token Plan 自测网关）/ `dashscope`（自购通道）三 profile，改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动；逐项核对见 `复赛交付物/LIVE_COMPLIANCE.md`。
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
@@ -41,7 +42,7 @@
 | 单案取证 live 化 | 2026-08-19 | 阿里云百炼 Token Plan 网关真接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，逐能力回退 mock |
 | 群体洞察看板 | 2026-08 | 聚类归因 / 预测预警 / 选品避坑清单 / 供应商品控，洞察层成型（产品核心） |
 | 进入复赛 | 2026-08-25 | 确认 AI+跨境黑客松巅峰赛复赛资格（场景三 · AI 市场洞察） |
-| 数据集真实化 | 2026-08-27 | 演示库替换为 **1206 条**真实退货案件、平台由 4 个扩展至 **9 个**（胜诉率 **34.6%**） |
+| 数据集融合重建 | 2026-08-27 | 演示库替换为 **1206 条**退货案件（融合 Amazon Returns / UCI Online Retail / TheLook 三个公开数据集，平台字段按品类×地区重映射），平台由 4 个扩展至 **9 个**（胜诉率 **34.6%**） |
 | 公网可体验 | 2026-08-27 | Cloudflare Tunnel 固定域名 https://rg.a703201sworld.top（测试账号 demo/demo123） |
 | 部署加固 | 2026-08-29 | 切换 openGauss 部署（demo/real/auth 三库全 openGauss）；修复 sku_name 长度溢出 / Docker 本地 WAL disk I/O error / 前端 ESM 拆分点击无反应 / 版本号 Vunknown；测试 86 → **88 passed** |
 | 复赛交付 | 2026-09-01 ~ 09-13 | 可运行 Demo + 演示视频 + 技术说明 + GitCode 镜像仓库 + 测试账号 + 阶段成果 |
@@ -58,14 +59,16 @@ ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一
 
 | 能力 | `official`（赛事指定 · 提交口径） | `tokenplan`（Token Plan 自测） |
 |---|---|---|
-| 多模态图像向量（同款一致性） | `qwen/tongyi-embedding-vision-plus` | 同左 |
-| 视觉理解（瑕疵识别 / 一致性 / 红框） | `qwen/qwen3-vl-plus` | 同左 |
+| 同款一致性（VL 直接判同款） | `qwen/qwen3-vl-plus` | 同左 |
+| 视觉理解（瑕疵识别 / 红框定位） | `qwen/qwen3-vl-plus` | 同左 |
 | OCR（提取 listing 承诺） | `qwen/qwen-vl-ocr` | 同左 |
 | 文本生成 / 多语（卷宗 / 陈述 / 洞察归因） | `qwen/qwen3.7-max` | `qwen3.7-max` |
 | 排序（案件优先级） | `qwen/qwen3-rerank` | `qwen3-rerank` |
 | 语音合成（母语陈述） | `qwen/qwen3-tts-instruct-flash` | `qwen-audio-3.0-tts-plus` |
 
 > 说明：洞察层（聚类归因 / 选品建议）复用文本模型，**不单独调用 deepseek 系列**；`demo/compare_models.py` 中的 `deepseek-v4-pro` / `kimi-k2.6` 等仅供模型对比实验，非线上链路。
+>
+> 同款一致性说明：百炼 OpenAI 兼容模式**不支持视觉向量模型**（`tongyi-embedding-vision-plus` 会返回 `Unsupported model ... for OpenAI compatibility mode`），故线上主路径为 **VL 模型同时看退回件与本店主图直接判同款**（`models_router.vl_similarity`）——更贴合"调包 / 同款"的业务判定；图像向量仅在通道开通后作备选，再不可用时回退到与 mock **同口径**的内容哈希（见 `demo/imghash.py`）。
 
 ## 取证工作流（双闭环）
 ```mermaid
