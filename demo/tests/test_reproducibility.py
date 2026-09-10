@@ -12,7 +12,7 @@ import tempfile
 from unittest import mock
 
 from imghash import content_seed
-from pipeline import _analyze_cache, _analyze_cache_key, analyze_case
+from pipeline import _analyze_cache, _analyze_cache_key, analyze_case, build_insights
 
 
 def _mk(bytes_, name: str) -> str:
@@ -77,3 +77,26 @@ def test_analyze_cache_returns_deepcopy():
     cached = _analyze_cache.get(key)
     if cached is not None:
         cached.pop("case_id", None)
+
+
+def test_insights_cache_returns_deepcopy():
+    """P1-8：洞察缓存命中返回深拷贝，调用方就地补写字段不污染缓存。
+
+    与单案层 P1-7 同思路：命中返回 deepcopy，且写入缓存时也存 deepcopy，
+    使「返回给调用方的对象」与「缓存中的副本」互不别名。
+    """
+    from db import init_db, load_cases
+
+    init_db()
+    cases = load_cases()
+    r1 = build_insights(cases, "mock", "demo")
+    r1["_injected"] = "DIRTY"  # 模拟 main.py / 前端就地补写字段
+    # 同时改写嵌套结构（模拟前端按品类·平台过滤后就地改 sourcing_checklist）
+    if isinstance(r1.get("sourcing_checklist"), list):
+        r1["sourcing_checklist"].append({"action": "DIRTY"})
+
+    r2 = build_insights(cases, "mock", "demo")
+    assert r2.get("_injected") != "DIRTY", "洞察缓存对象被调用方污染（顶层字段）"
+    assert {"action": "DIRTY"} not in (r2.get("sourcing_checklist") or []), (
+        "洞察缓存对象被调用方污染（嵌套结构）"
+    )

@@ -257,3 +257,56 @@ def test_csp_nonce_injected():
         )
         # ④ nonce 机制仍每请求生成
         assert re.search(r"nonce-[A-Za-z0-9_-]+", csp), "应保留 per-request nonce 机制"
+
+
+# ---------------- P2-3：错误回传脱敏（不泄露内部细节） ----------------
+
+# 模拟「内部细节」：服务器绝对路径 / 密钥片段 / 内网网关域名
+LEAK_MARKERS = ("secret.pem", "sk-SECRETKEY", "gw.internal")
+
+
+def _boom(*_a, **_k):
+    raise RuntimeError(
+        "gateway failed: D:\\srv\\internal\\secret.pem sk-SECRETKEY https://gw.internal/v1"
+    )
+
+
+def test_safe_error_text_not_leaking_internals():
+    """P2-3：脱敏函数不得回传内部路径 / 网关 URL / 密钥片段。"""
+    from pipeline import _safe_error_text
+
+    msg = _safe_error_text(_boom_exc())
+    for leak in LEAK_MARKERS:
+        assert leak not in msg, f"对外错误泄露内部信息：{leak}"
+    assert "超时" in _safe_error_text(TimeoutError()), "超时应给出可操作提示"
+
+
+def _boom_exc():
+    try:
+        _boom()
+    except RuntimeError as e:  # 取真实异常对象供脱敏函数使用
+        return e
+
+
+def test_live_fallback_error_is_sanitized():
+    """P2-3：单案 live 失败回退时，对外 error 字段同样脱敏。"""
+    import tempfile
+    from unittest import mock
+
+    from pipeline import analyze_case
+
+    tmp = tempfile.gettempdir()
+    a = os.path.join(tmp, "rg_sec_a.png")
+    b = os.path.join(tmp, "rg_sec_b.png")
+    with open(a, "wb") as f:
+        f.write(b"sec-a")
+    with open(b, "wb") as f:
+        f.write(b"sec-b")
+
+    with mock.patch("models_router.live_analyze", side_effect=_boom):
+        r = analyze_case(a, b, "", "S", 1, "live")
+
+    assert r["mode"] == "mock(fallback)"
+    err = r.get("error", "")
+    for leak in LEAK_MARKERS:
+        assert leak not in err, f"回退结果泄露内部信息：{leak}"

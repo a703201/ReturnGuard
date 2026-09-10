@@ -203,6 +203,18 @@ def _put_analyze_cache(key: str, value: dict) -> None:
             _analyze_cache.popitem(last=False)
 
 
+def _safe_error_text(e: Exception) -> str:
+    """对外错误文案脱敏（P2-3）。
+
+    live 失败回退时，异常原文可能携带网关 URL、服务器绝对路径、堆栈片段甚至密钥片段，
+    直接回传前端属信息泄露。完整细节只保留在服务端日志（调用方已 logger.exception），
+    对外仅按异常类型给出可操作的安全提示，不含任何内部细节。
+    """
+    if isinstance(e, TimeoutError):
+        return "AI 分析超时，已自动回退为演示结果"
+    return "AI 服务暂时不可用，已自动回退为演示结果（详情见服务端日志）"
+
+
 def analyze_case(
     returned_path: str,
     product_path: str,
@@ -237,7 +249,8 @@ def analyze_case(
             logger.exception("live 取证失败，回退 mock: %s", e)
             res = _mock(returned_path, product_path, listing_text, sku, amount)
             res["mode"] = "mock(fallback)"
-            res["error"] = str(e)
+            # P2-3：对外只给脱敏文案，异常细节仅留在服务端日志，避免泄露内部信息
+            res["error"] = _safe_error_text(e)
             return res
     # mock 模式（含 live 失败回退的非缓存回退）按内容指纹命中缓存，跳过重复计算
     key = _analyze_cache_key(returned_path, product_path, listing_text, sku, amount)
@@ -1056,10 +1069,13 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
     with _ins_lock:
         if key in _ins_cache:
             _ins_cache.move_to_end(key)  # 命中即刷新 LRU 序
-            return _ins_cache[key]
+            # P1-8：返回深拷贝。调用方（main.py 补写字段 / 前端按品类·平台过滤后
+            # 就地改写 sourcing_checklist 等）会污染缓存里的同一对象，
+            # 导致后续请求拿到被改写的脏结果（与 P1-7 单案缓存同思路）。
+            return copy.deepcopy(_ins_cache[key])
     agg = _aggregate(cases)
     if not cases:
-        _ins_cache_put(key, agg)
+        _ins_cache_put(key, copy.deepcopy(agg))
         return agg
     if mode == "live":
         try:
@@ -1082,12 +1098,15 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
         except Exception as e:  # 失败回退，保证演示不中断
             logger.exception("live 洞察失败，回退 mock: %s", e)
             agg["mode"] = "mock(fallback)"
-            agg["error"] = str(e)
+            # P2-3：同上，对外脱敏
+            agg["error"] = _safe_error_text(e)
             agg = _mock_attribution(agg)  # 仅 live 失败回退时才用 mock 归因（避免覆盖 LLM 结果）
     else:
         agg = _mock_attribution(agg)  # mock 模式：确定性规则归因
     # B组·选品避坑闭环：无论 mock/live，均把负面信号收敛成可执行清单（结构化、可落地）
     agg["sourcing_checklist"] = _build_sourcing_loop(agg)
     agg["mode"] = agg.get("mode", "mock")
-    _ins_cache_put(key, agg)
+    # 同 P1-7：存入缓存的是 agg 的深拷贝，返回给调用方的 agg 与缓存副本互不别名，
+    # 调用方就地改写不会污染缓存。
+    _ins_cache_put(key, copy.deepcopy(agg))
     return agg
