@@ -237,10 +237,17 @@ except Exception:  # noqa: BLE001
     }
     GOOD_SUPPLIERS = ["S1", "S2", "S5", "S7"]
 
-    def _supplier_for(defects):  # noqa: F811  # type: ignore[misc]
-        if any(t in QUALITY_DEFECTS for t in (defects or [])):
-            return "S3" if (abs(hash("|".join(defects))) % 2 == 0) else "S6"
-        return GOOD_SUPPLIERS[abs(hash("|".join(defects or ["clean"]))) % len(GOOD_SUPPLIERS)]
+    def _supplier_for(defects, sku: str = ""):  # noqa: F811  # type: ignore[misc]
+        """供应商分配单一来源（suppliers.assign_supplier：缺陷定池 + SKU 熵）；极端兜底才本地散列。"""
+        try:
+            from suppliers import assign_supplier
+
+            return assign_supplier(defects, sku)
+        except Exception:  # noqa: BLE001
+            import hashlib as _hl
+
+            salt = "|".join(defects or ["clean"]) + "|" + str(sku)
+            return "S" + str((int.from_bytes(_hl.md5(salt.encode()).digest()[:8], "big") % 8) + 1)
 
     def _map_category(*hints):  # noqa: F811  # type: ignore[misc]
         text = " ".join(str(h).lower() for h in hints if h)
@@ -335,7 +342,7 @@ def _parse_thelook_csv(reader) -> list[dict]:
                 (row.get("department") or row.get("category") or "").strip()
             ) or _map_category(name, row.get("category"), row.get("department"))
             defects = ["无明显瑕疵"]
-            sup = _supplier_for(defects)
+            sup = _supplier_for(defects, sku)
             out.append(
                 {
                     "case_id": cid,
@@ -391,8 +398,8 @@ def _parse_amazon_csv(reader) -> list[dict]:
                     "sku": cid,
                     "sku_name": f"{cat} · {pid}",
                     "category": AMAZON_CAT_MAP.get(cat, _map_category(cat)),
-                    "supplier": _supplier_for(defects),
-                    "supplier_name": SUPPLIERS.get(_supplier_for(defects), ""),
+                    "supplier": _supplier_for(defects, cid),
+                    "supplier_name": SUPPLIERS.get(_supplier_for(defects, cid), ""),
                     "platform": "Amazon",
                     "language": "en",
                     "region": "US",
@@ -444,7 +451,7 @@ def _parse_rg_csv(reader) -> list[dict]:
                     "sku": sku,
                     "sku_name": mapped.get("sku_name", sku),
                     "category": mapped.get("category", "饰品配件"),
-                    "supplier": mapped.get("supplier", _supplier_for(defects)),
+                    "supplier": mapped.get("supplier", _supplier_for(defects, sku)),
                     "supplier_name": mapped.get(
                         "supplier_name", SUPPLIERS.get(mapped.get("supplier", ""), "")
                     ),
@@ -527,8 +534,8 @@ def _parse_amazon_xlsx(rows, hdr) -> list[dict]:
                     "sku": cid,
                     "sku_name": f"{cat} · {pid}",
                     "category": AMAZON_CAT_MAP.get(cat, _map_category(cat)),
-                    "supplier": _supplier_for(defects),
-                    "supplier_name": SUPPLIERS.get(_supplier_for(defects), ""),
+                    "supplier": _supplier_for(defects, cid),
+                    "supplier_name": SUPPLIERS.get(_supplier_for(defects, cid), ""),
                     "platform": "Amazon",
                     "language": "en",
                     "region": "US",
@@ -580,7 +587,7 @@ def _parse_uci_xlsx(rows, hdr) -> list[dict]:
             )
             cat = _map_category(desc)
             defects = ["无明显瑕疵"]
-            sup = _supplier_for(defects)
+            sup = _supplier_for(defects, "UCI-" + str(stock))
             out.append(
                 {
                     "case_id": cid,

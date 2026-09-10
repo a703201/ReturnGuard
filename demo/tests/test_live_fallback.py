@@ -19,6 +19,11 @@ def _sim_ok(*_a, **_k):
     return {"similarity": 0.95, "same_item": True, "reason": "ok"}
 
 
+def _rerank_ok(_query, _docs, model=None, **_k):
+    """模拟「rerank 服务端可用」（P1-5 后单案优先级会调 qwen3-rerank）：返回相关性分。"""
+    return [{"index": 0, "relevance_score": 0.8}]
+
+
 def test_no_key_falls_back_to_mock(monkeypatch):
     monkeypatch.setattr(models_router, "API_KEY", "")
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
@@ -44,6 +49,7 @@ def test_per_capability_fallback_mixed(monkeypatch):
     monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "全新未拆封")
     monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "一致性结论")
     monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")
+    monkeypatch.setattr(models_router, "rerank", _rerank_ok)
 
     res = pipeline.analyze_case("r.png", "p.png", "全新", "SKU-X", 10.0, mode="live")
     # 部分能力真实、部分回退 → 诚信标注 live(partial)（而非恒为 live）
@@ -77,6 +83,7 @@ def test_all_capabilities_real(monkeypatch):
     monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "承诺")
     monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
     monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")
+    monkeypatch.setattr(models_router, "rerank", _rerank_ok)
 
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
     assert res["mode"] == "live"
@@ -141,6 +148,7 @@ def test_live_keypoint_boxes_real(monkeypatch):
             {"label": "外包装破损", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4, "confidence": 0.9}
         ],
     )
+    monkeypatch.setattr(models_router, "rerank", _rerank_ok)
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
     assert res["capabilities"]["boxes"] is True
     assert res["defect_boxes_live"] is True
@@ -166,8 +174,51 @@ def test_live_keypoint_boxes_fallback(monkeypatch):
         "vl_detect_boxes",
         lambda url, prompt=None, **kw: (_ for _ in ()).throw(RuntimeError("未开通")),
     )
+    monkeypatch.setattr(models_router, "rerank", _rerank_ok)
     res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live")
     assert res["capabilities"]["boxes"] is False
     assert res["defect_boxes_live"] is False
     assert len(res["defect_boxes"]) >= 1, "回退示意框仍应可见"
     assert res["defect_boxes"][0]["label"] == "外包装破损"
+
+
+def _mock_all_but_rerank(monkeypatch, rerank_stub):
+    """把除 rerank 外的能力全部模拟为可用，rerank 用传入桩（用于 ⑤ 优先级专项测试）。"""
+    monkeypatch.setattr(models_router, "API_KEY", "test-key")
+    monkeypatch.setattr(models_router, "PUBLIC_IMAGE_BASE", "https://img.example.com/uploads")
+    monkeypatch.setattr(models_router, "vl_similarity", _sim_ok)
+    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt=None, **kw: "功能故障")
+    monkeypatch.setattr(
+        models_router,
+        "vl_detect_boxes",
+        lambda url, prompt=None, **kw: [
+            {"label": "功能故障", "x": 0.1, "y": 0.1, "w": 0.3, "h": 0.3, "confidence": 0.9}
+        ],
+    )
+    monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "承诺")
+    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
+    monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "B64")
+    monkeypatch.setattr(models_router, "rerank", rerank_stub)
+
+
+def test_rerank_priority_integration(monkeypatch):
+    """⑤ 优先级：rerank 可用时融合「rerank 相关性 + 本地公式」，caps.rerank=True。"""
+    _mock_all_but_rerank(
+        monkeypatch, lambda q, d, model=None, **kw: [{"index": 0, "relevance_score": 1.0}]
+    )
+    res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 200.0, mode="live")
+    assert res["capabilities"]["rerank"] is True
+    # 融合公式：0.5×本地 + 0.5×1.0 → 必然 >0.5 且 ≤1.0
+    assert 0.5 < res["priority_score"] <= 1.0
+
+
+def test_rerank_fallback_to_local_formula(monkeypatch):
+    """⑤ 优先级：rerank 不可用时回退本地确定性公式，caps.rerank=False 且仍有优先级。"""
+    _mock_all_but_rerank(
+        monkeypatch,
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("gateway 未开通 rerank")),
+    )
+    res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 200.0, mode="live")
+    assert res["capabilities"]["rerank"] is False
+    assert "rerank" in res["degraded"]
+    assert 0 < res["priority_score"] <= 1.0

@@ -20,7 +20,7 @@
 - **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
   - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
-- **图床**：七牛云对象存储**已激活**（`image_bed: qiniu`、`image_bed_public: true`），上传图回传真实公网 URL 供模型服务端回源
+- **图床**：**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `self`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭），复赛演示不启用第三方云
 - **Live 合规**：支持 `official`（**赛事指定 Model Router，提交口径**）/ `tokenplan`（Token Plan 自测网关）/ `dashscope`（自购通道）三 profile，改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动；逐项核对见 `复赛交付物/LIVE_COMPLIANCE.md`。
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
@@ -93,8 +93,8 @@ flowchart TB
 
 ## 复赛冲刺能力（1.1.2）
 
-> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **104 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐，4 个 `test_storage.py` 因本机缺失 boto3/qiniu 依赖失败、属环境项），安全面达 A 区间。
-- **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**图床抽象**（七牛云 / OSS / `PUBLIC_IMAGE_BASE` / 本地回退）供模型服务端回源——**七牛云图床已激活**，上传图回传真实公网 URL；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
+> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **107 passed 全绿**（含 `/api/export_pdf` 与 `/api/import_csv` 链路补齐、`test_storage.py` 重写对齐当前存储层），安全面达 A 区间。
+- **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**可插拔图床抽象**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代 / `qiniu` 远端预留）供模型服务端回源——**默认本地自持、退货图不出境**；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
 - **B 组 · 数据闭环**：时间序列 + 次月预测预警；CSV 批量导入真实退货数据（`POST /api/import_csv`）+ 平台连接器位；相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
 - **C 组 · 多租户 + 合规 + 国产化**：注册/登录/令牌（一个用户=一个租户），real 源案件按租户隔离（私有严格隔离 + `public` 公共基准）；XSS 全量转义 + CSP 防御纵深；负向/一致性测试补齐；region/season 维度下钻；**openGauss 部署 + 启动自动导入**（`RG_AUTO_IMPORT_CSV`，幂等）。
 
@@ -116,7 +116,16 @@ flowchart TB
 - **P2-7 前端 i18n**：新增 `demo/static/i18n.js`（zh/en 字典 + `t()` / `setLang()` / `applyI18n()`），顶栏新增语言切换并持久化偏好；可见标签抽取 `data-i18n` 接线（默认 zh 与现界面一致，en 为对照译本），为跨境场景打底。
 - **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在评委指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
 
-> 当前测试 **104 passed**（4 个 `test_storage.py` 用例因本机缺失 boto3/qiniu 依赖而失败，属环境项、与代码改动无关）。
+### 第二轮收口（2026-09-10 多维度复查项）
+
+- **N1/N2 图床后端化（本地默认 + 远端预留）**：`storage.py` 重构为**可插拔后端注册表**——`local`（签名短链）/ `self`（自托管隧道）/ `public_base`（自建反代）自动优先级，`qiniu` 远端对象存储为**预留接口**（`IMAGE_BED=qiniu` 显式开启，SDK 缺失自动降级，**复赛不启用**）；同步修正 README/CHANGELOG/CODE_REVIEW 中"七牛云已激活"的**口径漂移**；启动日志与 `/api/config` 透出实际后端。
+- **N5 单案优先级接入 rerank**：`live_analyze` 用 `qwen3-rerank` 对单案紧急性打分（语义化 query = `_PRIORITY_QUERY`），与本地可解释公式 **5:5 融合**；`capabilities["rerank"]` 如实标注真实/回退，网关未开通即回退确定性公式。
+- **N8 供应商维度扩充（3 家 → 8 家）**：新增 `suppliers.py` 单一来源（缺陷定池 + SKU 熵），修正原哈希退化成"仅 S2/S3/S6"的问题——演示数据集供应商由 **3 家扩展到 8 家**（S1~S8），红黑榜与「平台 × 供应商」交叉信息量显著提升。
+- **N6 ROI 面板接入真实数据**：客单价（退款 ÷ 案件数）与争议占比（代理嫌疑率）按当前看板**真实值**自动填入并标注「真实 / 假设」，附数据来源行，不再纯静态示例。
+- **N3 i18n 扩容**：`data-i18n` 由 14 处扩展到 **30 处**（新增 15 张卡片标题 + 关键按钮），`i18n.js` 字典补齐 zh/en。
+- **N4 构建链路可用化**：`scripts/minify.mjs` 输出到 `dist/` 并**重写 ESM 相对导入**（`./x.js` → `./x.min.js`），生成 `dist/index.html`；设 `SERVE_MINIFIED=1` 即启用压缩产物（实测 **-31%**），默认仍发未压缩源，演示现场零风险。
+
+> 当前测试 **111 passed 全绿**（`ruff format` / `ruff check` / `mypy` / `pytest --cov-fail-under=75` 四道门禁本地全通过，覆盖率 76.7%）。
 
 ## 快速开始
 ```bash

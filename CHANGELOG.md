@@ -12,6 +12,7 @@
 - **真实数据集替换**：demo 演示库由固定种子合成案件替换为 **1206 条真实退货案件**（`demo/cases.json`），胜诉率 **34.6%**；原合成集留存为 `demo/cases_synthetic_backup.json`。
 - **平台由 4 个扩展至 9 个**：Amazon / AliExpress / Temu / SHEIN / **eBay / Shopee / Lazada / Walmart / TikTok Shop**（`platforms.py`），平台对比、平台×供应商交叉、平台举证包等看板维度同步扩容。
 - **图床激活**：七牛云对象存储接入并启用（`storage.py`，优先级 qiniu > oss > public_base > local），`/api/config` 返回 `image_bed: qiniu`、`image_bed_public: true`，上传图回传真实公网 URL 供模型服务端回源。
+  > ⚠️ **后续更正（P3-17）**：已去云端化——图床改为**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `self`），七牛等远端对象存储改为**预留接口**（`IMAGE_BED=qiniu` 显式开启，默认关闭）。本条为历史记录，当前状态以 README §一分钟速览 为准。
 
 ### Live 合规（对齐官方 Model Router_API.docx）
 - **模型标识 profile 化**：`_MODEL_ROUTER_PROFILES` 新增 `models` 字典，文本/VL/OCR/向量/rerank/TTS 标识随 profile 固化并由 `MODELS[...]` 统一下发，杜绝 base_url 与模型名错配。
@@ -27,7 +28,7 @@
 - **CI 转绿**：流水线恢复全绿；当前测试 **88 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 两条此前零覆盖关键链路的补齐用例）。
 
 ### 文档（Docs）
-- **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「七牛云已激活」；公网体验地址更正为「已上线」（https://rg.a703201sworld.top ，`demo`/`demo123`）。
+- **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「本地自持（远端接口预留）」；公网体验地址更正为「已上线」（https://rg.a703201sworld.top ，`demo`/`demo123`）。
 - **开发与部署统一 openGauss**：`db.py` 默认连接改为 openGauss（本地 `localhost:5432/returnguard`，需先 `docker compose -f docker/docker-compose.yml up -d db`），移除「开发期回退 SQLite」表述；01_技术文档架构图、README/PRD/SCHEMA/答辩Q&A/部署指南同步更新；GitCode 镜像地址补全为 https://gitcode.com/a703201/ReturnGuard；`docker-compose.local.yml`（SQLite 版）标记弃用。
 - `docs/CODE_REVIEW.md` 新增第十一节「大厂标准审查结论摘要」（综合 5.8/10 六维评分 + 已闭环项 + 待跟进项）。
 - 初赛过程材料归档至本仓库 `docs/legacy/`（9 份初赛文档于 2026-08-29 由工作区根目录统一归档，原散落的 `docs_legacy/` 亦并入；根目录仅保留仓库与 `复赛交付物/`）。
@@ -62,7 +63,7 @@
 
 ### 2026-09-10 大厂标准审查 P1 / P2 全量收口（同版本 1.1.2 内的补丁集合）
 
-> 针对大厂标准多维审查报告的工程质量与赛后打磨项做全量收口，**不改变外部行为**，版本号维持 1.1.2（`VERSION` 与 `/api/config` 一致）。测试 **88 → 104 passed**（含 /api/export_pdf、/api/import_csv 等链路补齐；4 个 `test_storage.py` 因本机缺失 boto3/qiniu 依赖失败，属环境项、与改动无关）。
+> 针对大厂标准多维审查报告的工程质量与赛后打磨项做全量收口，**不改变外部行为**，版本号维持 1.1.2（`VERSION` 与 `/api/config` 一致）。测试 **88 → 107 passed 全绿**（含 /api/export_pdf、/api/import_csv 等链路补齐，以及 `test_storage.py` 重写对齐当前存储层）。
 
 - **P1-5 提示词注入防护**：`prompts.py` 新增 `sanitize_user_content`（中英文指令注入黑名单 + 控制字符剥离 + 截断），卖家数据用 `<<<SELLER_DATA>>>` / `<<<END_DATA>>>` 边界包裹并附护栏说明；`models_router.live_analyze` 入口对 `listing_text` 净化；新增 `tests/test_prompt_injection.py`（7 例）。
 - **P1-9 `main.py` 上帝文件拆分**：`common.py` 承载配置 / 依赖 / 限流 / 中间件 / 聚合辅助；`routers/{frontend,forensic,insights,auth,calibration,import_}.py` 按域拆分；`main.py` 收敛为装配层（app 创建、中间件注册、静态挂载、路由聚合、lifespan），端点路径 / 方法 / 契约逐行一致；全部 P1 项测试转 `monkeypatch.setattr(common, ...)`。
@@ -74,6 +75,17 @@
 - **P2-6 前端骨架屏 + 构建链路**：`index.html` 加 shimmer 骨架屏样式，首屏数据抵达前显示占位（渲染覆盖后自然消失）；新增 `package.json` + `scripts/minify.mjs` 轻量 terser 压缩构建链路（建议项，**不接入 CI** 以免破坏演示）。
 - **P2-7 前端 i18n**：新增 `demo/static/i18n.js`（zh/en 字典 + `t()` / `setLang()` / `applyI18n()`），顶栏新增语言切换并持久化偏好；可见标签抽取 `data-i18n` 接线（默认 zh 与现界面一致，en 为对照译本）。
 - **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在评委指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
+
+### 2026-09-10 第二轮多维度复查收口（图床 / rerank / 供应商 / ROI / i18n / 构建）
+
+> 针对第二轮大厂标准多维复查（`ReturnGuard_大厂标准多维审查_20260910.md`）发现的问题做全量修复。版本号维持 1.1.2。测试 **107 → 111 passed 全绿**（新增存储后端与 rerank 接通用例），四道门禁本地全通过（覆盖率 76.7%）。
+
+- **N1/N2 图床后端化（本地默认 + 远端预留）**：`storage.py` 重构为**可插拔后端注册表**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代；`qiniu` 远端对象存储为**预留接口**，`IMAGE_BED=qiniu` 显式开启、SDK 缺失自动降级）；新增 `test_storage.py` 覆盖"远端未配置安全降级"与"未显式开启不进自动链"；修正 README / CHANGELOG / CODE_REVIEW 中"七牛云已激活"的**口径漂移**；启动日志与 `/api/config` 透出实际后端；`.env.example` 补充 `IMAGE_BED` 与远端预留说明。
+- **N5 单案优先级接入 rerank**：`models_router.live_analyze` 新增 ⑤ 优先级 rerank 调用（语义化 query + 单案文档 → 相关性分，与本地公式 5:5 融合），`capabilities["rerank"]` 如实标注；新增 2 条专项用例（接通 / 回退）。
+- **N8 供应商维度扩充**：新增 `demo/suppliers.py`（供应商分配单一来源：缺陷定池 + SKU 熵），`convert_datasets.py` / `dataset_parse.py` 改为委托；重映射 `cases.json` 供应商由 **3 家（S2/S3/S6）扩展到 8 家（S1~S8）**，红黑榜与「平台 × 供应商」交叉条目显著增加；同步修正前端"质量分<50"文案（实际按档位判定）。
+- **N6 ROI 面板接入真实数据**：`app.js` 新增 `syncRoi()`，客单价（退款 ÷ 案件数）与争议占比（代理嫌疑率）按当前看板**真实值**自动填入并标注「真实 / 假设」，附数据来源行。
+- **N3 i18n 扩容**：`data-i18n` 由 14 处扩展到 **30 处**（15 张卡片标题 + 登录门按钮），`i18n.js` 字典补齐 zh/en。
+- **N4 构建链路可用化**：`scripts/minify.mjs` 输出到 `demo/static/dist/` 并**重写 ESM 相对导入**、生成 `dist/index.html`；`routers/frontend.py` 新增 `SERVE_MINIFIED=1` 开关（默认发未压缩源）；实测压缩 **-31%**；`dist/` 与 `node_modules/` 已 gitignore。
 
 ---
 

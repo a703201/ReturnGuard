@@ -671,9 +671,19 @@ def llm_json(prompt, model=TEXT_MODEL):
 
 
 # ===================== ⑤ 案件优先级排序（重排）=====================
+# 单案优先级的 rerank 语义化查询：把「这笔案子该不该优先处理」表达为可检索的自然语言，
+# 用 qwen3-rerank 对单案描述打分（低同款相似度 / 重瑕疵 / 高金额 → 相关性更高）。
+_PRIORITY_QUERY = (
+    "高优先级退货案件：退回件与本店主图同款相似度低（疑似调包 / 货不对板）、"
+    "瑕疵严重（功能故障 / 使用痕迹 / 商品缺件）、订单金额高——最该优先举证处理"
+)
+
+
 def rerank(query, documents, model=None):
-    """调用 qwen3-rerank，按「追回价值」对多笔待处理案件重排，把高金额/高胜算排前。
-    注：当前网关未开通重排模型，pipeline 会退化为本地公式计算（见 pipeline.analyze_case）。"""
+    """调用 qwen3-rerank，按语义相关性重排文档（单案优先级 / 多案待办排序均可）。
+
+    用法：live_analyze 把单案描述作为唯一文档，配 `_PRIORITY_QUERY` 得到「该案优先级」相关性分，
+    与本地可解释公式融合（见 live_analyze 的 ⑤）；网关未开通 / 超时 / 熔断时自动回退本地公式。"""
     if model is None:
         model = MODELS["rerank"]
     r = _post(
@@ -893,11 +903,25 @@ def live_analyze(
         audio = gen_wav(voice_text)
         caps["tts"] = False
 
-    # ⑤ 优先级评分（rerank 大规模多案时替换；单案用确定性公式，网关开通 qwen3-rerank 时可用）
+    # ⑤ 优先级评分：优先用 qwen3-rerank 对「本案该不该优先处理」打分，与本地可解释公式融合；
+    # rerank 不可用（未开通/超时/熔断）时回退确定性公式，保证单案始终有优先级且可复现。
     sev_score = max([SEVERITY.get(d, 0.2) for d in defects])
-    priority = round(
-        min(1.0, 0.4 + (1 - sim) * 0.3 + sev_score * 0.3 + (0.2 if amount > 50 else 0)), 3
-    )
+    local_priority = min(1.0, 0.4 + (1 - sim) * 0.3 + sev_score * 0.3 + (0.2 if amount > 50 else 0))
+    try:
+        doc = (
+            f"退货案件 SKU={sku}，订单金额 ¥{amount}，同款相似度 {sim}"
+            f"（{'同款' if same else '疑似调包/非同款'}），瑕疵：{', '.join(defects)}"
+        )
+        ranked = rerank(_PRIORITY_QUERY, [doc])
+        score = float(ranked[0].get("relevance_score", 0.0)) if ranked else 0.0
+        score = max(0.0, min(1.0, score))
+        # 融合：rerank 相关性 50% + 本地可解释公式 50%，避免单一信号失真
+        priority = round(0.5 * local_priority + 0.5 * score, 3)
+        caps["rerank"] = True
+    except Exception as e:
+        logger.warning("live rerank 失败，回退本地优先级公式: %s", e)
+        priority = round(local_priority, 3)
+        caps["rerank"] = False
 
     return {
         "similarity": sim,

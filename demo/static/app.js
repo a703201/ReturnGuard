@@ -299,7 +299,7 @@ export async function loadInsights(){
   $('#costKpis').innerHTML =
     `<div class="kv"><span>物流成本（估算）</span><b>¥${Number(d.logistics_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`
     +`<div class="kv"><span>退货总成本（退款+物流）</span><b>¥${Number(d.total_return_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`;
-  const bl=$('#blacklist'); bl.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">供应商黑名单 · 质量分&lt;50</div>';
+  const bl=$('#blacklist'); bl.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">供应商黑名单 · 高风险 / 待改进档位（按分级判定，非分数阈值）</div>';
   const blacks=d.supplier_blacklist||[];
   if(blacks.length){
     blacks.forEach(s=>{
@@ -309,7 +309,7 @@ export async function loadInsights(){
       bl.appendChild(div);
     });
   } else {
-    bl.innerHTML+='<span class="note">暂无质量分&lt;50 的高风险供应商。</span>';
+    bl.innerHTML+='<span class="note">暂无「高风险 / 待改进」档位的供应商。</span>';
   }
 
   // ⑯⑰⑱ B组：时间序列 / 预测预警 / 选品避坑闭环
@@ -327,6 +327,7 @@ export async function loadInsights(){
   renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
   renderSuppliers(d);
   renderDonut($('#kWinDonut'), d.win_rate||0);
+  syncRoi(d);  // ROI 面板接入真实看板数据（客单价/争议占比/胜诉率口径）
   status.textContent='已更新 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   status.classList.remove('loading');
   clearSkeletons();
@@ -863,3 +864,25 @@ document.querySelectorAll('.board .col .card').forEach(c=>{
     var el=document.getElementById(id); if(el) el.addEventListener('input', calcROI);
   });
   calcROI();
+
+  // ROI 面板接入真实看板数据（N6）：把「平均客单价（退款/案件数）/ 争议占比（代理嫌疑率）」
+  // 按当前看板真实值填入并标注来源；「年退货量 / 胜诉率提升 / 时薪」保留为可调假设
+  // （无历史基线可填）。由 loadInsights 成功后调用，保证测算与看板同源。
+  function syncRoi(d){
+    if(!d) return;
+    const total=Number(d.total_cases||0);
+    const priceEl=document.getElementById('roiPrice');
+    const dispEl=document.getElementById('roiDisp');
+    if(total>0){
+      const avg=Number(d.total_refund||0)/total;
+      if(priceEl&&avg>0) priceEl.value=Math.round(avg);
+      if(dispEl) dispEl.value=Math.round(Number(d.avg_dispute_rate||0)*100);
+    }
+    const src=document.getElementById('roiSrc');
+    if(src){
+      const wr=Math.round(Number(d.win_rate||0)*100);
+      const srcName=d.source==='real'?'AI 实算':'演示布局';
+      src.textContent=`数据来源：当前看板（${srcName}）${total.toLocaleString('zh-CN')} 笔案件 · 真实胜诉率 ${wr}%；客单价与争议占比已按真实数据填入，可手动微调。`;
+    }
+    calcROI();
+  }

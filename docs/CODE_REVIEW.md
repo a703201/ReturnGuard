@@ -620,7 +620,7 @@
 
 - 版本号全仓统一为 **1.1.2**（`VERSION` / `/api/config` 为单一来源）。
 - 演示数据口径统一：案件总数 **1206** 条、胜诉率 **34.6%**、平台 **9 个**（Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop）。
-- 图床状态更正为**七牛云已激活**（`image_bed: qiniu`、`image_bed_public: true`），上传图可回传真实公网 URL。
+- 图床状态更正为**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `self`，退货图不出境）；**远端对象存储（七牛云）接口为预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭）。
 - 公网体验地址更正为**已上线**：https://rg.a703201sworld.top （测试账号 `demo` / `demo123`）。
 
 ## 11.4 仍待跟进（非阻断）

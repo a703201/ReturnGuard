@@ -67,7 +67,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 | ② | 瑕疵视觉识别 | 识别破损 / 缺件 / 污渍 / 使用痕迹 / 功能故障等标签 | `qwen/qwen3-vl-plus` |
 | ③ | Listing 承诺核验 | 提取本店图文承诺，比对退回件状态，判断货不对板 | `qwen/qwen-vl-ocr` + `qwen/qwen3.7-max` |
 | ④ | 证据卷宗 + 母语语音 | 生成举证报告文本 + 60 字口头陈述 + 可播放语音 | `qwen/qwen3.7-max` + `qwen/qwen3-tts-instruct-flash` |
-| ⑤ | 案件优先级排序 | 相似度低 / 缺陷重 / 金额高 → 优先处理 | `qwen/qwen3-rerank`（无额度时本地公式退化） |
+| ⑤ | 案件优先级排序 | 相似度低 / 缺陷重 / 金额高 → 优先处理；rerank 相关性 50% + 本地可解释公式 50% 融合 | `qwen/qwen3-rerank`（未开通/超时即回退本地确定性公式） |
 
 > 上表为 **official（赛事指定 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。详见 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
 

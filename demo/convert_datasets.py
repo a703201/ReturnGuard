@@ -53,6 +53,15 @@ except Exception:  # noqa: BLE001  # 独立运行时（缺 constants）退化为
     SUPPLIERS = {}
 
 try:
+    from suppliers import assign_supplier  # 供应商分配单一来源（缺陷定池 + SKU 熵）
+except Exception:  # noqa: BLE001  # 独立运行时兜底：确定性散列到 S1~S8
+
+    def assign_supplier(defects, sku: str = "") -> str:  # type: ignore[misc]
+        salt = "|".join(defects or ["clean"]) + "|" + str(sku)
+        return "S" + str((int.from_bytes(hashlib.md5(salt.encode()).digest()[:8], "big") % 8) + 1)
+
+
+try:
     import openpyxl
 except ImportError:  # noqa: BLE001
     openpyxl = None  # UCI/Amazon xlsx 读取会跳过并提示
@@ -461,24 +470,11 @@ def _supplier_of(key: str) -> str:
     return "S" + str((_stable_hash(key) % 8) + 1)
 
 
-# 供应商质量分与缺陷挂钩：真实质量缺陷归「劣供」(S3/S6)，干净退货归优质供，
-# 使供应商红黑榜真实收敛（劣供低分上榜、优质供不上榜），而非全员飘红。
-QUALITY_DEFECTS = {
-    "功能故障",
-    "货不对板",
-    "商品缺件",
-    "外包装破损",
-    "污渍划痕",
-    "色差明显",
-    "使用痕迹",
-}
-GOOD_SUPPLIERS = ["S1", "S2", "S5", "S7"]
-
-
-def _supplier_for(defects: list[str]) -> str:
-    if any(t in QUALITY_DEFECTS for t in (defects or [])):
-        return "S3" if (_stable_hash("|".join(defects)) % 2 == 0) else "S6"
-    return GOOD_SUPPLIERS[_stable_hash("|".join(defects or ["clean"])) % len(GOOD_SUPPLIERS)]
+# 供应商分配已收敛到 suppliers.assign_supplier 单一来源（缺陷定池 + SKU 熵，散落到 S1~S8）。
+# 历史缺陷：原 `_supplier_for` 仅用「缺陷组合」做哈希（组合仅 5 种）→ 实际只产出 S2/S3/S6 三家，
+# 供应商维度与红黑榜信息量受限；现引入 SKU 熵后 8 家均有分布。
+def _supplier_for(defects: list[str], sku: str = "") -> str:
+    return assign_supplier(defects, sku)
 
 
 def _map_category(*hints) -> str:
@@ -566,8 +562,8 @@ def load_amazon(limit: int) -> list[dict]:
                 "sku": sku,
                 "sku_name": f"{cat} · {pid}",
                 "category": AMAZON_CAT_MAP.get(cat, _map_category(cat)),
-                "supplier": _supplier_for(defects),
-                "supplier_name": SUPPLIERS[_supplier_for(defects)],
+                "supplier": _supplier_for(defects, sku),
+                "supplier_name": SUPPLIERS[_supplier_for(defects, sku)],
                 "platform": "Amazon",
                 "language": "en",
                 "region": "US",
@@ -637,8 +633,8 @@ def load_uci(limit: int) -> list[dict]:
                 "sku": sku,
                 "sku_name": str(desc or stock),
                 "category": _map_category(desc, stock),
-                "supplier": _supplier_for(["无明显瑕疵"]),
-                "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"])],
+                "supplier": _supplier_for(["无明显瑕疵"], sku),
+                "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"], sku)],
                 "platform": "UCI-Retail",
                 "language": "en",
                 "region": str(country or "UK"),
@@ -704,8 +700,8 @@ def load_thelook(limit: int) -> list[dict]:
                 "category": THELOOK_CAT_MAP.get(cat)
                 or THELOOK_CAT_MAP.get(prod.get("department"))
                 or _map_category(cat, prod.get("department")),
-                "supplier": _supplier_for(["无明显瑕疵"]),
-                "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"])],
+                "supplier": _supplier_for(["无明显瑕疵"], sku),
+                "supplier_name": SUPPLIERS[_supplier_for(["无明显瑕疵"], sku)],
                 "platform": "TheLook",
                 "language": "en",
                 "region": "US",

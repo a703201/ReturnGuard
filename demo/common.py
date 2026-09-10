@@ -157,6 +157,8 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE, "uploads")  # 上传图片临时目录
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 INDEX = os.path.join(BASE, "static", "index.html")  # 前端页面
+# 前端压缩产物索引（N4 构建链路）：npm run build 生成，SERVE_MINIFIED=1 时改发此页。
+MINIFIED_INDEX = os.path.join(BASE, "static", "dist", "index.html")
 
 # ---- 上传安全基线 ----
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 单文件上限 10MB

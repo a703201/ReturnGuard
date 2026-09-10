@@ -31,8 +31,10 @@ from common import (
     _cleanup_old_uploads,
     _start_wal_watcher,
     _wal_checkpoint_all,
+    backend_name,
     import_csv_text,
     init_db,
+    is_public_ready,
     logger,
     no_cache_middleware,
     observe_middleware,
@@ -102,6 +104,12 @@ async def lifespan(app):
         except Exception:
             logger.exception("启动自动导入 CSV 失败（不影响服务启动）")
     _cleanup_old_uploads(max_age_hours=float(os.environ.get("UPLOAD_MAX_AGE_HOURS", "24")))
+    # 图床后端自检日志：方便现场确认「当前用本地还是远端」，避免文档与运行态不一致。
+    logger.info(
+        "图床后端已就绪 backend=%s public_ready=%s（复赛演示用本地/自托管；qiniu 为预留远端接口）",
+        backend_name(),
+        is_public_ready(),
+    )
     # 启动时先截断一次历史 WAL，再起巡检线程，关闭前最后截断一次
     _wal_checkpoint_all()
     _wal_stop = _start_wal_watcher(_WAL_CHECKPOINT_INTERVAL)

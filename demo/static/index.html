@@ -786,7 +786,7 @@
           <!-- 按列分组的看板（Issue B：按列折叠，展开前仅显示标题，点击展开；同列内单开折叠） -->
           <div class="col" data-col="1">
             <div class="card" data-card="c1-1" data-col="1">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">钱都亏在哪些品类</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c11">钱都亏在哪些品类</h3>
               <div class="card-body">
                 <p class="desc">退货热力：哪类退货最多、最亏钱、最难赢。行越红越该警惕。</p>
                 <div id="catBars" class="chart"></div>
@@ -794,7 +794,7 @@
               </div>
             </div>
             <div class="card" data-card="c1-2" data-col="1">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">各平台维权难度</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c12">各平台维权难度</h3>
               <div class="card-body">
                 <p class="desc">不同平台判买家赢的倾向不同；买家友好型（如 AliExpress）更难赢。详见「平台举证包」。</p>
                 <div id="platBars" class="chart"></div>
@@ -802,14 +802,14 @@
               </div>
             </div>
             <div class="card" data-card="c1-3" data-col="1">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">给老板的洞察总结</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c13">给老板的洞察总结</h3>
               <div class="card-body">
                 <p class="desc">一段话讲清本期退货全貌，不用懂技术也能拿去汇报。</p>
                 <pre id="report"></pre>
               </div>
             </div>
             <div class="card" data-card="c1-4" data-col="1">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">退货地区分布</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c14">退货地区分布</h3>
               <div class="card-body">
                 <p class="desc">按宏观销售地区看纠纷量与退款，定位高退货区域，辅助区域化选品与物流策略。</p>
                 <div id="regionBars" class="chart"></div>
@@ -817,7 +817,7 @@
               </div>
             </div>
             <div class="card" data-card="c1-5" data-col="1">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">退货时间序列趋势</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c15">退货时间序列趋势</h3>
               <div class="card-body">
                 <p class="desc">按月统计退货案件量（实线为历史，虚线为预测）。识别退货爬坡节奏，配合下方预测预警提前布局。</p>
                 <div id="trendLine" class="chart"></div>
@@ -827,7 +827,7 @@
           </div>
           <div class="col" data-col="2">
             <div class="card" data-card="c2-1" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">退货预测预警</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c21">退货预测预警</h3>
               <div class="card-body">
                 <p class="desc">基于历史月度序列做线性外推，预测未来 3 个月退货量与退款，并给出上行预警。</p>
                 <div id="forecastKpis" class="chart"></div>
@@ -836,7 +836,7 @@
               </div>
             </div>
             <div class="card" data-card="c2-2" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">退货为什么发生</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c22">退货为什么发生</h3>
               <div class="card-body">
                 <p class="desc">把退货原因归到几大类，告诉你最该先治哪一环。</p>
                 <div id="rootDist"></div>
@@ -844,21 +844,21 @@
               </div>
             </div>
             <div class="card" data-card="c2-3" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">最近暴增的退货</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c23">最近暴增的退货</h3>
               <div class="card-body">
                 <p class="desc">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
                 <div id="alerts"><span class="note">本期无异常（近 30 天增量未超阈值）。</span></div>
               </div>
             </div>
             <div class="card" data-card="c2-4" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">下一步怎么做</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c24">下一步怎么做</h3>
               <div class="card-body">
                 <p class="desc">落到动作的选品避坑与品控建议。</p>
                 <div id="advice"></div>
               </div>
             </div>
             <div class="card" data-card="c2-5" data-col="2">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">退货季节趋势</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c25">退货季节趋势</h3>
               <div class="card-body">
                 <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
                 <div id="seasonBars" class="chart"></div>
@@ -868,14 +868,14 @@
           </div>
           <div class="col" data-col="3">
             <div class="card" data-card="c3-1" data-col="3">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">选品避坑闭环 · 可执行清单</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c31">选品避坑闭环 · 可执行清单</h3>
               <div class="card-body">
                 <p class="desc">把退货证据收敛成可直接落地的动作项（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控），按严重度排序。拿到就能做决策。</p>
                 <div id="sourcingLoop"></div>
               </div>
             </div>
             <div class="card" data-card="c3-2" data-col="3">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true">哪些供应商最该换</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c32">哪些供应商最该换</h3>
               <div class="card-body">
                 <p class="desc">按缺陷率与胜诉率打质量分。黑榜=高风险建议换，红榜=可长期合作。</p>
                 <div id="supBars" class="chart"></div>
@@ -884,21 +884,21 @@
               </div>
             </div>
             <div class="card" data-card="c3-3" data-col="3">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">最烧钱的退货商品</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c33">最烧钱的退货商品</h3>
               <div class="card-body">
                 <p class="desc">按退款金额排的退货商品（卡内可滚动）。点开看高发问题。</p>
                 <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
             <div class="card" data-card="c3-4" data-col="3">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">平台 × 供应商 维权交叉</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c34">平台 × 供应商 维权交叉</h3>
               <div class="card-body">
                 <p class="desc">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
                 <div id="matrixHeat" class="chart scrollx"></div>
               </div>
             </div>
             <div class="card" data-card="c3-5" data-col="3">
-              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false">退货成本 & 供应商黑名单</h3>
+              <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c35">退货成本 & 供应商黑名单</h3>
               <div class="card-body">
                 <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出「高风险 / 待改进」档位的供应商与可解释理由（分级与黑名单共用同一套阈值）。</p>
                 <div id="costKpis" class="chart"></div>
@@ -906,23 +906,24 @@
               </div>
             </div>
           </div>
-          <!-- P1-7 ROI 示例测算面板 -->
+          <!-- ROI 量化面板（客单价 / 争议占比接入真实看板数据） -->
           <div class="card roi-card" style="margin:14px 0 4px">
-            <h3>用了 ReturnGuard，退货纠纷能少亏多少？<span class="badge">P1-7 · ROI 示例测算</span></h3>
-            <p class="desc">把下面的数字换成你店铺的真实情况，实时估算「靠证据说话」能挽回多少误判退款，以及把取证从人工几小时压到几分钟的人力节省。<b>仅为示意测算，不参与任何裁决。</b></p>
+            <h3>用了 ReturnGuard，退货纠纷能少亏多少？<span class="badge">ROI 量化测算 · 接入真实看板</span></h3>
+            <p class="desc">「平均客单价」与「争议 / 可维权占比」已按<b>当前看板真实数据</b>自动填入（标注「真实」，可手动微调）；其余为可调假设。实时估算「靠证据说话」能挽回多少误判退款，以及把取证从人工几小时压到几分钟的人力节省。<b>仅为测算，不参与任何裁决。</b></p>
+            <p class="roi-src" id="roiSrc" style="font-size:12px;color:var(--txt3);margin:0 0 10px">数据来源：加载看板后自动填入真实数据</p>
             <div class="roi-grid">
-              <label>年退货订单量（单）<input type="number" id="roiQty" value="12000" min="0"></label>
-              <label>平均客单价（¥）<input type="number" id="roiPrice" value="180" min="0"></label>
-              <label>争议 / 可维权占比（%）<input type="number" id="roiDisp" value="35" min="0" max="100"></label>
-              <label>用 ReturnGuard 后胜诉率提升（百分点）<input type="number" id="roiGain" value="22" min="0" max="100"></label>
-              <label>取证人工时薪（¥/h）<input type="number" id="roiWage" value="40" min="0"></label>
+              <label>年退货订单量（单 · 假设）<input type="number" id="roiQty" value="12000" min="0"></label>
+              <label>平均客单价（¥ · 真实）<input type="number" id="roiPrice" value="180" min="0"></label>
+              <label>争议 / 可维权占比（% · 真实）<input type="number" id="roiDisp" value="35" min="0" max="100"></label>
+              <label>胜诉率提升（百分点 · 假设）<input type="number" id="roiGain" value="22" min="0" max="100"></label>
+              <label>取证人工时薪（¥/h · 假设）<input type="number" id="roiWage" value="40" min="0"></label>
             </div>
             <div class="roi-out">
               <div class="roi-kpi"><span class="roi-num" id="roiSave">¥0</span><span class="roi-cap">预计年挽回误判退款</span></div>
               <div class="roi-kpi"><span class="roi-num" id="roiTime">¥0</span><span class="roi-cap">年取证人力节省</span></div>
               <div class="roi-kpi"><span class="roi-num" id="roiMin">3 分钟</span><span class="roi-cap">单均取证耗时（原人工 ~2 小时）</span></div>
             </div>
-            <p class="roi-formula">测算逻辑：年挽回 ≈ 年退货量 × 客单价 × 争议占比 × 胜诉率提升；人力节省 = 年退货量 ×（2h − 3min）× 时薪。示例值已预填，改任意项即重算。</p>
+            <p class="roi-formula">测算逻辑：年挽回 ≈ 年退货量 × 客单价 × 争议占比 × 胜诉率提升；人力节省 = 年退货量 ×（2h − 3min）× 时薪。客单价与争议占比取自当前看板真实数据，其余为可调假设，改任意项即重算。</p>
           </div>
           <!-- C组：AI 实算（real 源）未登录时的全宽登录门（默认隐藏） -->
           <div id="loginGate" class="card">
@@ -930,7 +931,7 @@
               <div style="font-size:42px;line-height:1;margin-bottom:12px">🔒</div>
               <h3 style="margin:0 0 8px">AI 实算按租户隔离</h3>
               <p id="loginGateMsg" class="desc" style="max-width:480px;margin:0 auto 18px">请登录后查看您的 AI 实算数据。</p>
-              <button id="loginGateBtn" type="button" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
+              <button id="loginGateBtn" type="button" data-i18n="btn.loginGate" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
             </div>
           </div>
         </div>

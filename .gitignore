@@ -39,6 +39,11 @@ resp.json
 .cov_tmp
 .cov_tmp*
 
+# 前端压缩产物（npm run build 生成；SERVE_MINIFIED=1 时启用，不入库）
+demo/static/dist/
+node_modules/
+package-lock.json
+
 # 编辑器 / 系统
 .idea/
 .vscode/

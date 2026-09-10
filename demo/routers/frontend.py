@@ -16,6 +16,7 @@ from common import (
     _NONCE_PLACEHOLDER,
     APP_VERSION,
     INDEX,
+    MINIFIED_INDEX,
     UPLOAD_DIR,
     _metrics,
     _require_admin,
@@ -36,7 +37,11 @@ router = APIRouter()
 def index():
     """返回「退货情报站」前端页面（SEC-9：每请求生成 nonce 注入 CSP，阻断内联脚本注入执行）。"""
     nonce = secrets.token_urlsafe(16)
-    with open(INDEX, encoding="utf-8") as f:
+    # N4 构建链路：SERVE_MINIFIED=1 时改发压缩产物 dist/index.html（入口指向 app.min.js）；
+    # 默认 0 仍发未压缩源，保证演示现场零风险；dist 不存在则静默回退源文件。
+    serve_min = os.environ.get("SERVE_MINIFIED", "0") == "1"
+    index_path = MINIFIED_INDEX if serve_min and os.path.exists(MINIFIED_INDEX) else INDEX
+    with open(index_path, encoding="utf-8") as f:
         html = f.read()
     # 前端脚本已外置为 /static/app.js（ES module，同域加载），由 CSP 的 script-src 'self'
     # 放行，无需 nonce 注入；仍保留 nonce 机制以兼容将来可能回嵌的内联脚本。
