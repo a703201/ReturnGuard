@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 if python -c "import pytest_cov" 2>/dev/null; then
-  echo "== 运行测试并采集覆盖率（门禁 fail_under=70%）=="
+  echo "== 运行测试并采集覆盖率（门禁 fail_under=75%，分支覆盖率）=="
   python -m pytest --cov=demo --cov-report=term-missing --cov-branch -q
 else
   echo "== pytest-cov 未安装，退回普通 pytest 跑测试（不强制覆盖率门禁）=="

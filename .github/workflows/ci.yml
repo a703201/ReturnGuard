@@ -60,8 +60,15 @@ jobs:
           pip-audit -r demo/requirements.txt
         continue-on-error: true
 
+      # 注意：pytest 从仓库根运行，确保 coverage 路径与 pyproject.toml 中 `omit` 的 `demo/...`
+      # 模式一致；若从 demo/ 以 `--cov=.` 运行，omit 会因地端/Windows 路径分隔符差异失效。
       - name: Run tests with coverage
-        run: python -m pytest -q --cov=. --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=75
+        working-directory: .
+        run: |
+          # 防御：清掉可能残留的 .coverage（历史上曾以非 branch 模式生成），避免 coverage.py 合并时
+          # 报 "Can't combine statement coverage data with branch data" 而使 CI 非零退出。
+          rm -f .coverage coverage.xml
+          python -m pytest -q demo/tests --cov=demo --cov-report=term-missing --cov-report=xml:coverage.xml --cov-fail-under=75
 
       # B-测试：测试覆盖率产物落盘，便于下载复盘
       - name: Upload coverage artifact
@@ -69,5 +76,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-py${{ matrix.python-version }}
-          path: demo/coverage.xml
+          path: coverage.xml
           if-no-files-found: warn

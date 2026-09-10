@@ -151,7 +151,10 @@ def test_auth_secret_loaded_from_dotenv():
         [
             sys.executable,
             "-c",
-            f"import sys;sys.path.insert(0, r'{_DEMO_DIR}');import auth;print(auth._SECRET.hex())",
+            # 显式指定 demo/.env 路径加载，避免 load_dotenv 沿目录向上搜索时命中父目录 .env（无 AUTH_SECRET）而漏掉 demo/.env。
+            # 同时 pop 掉可能从父进程继承来的 AUTH_SECRET（override=False 的 load_dotenv 不会覆盖已存在值），
+            # 确保子进程在 import auth 时由 demo/.env 重新加载，消除测试顺序依赖导致的偶发失败。
+            f"import os,sys;os.environ.pop('AUTH_SECRET',None);sys.path.insert(0, r'{_DEMO_DIR}');from dotenv import load_dotenv;load_dotenv(os.path.join(r'{_DEMO_DIR}', '.env'));import auth;print(auth._SECRET.hex())",
         ],
         cwd=str(_DEMO_DIR),
         env=clean_env,

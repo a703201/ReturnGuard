@@ -63,17 +63,40 @@ testpaths = ["demo/tests"]
 #   低于 fail_under 阈值直接非零退出，阻断合并/部署，强制补测试。
 [tool.coverage.run]
 branch = true
+parallel = false
+# 隔离数据文件名，避免与沙箱/编辑器注入的 .coverage*（statement-only）在合并阶段冲突报
+# "Can't combine statement coverage data with branch data"（仅本地沙箱环境会触发，CI 无此问题）。
+data_file = ".coverage.rg"
 source = ["demo"]
 omit = [
+    # 本地从仓库根运行（--cov=demo）时的路径
     "demo/tests/*",
-    "demo/test_live_analyze_b64.py",
+    "demo/test_*.py",
+    "demo/verify_*.py",
     "demo/convert_datasets.py",
     "demo/generate_dataset.py",
     "demo/dataset_parse.py",
     "demo/seed_real.py",
+    # 纯开发/一次性脚本（非部署运行时代码，不参与覆盖率门禁）
+    "demo/build_c_listing.py",
+    "demo/capture_live_demo.py",
+    "demo/compare_models.py",
+    "demo/generate_platform_doc.py",
+    # CI 在 demo/ 目录运行（--cov=.）时的路径
+    "tests/*",
+    "test_*.py",
+    "verify_*.py",
+    "convert_datasets.py",
+    "generate_dataset.py",
+    "dataset_parse.py",
+    "seed_real.py",
+    "build_c_listing.py",
+    "capture_live_demo.py",
+    "compare_models.py",
+    "generate_platform_doc.py",
 ]
 
 [tool.coverage.report]
-fail_under = 70
+fail_under = 75
 show_missing = true
 skip_covered = false
