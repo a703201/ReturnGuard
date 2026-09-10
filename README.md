@@ -20,7 +20,7 @@
 - **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
   - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
-- **图床**：**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `self`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭），复赛演示不启用第三方云
+- **图床**：**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `local`，配了隧道/反代则自动升级为 `self`/`public_base`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭），复赛演示不启用第三方云
 - **Live 合规**：支持 `official`（**赛事指定 Model Router，提交口径**）/ `tokenplan`（Token Plan 自测网关）/ `dashscope`（自购通道）三 profile，改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动；逐项核对见 `复赛交付物/LIVE_COMPLIANCE.md`。
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
