@@ -700,6 +700,7 @@ def analyze(
 @app.get("/api/config")
 def api_config():
     """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源、图床状态等。"""
+    from constants import SUPPLIERS
     from models_router import MODEL_ROUTER_PROFILE
 
     return {
@@ -710,6 +711,9 @@ def api_config():
         "default_source": DEFAULT_SOURCE,
         "image_bed": backend_name(),
         "image_bed_public": is_public_ready(),
+        # 供应商花名册（P1-15）：唯一事实来源在 constants.SUPPLIERS，前端据此渲染下拉/下钻，
+        # 不再内嵌硬编码副本（消除与 convert_datasets.py 双份漂移）。
+        "suppliers": SUPPLIERS,
         # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=赛事指定 Model Router，
         # 复赛提交时切到 official 即演示用赛事指定端点（详见 demo/.env.example）。
         # 注意：不再回传内部网关地址 model_router_endpoint（P2-信息泄露），前端无需该值。
@@ -726,6 +730,13 @@ def metrics(request: Request):
     _require_admin(request)
     uptime = int(time.time()) - int(_metrics["start_time"])
     avg = (_metrics["latency_ms_sum"] / _metrics["requests"]) if _metrics["requests"] else 0
+    # P1-6：模型网关侧指标（调用量 / 错误 / 时延 / token）并入同一管理端点
+    try:
+        from models_router import get_model_metrics
+
+        model_metrics = get_model_metrics()
+    except Exception:  # noqa: BLE001
+        model_metrics = {}
     return {
         "uptime_seconds": uptime,
         "requests": _metrics["requests"],
@@ -733,6 +744,7 @@ def metrics(request: Request):
         "errors_5xx": _metrics["errors"],
         "analyze_count": _metrics["analyze_count"],
         "insights_count": _metrics["insights_count"],
+        "model_gateway": model_metrics,
     }
 
 

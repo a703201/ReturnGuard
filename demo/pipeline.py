@@ -23,14 +23,16 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import io
 import logging
 import math
 import random
 import struct
+import threading
 import wave
-from collections import Counter, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from datetime import datetime
 from statistics import mean
 
@@ -170,6 +172,37 @@ def _mock(
     }
 
 
+# ===================== 单案取证结果缓存（P1-7）=====================
+# 相同两张图 + 相同入参命中即直接返回，跳过重复的取证/模型调用（视频同款比对 / 视觉 / OCR / LLM）。
+# 键用图片内容哈希（imghash.content_seed），不依赖随机文件名，保证「同样两张图」稳定命中。
+# 仅 mock 模式缓存（结果完全由输入内容决定，确定可复现）；live 结果随网关状态/模型版本变化，
+# 不缓存，避免「回放旧结果」误导，也避免绕开 live 配额闸（quota.check_live_quota）的副作用。
+_analyze_cache: OrderedDict = OrderedDict()
+_analyze_lock = threading.Lock()
+_ANALYZE_CACHE_MAX = 256
+
+
+def _analyze_cache_key(returned_path: str, product_path: str, listing_text: str, sku: str, amount: float) -> str:
+    """mock 模式缓存键：图片内容指纹 + 业务入参；live 不使用本键（见 analyze_case）。"""
+    return f"mock|{content_seed(returned_path, product_path)}|{sku}|{amount}|{hash(listing_text)}"
+
+
+def _get_analyze_cache(key: str):
+    with _analyze_lock:
+        if key in _analyze_cache:
+            _analyze_cache.move_to_end(key)
+            return _analyze_cache[key]
+    return None
+
+
+def _put_analyze_cache(key: str, value: dict) -> None:
+    with _analyze_lock:
+        _analyze_cache[key] = value
+        _analyze_cache.move_to_end(key)
+        while len(_analyze_cache) > _ANALYZE_CACHE_MAX:
+            _analyze_cache.popitem(last=False)
+
+
 def analyze_case(
     returned_path: str,
     product_path: str,
@@ -181,9 +214,9 @@ def analyze_case(
     product_url: str | None = None,
 ) -> dict:
     """阶段A 统一入口：对一笔退货做取证，返回结构化结果（功能①②③④⑤）。
-    - mode="mock"：确定性规则，免 Key 立即可演示。
+    - mode="mock"：确定性规则，免 Key 立即可演示；命中内容指纹缓存则直接返回（P1-7）。
     - mode="live"：调用 models_router.live_analyze 走真实模型；任何异常都回退 mock 并标注，
-      确保现场演示不会因网络/额度问题而卡死。
+      确保现场演示不会因网络/额度问题而卡死（失败回退结果不进缓存，避免掩盖环境错误）。
     - returned_url / product_url：上传图公网 URL（由 storage 图床层给出），透传给 live_analyze
       供视觉/向量/OCR 模型服务端回源。
     """
@@ -206,7 +239,19 @@ def analyze_case(
             res["mode"] = "mock(fallback)"
             res["error"] = str(e)
             return res
-    return _mock(returned_path, product_path, listing_text, sku, amount)
+    # mock 模式（含 live 失败回退的非缓存回退）按内容指纹命中缓存，跳过重复计算
+    key = _analyze_cache_key(returned_path, product_path, listing_text, sku, amount)
+    cached = _get_analyze_cache(key)
+    if cached is not None:
+        # 返回深拷贝：main.py 会对结果就地补写 case_id / platform 等字段，
+        # 若直接复用缓存对象会导致下一请求拿到被污染的旧值。
+        return copy.deepcopy(cached)
+    res = _mock(returned_path, product_path, listing_text, sku, amount)
+    # 存入缓存的是 res 的深拷贝：返回给调用方的 res 与缓存中的副本互不别名，
+    # 调用方（main.py）就地补写 case_id / platform 等字段时不会污染缓存副本，
+    # 后续请求命中缓存拿到的仍是干净结果（P1-7）。
+    _put_analyze_cache(key, copy.deepcopy(res))
+    return res
 
 
 # ===================== 案件持久化（数据沉淀）=====================

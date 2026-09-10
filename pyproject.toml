@@ -40,3 +40,24 @@ exclude = ["demo/tests/.*"]
 # 否则 import shared_state / import main 会 ModuleNotFoundError（即原 CI 崩的根因）。
 pythonpath = ["demo"]
 testpaths = ["demo/tests"]
+
+# ===================== 覆盖率门禁（P1-11）=====================
+# 本段为「覆盖率门禁」配置，仅在运行 `pytest --cov` 时生效（需安装 pytest-cov）。
+# CI / 本地质量门禁执行 `bash demo/tests/run_with_coverage.sh`：
+#   低于 fail_under 阈值直接非零退出，阻断合并/部署，强制补测试。
+[tool.coverage.run]
+branch = true
+source = ["demo"]
+omit = [
+    "demo/tests/*",
+    "demo/test_live_analyze_b64.py",
+    "demo/convert_datasets.py",
+    "demo/generate_dataset.py",
+    "demo/dataset_parse.py",
+    "demo/seed_real.py",
+]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true
+skip_covered = false

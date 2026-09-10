@@ -12,6 +12,20 @@ SAME_ITEM_THRESHOLD: float = 0.82
 # 全局 win_rate 与各维度（platform_view / region_view / 交叉矩阵）共用此口径。
 DECIDED_OUTCOMES: tuple[str, ...] = ("赢", "部分退款", "输")
 
+# 供应商花名册（唯一事实来源，杜绝前端 render.js 与后端 convert_datasets.py 双份硬编码漂移）。
+# 编号 S1~S8 为演示合成维度（按退货缺陷信号反推品控），不代表真实工商主体；后端经
+# /api/config 下发，前端据此渲染「供应商」下拉与下钻，不再内嵌副本。
+SUPPLIERS: dict[str, str] = {
+    "S1": "鼎峰精密",
+    "S2": "云仓优选",
+    "S3": "鑫源电子(劣)",
+    "S4": "通达包装弱",
+    "S5": "联创供货",
+    "S6": "海贸乱发(劣)",
+    "S7": "锐捷制造",
+    "S8": "万通杂货",
+}
+
 # 缺陷词表（与方案功能②对齐）
 DEFECT_POOL: list[str] = [
     "外包装破损",

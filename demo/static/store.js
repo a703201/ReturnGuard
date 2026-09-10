@@ -10,6 +10,7 @@ export const state = {
   entryPage: 1,         // 数据录入列表当前页（A23 后端分页信封）
   pageSize: 20,         // 每页条数
   threshold: 0.82,      // 同款一致性阈值（运行时从 /api/config 拉取单一来源值，兜底 0.82）
+  supplierNames: null,   // 供应商花名册（P1-15：运行时从 /api/config 下发，杜绝前端硬编码副本）
 };
 
 // source 为派生属性：登录即 real，未登录即 demo。注销旧 localStorage rg_source 避免残留。

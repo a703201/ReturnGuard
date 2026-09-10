@@ -476,8 +476,9 @@ export function populateFilters(){
     const o=document.createElement('option'); o.value=p; o.textContent=p;
     $('#platSel').appendChild(o);
   });
-  // 供应商规范花名册（与后端 convert_datasets.py SUPPLIERS 对齐）
-  const SUPPLIER_NAMES = {"S1":"鼎峰精密","S2":"云仓优选","S3":"鑫源电子(劣)","S4":"通达包装弱","S5":"联创供货","S6":"海贸乱发(劣)","S7":"锐捷制造","S8":"万通杂货"};
+  // 供应商规范花名册（P1-15）：优先用后端 /api/config 下发的单一来源（state.supplierNames），
+  // 离线/未下发时退回内嵌兜底，避免下拉真空白。彻底移除此前与 convert_datasets.py 双份硬编码。
+  const SUPPLIER_NAMES = state.supplierNames || {"S1":"鼎峰精密","S2":"云仓优选","S3":"鑫源电子(劣)","S4":"通达包装弱","S5":"联创供货","S6":"海贸乱发(劣)","S7":"锐捷制造","S8":"万通杂货"};
   [...new Set((d.supplier_scorecard||[]).map(s=>s.supplier))].forEach(s=>{
     if(s){ const o=document.createElement('option'); o.value=s; o.textContent=s+(SUPPLIER_NAMES[s]?' '+SUPPLIER_NAMES[s]:''); $('#formSup').appendChild(o); }
   });

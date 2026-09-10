@@ -47,9 +47,10 @@ import random
 from datetime import date, datetime, timedelta
 
 try:
-    from constants import MACRO_REGIONS, REGION_MAP  # 地区归一化单一来源
+    from constants import MACRO_REGIONS, REGION_MAP, SUPPLIERS  # 地区归一化 / 供应商花名册 单一来源
 except Exception:  # noqa: BLE001  # 独立运行时（缺 constants）退化为不归一化
     REGION_MAP, MACRO_REGIONS = {}, ()
+    SUPPLIERS = {}
 
 try:
     import openpyxl
@@ -66,17 +67,8 @@ CSV_OUT = os.path.join(BASE, "real_returns_sample.csv")
 
 # ---- ReturnGuard 受控词表（与 generate_dataset.py / db.py 对齐）----
 SAME_ITEM_THRESHOLD = 0.82
-# 供应商花名册（8 家，含劣供）；真实数据按 sku 哈希归位，便于供应商红黑榜/质量分演示
-SUPPLIERS = {
-    "S1": "鼎峰精密",
-    "S2": "云仓优选",
-    "S3": "鑫源电子(劣)",
-    "S4": "通达包装弱",
-    "S5": "联创供货",
-    "S6": "海贸乱发(劣)",
-    "S7": "锐捷制造",
-    "S8": "万通杂货",
-}
+# 供应商花名册（8 家，含劣供）已上移到 constants.SUPPLIERS 单一来源（前端 /api/config 也取此），
+# 此处不再重复定义，避免双份硬编码漂移。真实数据按 sku 哈希归位，便于供应商红黑榜/质量分演示。
 RG_CATEGORIES = ["3C数码", "饰品配件", "小家电", "服饰鞋包"]
 
 # Amazon 退货原因 → RG 缺陷标签

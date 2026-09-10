@@ -382,6 +382,10 @@ $('#platTmpl').addEventListener('click', e=>{
 
 // 单案举证
 
+// 当前取证请求的 AbortController（P1-4：长分析可取消 / 超时熔断）
+let analyzeCtrl=null;
+const ANALYZE_TIMEOUT_MS=180000;  // live 模式最迟 3 分钟未响应即主动中止，避免永久卡死
+
 export async function doAnalyze(e){
   e.preventDefault();
   $('#err').textContent=''; $('#res').classList.add('hide'); $('#resEmpty').classList.add('hide');
@@ -392,8 +396,12 @@ export async function doAnalyze(e){
   $('#analyzing').classList.remove('hide');
   $('#analyzingText').textContent = fd.get('mode')==='live' ? '真实 AI 分析中（约 30-60 秒，请稍候）…' : '正在生成取证结果…';
   setStep(2);
+  // P1-4：可取消 + 超时自中止（live 视觉调用可能较久）
+  analyzeCtrl=new AbortController();
+  const timer=setTimeout(()=>{ if(analyzeCtrl) analyzeCtrl.abort(); }, ANALYZE_TIMEOUT_MS);
+  $('#btnCancelAnalyze').onclick=()=>{ if(analyzeCtrl) analyzeCtrl.abort(); };
   try{
-    const r=await apiFetch('/api/analyze',{method:'POST',body:fd});
+    const r=await apiFetch('/api/analyze',{method:'POST',body:fd,signal:analyzeCtrl.signal});
     const d=await r.json().catch(()=>({}));
     // 取证是写接口，匿名会被 401 拒：弹出登录框衔接上，而不是只留一行"请先登录"红字
     if(!r.ok){
@@ -429,8 +437,19 @@ export async function doAnalyze(e){
     renderOrchestration(d);
     const cb=$('#copyDossier'); cb.textContent='复制'; cb.classList.remove('copied');
     $('#res').classList.remove('hide');
-  }catch(err){ $('#analyzing').classList.add('hide'); setStep(1); $('#err').textContent='错误：'+err.message; }
-  finally{ btn.disabled=false; btn.textContent='开始举证'; }
+  }catch(err){
+    $('#analyzing').classList.add('hide'); setStep(1);
+    // P1-4：区分主动取消/超时与真实错误
+    if(err && err.name==='AbortError'){
+      $('#err').textContent='已取消分析（或超时自动中止，可改演示模式重试）。';
+    } else {
+      $('#err').textContent='错误：'+err.message;
+    }
+  }
+  finally{
+    clearTimeout(timer); analyzeCtrl=null;
+    btn.disabled=false; btn.textContent='开始举证';
+  }
 }
 
 
@@ -583,6 +602,8 @@ export function switchImportPane(which){
     const cfg=await fetch('/api/config'); const c=await cfg.json();
     if(typeof c.same_item_threshold==='number' && isFinite(c.same_item_threshold)) state.threshold=c.same_item_threshold;
     if(c.version) $('#appVer').textContent='V'+String(c.version).replace(/^v/i,'');
+    // P1-15：供应商花名册由后端 /api/config 单一来源下发，前端不再内嵌硬编码副本
+    if(c.suppliers && typeof c.suppliers==='object') state.supplierNames=c.suppliers;
   }catch(e){ /* 网络异常则用默认 0.82 兜底 */ }
 
   // 清理旧版手动数据源开关的 localStorage 残留；source 现由登录态自动推导。

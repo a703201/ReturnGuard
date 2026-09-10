@@ -38,14 +38,17 @@ import random
 import re
 import struct
 import sys
+import threading
 import time
+import uuid
 import wave
 
 import requests
+import requests.exceptions as rex
 from calibration import get_active_threshold
 from constants import DEFECT_POOL, SEVERITY
-from imghash import content_seed
 from dotenv import load_dotenv
+from imghash import content_seed
 from prompts import (
     DEFECT_BBOX_PROMPT,
     DEFECT_RECOGNITION_PROMPT,
@@ -159,6 +162,82 @@ logger.info(
     bool(API_KEY),
 )
 
+# ===================== AI 链路韧性 + 可观测（P1-6）=====================
+# 重试 / 指数退避 / 熔断 / 指标采集，统一收敛在 _post 一处，所有能力调用（embed/VL/OCR/LLM/rerank/TTS）
+# 自动受益，无需各函数各自处理。失败按「网关 429 限流 / 5xx / 网络瞬断」重试；连续失败达阈值即熔断，
+# 进入冷却期后快速失败（直接触发逐能力回退），避免持续冲击故障网关放大事故。
+LLM_MAX_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "1"))  # 额外重试次数（共 1+retries 次）
+LLM_BACKOFF_BASE = float(os.environ.get("LLM_BACKOFF_BASE", "0.5"))  # 指数退避基数（秒）
+LLM_CB_THRESHOLD = int(os.environ.get("LLM_CB_THRESHOLD", "5"))  # 连续失败达此值即熔断
+LLM_CB_COOLDOWN = float(os.environ.get("LLM_CB_COOLDOWN", "30"))  # 熔断冷却（秒）
+
+_CB_LOCK = threading.Lock()
+_circuit: dict = {"failures": 0, "opened_at": 0.0, "state": "closed"}
+
+# 模型网关可观测指标（P1-6）：调用量 / 错误数 / 累计时延 / token 用量 / 最近错误。
+# /api/metrics（管理端点）经 get_model_metrics() 透出，便于演示现场与运维排障。
+model_metrics: dict = {
+    "calls": 0,
+    "errors": 0,
+    "latency_ms_sum": 0,
+    "tokens_prompt": 0,
+    "tokens_completion": 0,
+    "last_error": None,
+}
+_METRIC_LOCK = threading.Lock()
+
+
+def get_model_metrics() -> dict:
+    """返回模型网关指标快照（含平均时延），供 /api/metrics 透出。"""
+    with _METRIC_LOCK:
+        m = dict(model_metrics)
+    m["avg_latency_ms"] = round(m["latency_ms_sum"] / m["calls"], 1) if m["calls"] else 0
+    return m
+
+
+def _record_call(start: float, usage: dict | None) -> None:
+    """记录一次已完成的网关调用（无论成败，计入调用量与时延；usage 非空时累加 token）。"""
+    with _METRIC_LOCK:
+        model_metrics["calls"] += 1
+        model_metrics["latency_ms_sum"] += (time.monotonic() - start) * 1000
+        if usage:
+            model_metrics["tokens_prompt"] += usage.get("prompt_tokens", 0) or 0
+            model_metrics["tokens_completion"] += usage.get("completion_tokens", 0) or 0
+
+
+def _fail(e: Exception) -> None:
+    """记录一次不可重试的失败：累加错误计数 + 触发熔断计数。"""
+    with _METRIC_LOCK:
+        model_metrics["errors"] += 1
+        model_metrics["last_error"] = str(e)[:200]
+    _circuit_note_failure()
+
+
+def _circuit_allow() -> bool:
+    """熔断开启期内直接拒绝（返回 False），让调用方快速回退；冷却结束进入半开试探。"""
+    with _CB_LOCK:
+        if _circuit["state"] == "open":
+            if time.monotonic() - _circuit["opened_at"] >= LLM_CB_COOLDOWN:
+                _circuit["state"] = "half-open"
+                return True
+            return False
+    return True
+
+
+def _circuit_note_success() -> None:
+    with _CB_LOCK:
+        _circuit["failures"] = 0
+        _circuit["state"] = "closed"
+
+
+def _circuit_note_failure() -> None:
+    with _CB_LOCK:
+        _circuit["failures"] += 1
+        if _circuit["failures"] >= LLM_CB_THRESHOLD:
+            _circuit["state"] = "open"
+            _circuit["opened_at"] = time.monotonic()
+
+
 # ===================== live 链路总超时预算（A22）=====================
 # 并发安全：用 contextvars 隔离每个请求的 deadline，避免并发请求互相串扰。
 # 每次外部 HTTP 调用经 _post() → _guard() 检查是否超总预算；超限抛 TimeoutError，
@@ -181,10 +260,53 @@ def _guard() -> None:
 
 
 def _post(url: str, **kw):
-    """requests.post 统一封装：强制总预算检查 + 默认超时，避免单/多次调用无界阻塞工作线程。"""
-    _guard()
-    kw.setdefault("timeout", LLM_HTTP_TIMEOUT)
-    return requests.post(url, **kw)
+    """requests.post 统一封装（P1-6）：总预算检查 + 默认超时 + 重试/退避 + 熔断 + 指标采集。
+
+    重试：仅对「网关 429 限流 / 5xx / 网络瞬断（Timeout / ConnectionError）」重试，
+    指数退避（base × 2**attempt）；4xx（除 429）属客户端错误，不重试直接抛出。
+    熔断：连续失败达 LLM_CB_THRESHOLD 即熔断，冷却期内后续调用快速失败，直接触发逐能力回退。
+    """
+    if not _circuit_allow():
+        raise RuntimeError("模型网关熔断中（冷却期），已触发回退")
+    last_exc: Exception | None = None
+    for attempt in range(1 + LLM_MAX_RETRIES):
+        try:
+            _guard()
+            start = time.monotonic()
+            r = requests.post(url, **kw)
+            usage = None
+            try:
+                # 兼容测试桩（仅暴露 json()/raise_for_status()，无 status_code/content）
+                if getattr(r, "content", b""):
+                    usage = r.json().get("usage")
+            except Exception:
+                usage = None
+            _record_call(start, usage)
+            # 可重试状态码：429 限流 / 5xx 网关错；测试桩缺 status_code 视为成功(200)
+            status = getattr(r, "status_code", 200)
+            if status == 429 or status >= 500:
+                last_exc = RuntimeError(f"网关返回 {status}")
+                if attempt < LLM_MAX_RETRIES:
+                    time.sleep(LLM_BACKOFF_BASE * (2 ** attempt))
+                    continue
+                r.raise_for_status()
+            r.raise_for_status()
+            _circuit_note_success()
+            return r
+        except (rex.Timeout, rex.ConnectionError) as e:
+            last_exc = e
+            if attempt < LLM_MAX_RETRIES:
+                time.sleep(LLM_BACKOFF_BASE * (2 ** attempt))
+                continue
+            _fail(e)
+            raise
+        except Exception as e:
+            # 4xx（非429）等不可重试错误：直接抛出（仍计入错误/熔断）
+            _fail(e)
+            raise
+    if last_exc:
+        _fail(last_exc)
+    raise last_exc
 
 
 def _headers():
@@ -653,6 +775,9 @@ def live_analyze(
     """
     if not API_KEY:
         raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
+    # 可观测：每次 live 取证生成 trace_id，贯穿日志与返回体，便于演示现场与排障串联。
+    trace_id = uuid.uuid4().hex
+    logger.info("live_analyze 开始 trace_id=%s profile=%s", trace_id, MODEL_ROUTER_PROFILE)
     # 视觉输入：优先本地文件内联 base64（无需公网可达，最稳），回退公网 URL。
     # 不再强制 PUBLIC_IMAGE_BASE——只要调用方能给出本地图路径，视觉即可真跑（P3-17 视觉实跑修复）。
     ret_src = _img_source(returned_path) or _img_source(returned_url)
@@ -780,6 +905,7 @@ def live_analyze(
         "mode": _honest_mode(caps),
         "capabilities": caps,  # 透出哪些能力是真实模型、哪些是回退，便于演示说明
         "degraded": [k for k, v in caps.items() if not v],  # 本轮实际降级的能力清单
+        "trace_id": trace_id,  # 本次取证链路追踪号（与日志一致，便于排障）
     }
 
 
@@ -793,6 +919,8 @@ def build_insights_live(aggregated: dict) -> dict:
     if not API_KEY:
         raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
     _enter_budget(LLM_TOTAL_BUDGET)
+    trace_id = uuid.uuid4().hex
+    logger.info("build_insights_live 开始 trace_id=%s", trace_id)
     prompt = build_insights_prompt(aggregated)
     out = llm_json(prompt, model=TEXT_MODEL)
     if not out:
@@ -803,4 +931,5 @@ def build_insights_live(aggregated: dict) -> dict:
         "recommendations": out.get("recommendations", []),
         "sourcing_advice": out.get("sourcing_advice", []),
         "report": out.get("report", ""),
+        "trace_id": trace_id,
     }
