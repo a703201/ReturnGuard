@@ -60,6 +60,21 @@
 - **陈旧表述清理**：`评审一页纸.md` 的「双 SQLite 物理隔离」更正为 openGauss 独立库（`returnguard` / `returnguard_real`）；演示路径章节的 4 分钟 V2 镜序标注作废、指向 V3（3:00）。
 - **新增**：`复赛交付物/模板合规检查报告.md`（逐项合规结论 + P0/P1 清单）、`_fix_template_docx.py`（模板修正脚本，备份 `_备份_20260908.docx`）、`_docx_read.py`（纯标准库 docx 读取器，python-docx 环境异常时的兜底）。
 
+### 2026-09-10 大厂标准审查 P1 / P2 全量收口（同版本 1.1.2 内的补丁集合）
+
+> 针对大厂标准多维审查报告的工程质量与赛后打磨项做全量收口，**不改变外部行为**，版本号维持 1.1.2（`VERSION` 与 `/api/config` 一致）。测试 **88 → 104 passed**（含 /api/export_pdf、/api/import_csv 等链路补齐；4 个 `test_storage.py` 因本机缺失 boto3/qiniu 依赖失败，属环境项、与改动无关）。
+
+- **P1-5 提示词注入防护**：`prompts.py` 新增 `sanitize_user_content`（中英文指令注入黑名单 + 控制字符剥离 + 截断），卖家数据用 `<<<SELLER_DATA>>>` / `<<<END_DATA>>>` 边界包裹并附护栏说明；`models_router.live_analyze` 入口对 `listing_text` 净化；新增 `tests/test_prompt_injection.py`（7 例）。
+- **P1-9 `main.py` 上帝文件拆分**：`common.py` 承载配置 / 依赖 / 限流 / 中间件 / 聚合辅助；`routers/{frontend,forensic,insights,auth,calibration,import_}.py` 按域拆分；`main.py` 收敛为装配层（app 创建、中间件注册、静态挂载、路由聚合、lifespan），端点路径 / 方法 / 契约逐行一致；全部 P1 项测试转 `monkeypatch.setattr(common, ...)`。
+- **P1-10 网关契约测试**：新增 `tests/test_gateway_contract.py`（5 例），monkeypatch `models_router._post` 录制请求体并断言 url / model / messages 结构，覆盖 `llm` / `llm_json` 响应解析鲁棒性（markdown 围栏 / think / 截断 / 多段 JSON / 空串）与 official `qwen/` 前缀命名契约。
+- **P2-5 connector 批量去 N+1**：`import_from_connector` 改用 `bulk_upsert_cases` 单事务批量写入，消除逐行 `save_case` 的 N+1 旧链路。
+- **P2-9 提示词版本管理 / A-B**：`prompts.py` 新增 `PROMPT_VERSION` 常量与 `_PROMPT_VARIANTS` 注册表（`current_prompt_variant()`），insights system persona 注入 `[提示词版本：X / variant=Y]` 标识，便于回滚与 A/B 对照。
+- **P2-12 CI 安全门禁**：`.github/workflows/ci.yml` 将 mypy 由「continue-on-error 不阻断」升级为**阻断门禁**；新增 `bandit` 源码安全审计与 `pip-audit` 依赖 CVE 扫描（先以可见性优先运行，基线稳定后可去 `continue-on-error` 转阻断）。
+- **P2-14 幻觉数值校验**：`pipeline._reconcile_insights` 新增 LLM 输出与真实聚合数值一致性校验——win_rate / total_cases / 各维胜诉率与聚合偏差超阈值即回退 mock 聚合并标注 `reconciled_from='aggregate'`，不再仅靠 prompt 约束防幻觉。
+- **P2-6 前端骨架屏 + 构建链路**：`index.html` 加 shimmer 骨架屏样式，首屏数据抵达前显示占位（渲染覆盖后自然消失）；新增 `package.json` + `scripts/minify.mjs` 轻量 terser 压缩构建链路（建议项，**不接入 CI** 以免破坏演示）。
+- **P2-7 前端 i18n**：新增 `demo/static/i18n.js`（zh/en 字典 + `t()` / `setLang()` / `applyI18n()`），顶栏新增语言切换并持久化偏好；可见标签抽取 `data-i18n` 接线（默认 zh 与现界面一致，en 为对照译本）。
+- **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在评委指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
+
 ---
 
 ## [1.1.1] — 2026-08-27

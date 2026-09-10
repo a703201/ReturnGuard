@@ -93,7 +93,7 @@ flowchart TB
 
 ## 复赛冲刺能力（1.1.2）
 
-> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **92 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐），安全面达 A 区间。
+> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **104 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐，4 个 `test_storage.py` 因本机缺失 boto3/qiniu 依赖失败、属环境项），安全面达 A 区间。
 - **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**图床抽象**（七牛云 / OSS / `PUBLIC_IMAGE_BASE` / 本地回退）供模型服务端回源——**七牛云图床已激活**，上传图回传真实公网 URL；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
 - **B 组 · 数据闭环**：时间序列 + 次月预测预警；CSV 批量导入真实退货数据（`POST /api/import_csv`）+ 平台连接器位；相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
 - **C 组 · 多租户 + 合规 + 国产化**：注册/登录/令牌（一个用户=一个租户），real 源案件按租户隔离（私有严格隔离 + `public` 公共基准）；XSS 全量转义 + CSP 防御纵深；负向/一致性测试补齐；region/season 维度下钻；**openGauss 部署 + 启动自动导入**（`RG_AUTO_IMPORT_CSV`，幂等）。
@@ -108,8 +108,15 @@ flowchart TB
 - **P2-11 去硬编码路径**：`start_rg.py`、`public-demo.bat` 的 cloudflared / 隧道配置路径改为环境变量可覆盖；`deploy/rg-tunnel.yml` 移除写死的本机用户名凭证路径（cloudflared 默认从 `%USERPROFILE%/.cloudflared/<tunnel-id>.json` 读取）。
 - **P1-2（降 P2）注释对齐**：`shared_state.py` 注释与部署决策对齐——共享状态库仅支持 SQLite（upsert 依赖 `ON CONFLICT`），明确不可指向 openGauss，消除原注释「可指向 openGauss」的误导。
 - **P2-8 匿名登录体验**：写接口（取证 / 导入 / 删除）收到 401 时主动弹出登录框衔接，而非只抛一行错误（前端已在多处落地）。
+- **P2-5 connector 批量去 N+1**：`import_from_connector` 改用 `bulk_upsert_cases` 单事务批量写入，消除此前逐行 `save_case` 的 N+1 旧链路；`save_case` 已不再被本模块引用。
+- **P2-9 提示词版本管理 / A-B**：`prompts.py` 新增 `PROMPT_VERSION` 常量与 `_PROMPT_VARIANTS` 注册表（含 `current_prompt_variant()`），insights system persona 注入 `[提示词版本：X / variant=Y]` 标识，便于回滚与 A/B 对照。
+- **P2-12 CI 安全门禁**：`.github/workflows/ci.yml` 将 mypy 由「continue-on-error 不阻断」升级为**阻断门禁**；新增 `bandit` 源码安全审计与 `pip-audit` 依赖 CVE 扫描（先以可见性优先运行，基线稳定后可去 `continue-on-error` 转阻断）。
+- **P2-14 幻觉数值校验**：`pipeline._reconcile_insights` 新增 LLM 输出与真实聚合数值一致性校验——win_rate / total_cases / 各维胜诉率与聚合偏差超阈值即回退 mock 聚合并标注 `reconciled_from='aggregate'`，不再仅靠 prompt 约束防幻觉。
+- **P2-6 前端骨架屏 + 构建链路**：`index.html` 加 shimmer 骨架屏样式，首屏数据抵达前显示占位（渲染覆盖后自然消失）；新增 `package.json` + `scripts/minify.mjs` 轻量 terser 压缩构建链路（作为建议项**不接入 CI**，以免破坏演示现场）。
+- **P2-7 前端 i18n**：新增 `demo/static/i18n.js`（zh/en 字典 + `t()` / `setLang()` / `applyI18n()`），顶栏新增语言切换并持久化偏好；可见标签抽取 `data-i18n` 接线（默认 zh 与现界面一致，en 为对照译本），为跨境场景打底。
+- **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在评委指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
 
-> 当前测试 **92 passed**（4 个 `test_storage.py` 用例因本机缺失 boto3/qiniu 依赖而失败，属环境项、与代码改动无关）。
+> 当前测试 **104 passed**（4 个 `test_storage.py` 用例因本机缺失 boto3/qiniu 依赖而失败，属环境项、与代码改动无关）。
 
 ## 快速开始
 ```bash
@@ -150,5 +157,5 @@ python verify_api.py
 - `README.md` — 本文件
 - `CHANGELOG.md` — 版本变更记录（当前 1.1.2）
 - `openGauss部署指南.md` — openGauss 真实部署 + 真实数据自动导入
-- `demo/` — FastAPI 应用：`main.py`（入口）、`pipeline.py`（取证/洞察）、`models_router.py`（真实模型 + 逐能力回退）、`auth.py`（账户/多租户）、`calibration.py`（阈值自标定）、`importer.py`（CSV 回流）、`storage.py`（图床）、`seed_real.csv`（自动导入样例）
+- `demo/` — FastAPI 应用：`main.py`（装配层：app 创建 / 中间件注册 / 路由聚合 / lifespan）、`common.py`（配置 / 依赖 / 限流 / 中间件 / 聚合辅助）、`routers/`（按域拆分：`frontend` / `forensic` / `insights` / `auth` / `calibration` / `import_`）、`pipeline.py`（取证/洞察）、`models_router.py`（真实模型 + 逐能力回退）、`auth.py`（账户/多租户）、`calibration.py`（阈值自标定）、`importer.py`（CSV 回流）、`storage.py`（图床）、`seed_real.csv`（自动导入样例）
 - （初赛完整方案 / 表单文案已归档至 `docs/legacy/`）
