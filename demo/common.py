@@ -19,15 +19,11 @@ import ipaddress
 import logging
 import os
 import re
-import secrets
 import threading
 import time
-import uuid
 from collections import defaultdict
-from urllib.parse import quote
 
 import auth  # C组：账户体系 + 多租户隔离
-import quota  # SEC-13：live 模式独立配额闸（防公开演示账号刷付费 Key）
 import shared_state  # SEC-12：跨 worker 共享状态（限流 / 登录封禁）
 from calibration import get_active_threshold, save_calibration, suggest_threshold  # B组：阈值自标定
 from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
@@ -40,21 +36,52 @@ from db import (  # 数据持久层（SQLite / openGauss 双源隔离）
     query_cases,
     save_case,
 )
-from fastapi import File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
-from importer import import_csv_text, import_file  # B组：真实数据回流（CSV / 数据集文件导入）
+from fastapi import HTTPException, Request, UploadFile
+from fastapi.responses import PlainTextResponse
+from importer import import_csv_text  # B组：真实数据回流（CSV / 数据集文件导入）
 from logging_setup import configure_logging, new_request_id, request_id
-from pdf_report import default_filename, generate_insights_pdf
 
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
 from pipeline import _empty_aggregate, _season_of, analyze_case, build_insights
-from platforms import get_platform_spec, is_valid_platform, list_platforms
-from pydantic import BaseModel
-from schemas import AnalyzeResult, InsightsResponse, ManualCase
+from platforms import get_platform_spec, is_valid_platform
+from schemas import AnalyzeResult, ManualCase
 from storage import backend_name, is_public_ready  # 图床（P3-17）
 from storage import upload as bed_upload
 
 logger = logging.getLogger("returnguard.api")
+
+# 本模块对外再导出（re-export）的名单：以下名称均从其他模块（db / calibration / importer /
+# pipeline / platforms / schemas / storage / auth / shared_state）导入后，由 routers/* 与
+# main.py 经 `from common import X` 转手取得。显式列入 __all__ 可避免 `ruff --fix` 将它们的
+# import 误判为 F401（未使用）而删除，从而破坏下游路由的导入契约（P1-9 拆分后尤为关键）。
+__all__ = [
+    # —— 来自 db（被 main / forensic 转手）——
+    "init_db",
+    "delete_case",
+    "query_cases",
+    "save_case",
+    # —— 来自 calibration（被 routers/calibration 转手）——
+    "get_active_threshold",
+    "save_calibration",
+    "suggest_threshold",
+    # —— 来自 importer（被 main 转手）——
+    "import_csv_text",
+    # —— 来自 pipeline（被 forensic 转手）——
+    "analyze_case",
+    # —— 来自 platforms（被 forensic 转手）——
+    "get_platform_spec",
+    "is_valid_platform",
+    # —— 来自 schemas（被 forensic 转手）——
+    "AnalyzeResult",
+    "ManualCase",
+    # —— 来自 storage（被 forensic / frontend 转手）——
+    "bed_upload",
+    "backend_name",
+    "is_public_ready",
+    # —— 模块级对象（被 auth / frontend 转手）——
+    "auth",
+    "shared_state",
+]
 
 
 # ---- 版本（单一来源：仓库根 VERSION 文件；前端顶栏与 /api/config 均从此读取）----

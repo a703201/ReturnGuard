@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+from common import _get_insights
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
-from common import _get_insights
 from pdf_report import default_filename, generate_insights_pdf
 from schemas import InsightsResponse
 

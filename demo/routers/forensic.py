@@ -8,28 +8,28 @@ from __future__ import annotations
 import os
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse
 from common import (
     UPLOAD_DIR,
-    _resolve_source,
-    _require_session,
-    _resolve_tenant,
-    get_client_ip,
     _check_rate_limit,
+    _require_session,
+    _resolve_source,
+    _resolve_tenant,
     _safe_name,
     _validate_image,
-    bed_upload,
     analyze_case,
+    bed_upload,
+    delete_case,
+    get_client_ip,
     get_platform_spec,
     is_valid_platform,
-    save_case,
-    query_cases,
-    delete_case,
     logger,
+    query_cases,
+    save_case,
 )
-from schemas import AnalyzeResult, ManualCase
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
 from quota import check_live_quota
+from schemas import AnalyzeResult, ManualCase
 
 router = APIRouter()
 

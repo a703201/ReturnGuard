@@ -5,15 +5,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
 from common import (
+    _MAX_UPLOAD_BYTES,
     _require_session,
     _resolve_source,
-    _MAX_UPLOAD_BYTES,
     _resolve_tenant,
     logger,
 )
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from importer import import_csv_text, import_file
 
 router = APIRouter()

@@ -22,24 +22,43 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
 import auth  # C组：账户体系 + 多租户隔离
 from common import (
-    BASE,
-    UPLOAD_DIR,  # 仅向后兼容测试 `from main import UPLOAD_DIR`
-    logger,
-    _cleanup_old_uploads,
-    _wal_checkpoint_all,
-    _start_wal_watcher,
+    _CORS_ALLOW_ORIGINS,
     _WAL_CHECKPOINT_INTERVAL,
-    init_db,
+    BASE,
+    UPLOAD_DIR,  # 向后兼容：测试仍 `from main import UPLOAD_DIR`
+    _cleanup_old_uploads,
+    _start_wal_watcher,
+    _wal_checkpoint_all,
     import_csv_text,
+    init_db,
+    logger,
     no_cache_middleware,
     observe_middleware,
     security_headers,
-    _CORS_ALLOW_ORIGINS,
 )
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+# 业务路由（P1-9 从 main.py 拆出到 routers/*，在此聚合）：
+#   frontend / forensic / insights / auth / calibration / import_
+from routers import (
+    auth as auth_router,
+)
+from routers import (
+    calibration,
+    forensic,
+    frontend,
+    insights,
+)
+from routers import (
+    import_ as import_router,
+)
+
+# 向后兼容再导出：测试与旧调用方仍 `from main import UPLOAD_DIR, app`。
+# 显式列入 __all__，避免 `ruff --fix` 将仅用于重导出的 import 误判 F401 而删除。
+__all__ = ["UPLOAD_DIR", "app"]
 
 # 后端业务入口说明（保留顶层 docstring 中的产品叙事）：
 # 阶段A 个案举证  → POST /api/analyze
@@ -118,16 +137,6 @@ app.middleware("http")(no_cache_middleware)
 app.middleware("http")(observe_middleware)
 app.middleware("http")(security_headers)
 
-
-# ---------------------- 聚合业务路由（P1-9 拆分结果） ----------------------
-from routers import (  # noqa: E402  (装配层，置于 app 创建之后)
-    auth as auth_router,
-    calibration,
-    forensic,
-    frontend,
-    import_ as import_router,
-    insights,
-)
 
 app.include_router(frontend.router)
 app.include_router(forensic.router)

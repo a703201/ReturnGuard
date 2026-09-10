@@ -10,17 +10,14 @@ import hmac
 import os
 import secrets
 import time
-from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
+from calibration import get_active_threshold
 from common import (
+    _NONCE_PLACEHOLDER,
     APP_VERSION,
     INDEX,
     UPLOAD_DIR,
-    _NONCE_PLACEHOLDER,
     _metrics,
-    _state_lock,
     _require_admin,
     _safe_name,
     auth,
@@ -28,7 +25,8 @@ from common import (
     is_public_ready,
 )
 from db import DEFAULT_SOURCE, VALID_SOURCES
-from calibration import get_active_threshold
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse
 from platforms import list_platforms
 
 router = APIRouter()

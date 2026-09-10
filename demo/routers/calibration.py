@@ -5,10 +5,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-from common import _require_admin, get_active_threshold, save_calibration, suggest_threshold
 from calibration import load_calibration_record
+from common import _require_admin, get_active_threshold, logger, save_calibration, suggest_threshold
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
 
 router = APIRouter()
 

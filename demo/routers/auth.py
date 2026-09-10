@@ -6,19 +6,20 @@
 from __future__ import annotations
 
 import common  # 配置开关（_REGISTRATION_ENABLED 等）需在调用时实时读取 common 模块全局，
+from common import (
+    _check_rate_limit,
+    _metrics,
+    _resolve_tenant,
+    _state_lock,
+    auth,
+    get_client_ip,
+    logger,
+    shared_state,
+)
+
 # 以便测试 monkeypatch.setattr(common, ...) 能生效（P1-9 拆分后这些值位于 common 模块）。
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from common import (
-    get_client_ip,
-    _check_rate_limit,
-    _resolve_tenant,
-    auth,
-    logger,
-    _state_lock,
-    _metrics,
-    shared_state,
-)
 
 router = APIRouter()
 
