@@ -22,20 +22,16 @@
 
 from __future__ import annotations
 
-import base64
 import copy
 import hashlib
-import io
 import logging
-import math
 import random
-import struct
 import threading
-import wave
 from collections import Counter, OrderedDict, defaultdict
 from datetime import datetime
 from statistics import mean
 
+from audio_utils import gen_wav
 from calibration import get_active_threshold
 from constants import (
     BLACKLIST_LEVELS,
@@ -83,22 +79,6 @@ def _mock_similarity(returned_path: str, product_path: str) -> float:
     故图像向量仅作回退；回退到底时走本函数同口径的内容哈希。"""
     s = content_seed(returned_path, product_path)
     return round(0.55 + (s % 1000) / 1000 * 0.43, 3)
-
-
-def _gen_wav(text: str, sr: int = 16000, dur: float = 1.2) -> str:
-    """生成一段占位 WAV（正弦音），mock 模式下充当 TTS 产物。
-    真实语音由 models_router.tts 生成；此处仅保证前端有可播放音频。"""
-    n = int(sr * dur)
-    buf = io.BytesIO()
-    w = wave.open(buf, "wb")
-    w.setnchannels(1)
-    w.setsampwidth(2)
-    w.setframerate(sr)
-    for i in range(n):
-        val = int(12000 * math.sin(2 * math.pi * 440 * i / sr) * (1 - i / n))
-        w.writeframes(struct.pack("<h", val))
-    w.close()
-    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 # ===================== 阶段A · 个案举证（功能①②③④⑤）=====================
@@ -165,7 +145,7 @@ def _mock(
         "consistency": consistency,
         "dossier": dossier,
         "voice_text": voice_text,
-        "voice_audio_b64": _gen_wav(voice_text),
+        "voice_audio_b64": gen_wav(voice_text),
         "priority_score": priority,
         "defect_boxes": defect_boxes,
         "mode": "mock",

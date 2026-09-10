@@ -127,3 +127,37 @@ class ManualCase(BaseModel):
     priority_score: float = 0.0
     returned_image: str = ""
     product_image: str = ""
+
+
+class HealthResp(BaseModel):
+    """GET /health 的响应。"""
+
+    status: str
+
+
+class PlatformsResp(BaseModel):
+    """GET /api/platforms 的响应（平台举证包列表）。"""
+
+    platforms: list
+
+
+class AuthTokenResp(BaseModel):
+    """POST /api/auth/register | /api/auth/login 的响应。"""
+
+    ok: bool
+    token: str
+    username: str
+
+
+class SimpleOkResp(BaseModel):
+    """通用 {ok: true} 响应（如登出）。"""
+
+    ok: bool
+
+
+class DeleteCaseResp(BaseModel):
+    """DELETE /api/cases/{id} 的响应。"""
+
+    ok: bool
+    source: str
+    deleted: int

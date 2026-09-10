@@ -5,9 +5,10 @@ REM  固定地址: https://rg.a703201sworld.top  （测试账号 demo / demo123�
 REM  注意: 本机 Windows 非提权进程无法绑定 0.0.0.0 低端口，
 REM        故 app 绑 127.0.0.1:65432，由 cloudflared 反代出公网。
 REM ============================================================
-set PY=C:\Users\a7032\.workbuddy\binaries\python\envs\default\Scripts\python.exe
-set CF=D:\cloudflared.exe
-set CFG=D:\Codes\Project\跨境\returnguard\deploy\rg-tunnel.yml
+REM 路径可经环境变量覆盖（P2-11）；PY 默认用当前用户下的受管 venv，去除硬编码本机用户名。
+if not defined PY set "PY=%USERPROFILE%\.workbuddy\binaries\python\envs\default\Scripts\python.exe"
+if not defined CF set "CF=D:\cloudflared.exe"
+if not defined CFG set "CFG=D:\Codes\Project\跨境\returnguard\deploy\rg-tunnel.yml"
 set DEMO=D:\Codes\Project\跨境\returnguard\demo
 
 echo [1/2] 启动 ReturnGuard app (127.0.0.1:65432) ...

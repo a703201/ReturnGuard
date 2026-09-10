@@ -605,15 +605,26 @@ def load_filtered_cases(
     """读取指定 source 的案件并下推过滤（category/platform/region/outcome → SQL WHERE）。
 
     替代「load_cases 全量拉库 + Python 过滤」的旧模式：聚合看板只需被筛选的那批案件，
-    全量拉库既浪费 IO 又把不相关案件一并载入内存（A23）。返回的仍是全字段 dict，
-    因为 _aggregate 需要 amount/similarity/defect_tags/date 等多列做聚合。
+    全量拉库既浪费 IO 又把不相关案件一并载入内存（A23）。
+
+    P1-12 投影：洞察聚合（_aggregate）只用标量/列表字段（amount/similarity/defect_tags/
+    date 等），并不需要逐案的语音与举证长文。这里在行→dict 后剔除 voice_audio_b64 /
+    dossier 两个 base64/Text 大字段，避免 1206 行 × 大对象无谓的 IO 与内存放大
+    （单案取证走 pipeline._mock 单独构造，不经此函数，不影响红框/语音/卷宗）。
     """
     source = _normalize_source(source)
     with get_session(source) as s:
         q = _apply_tenant_filter(s.query(Case), source, tenant_id)
         q = _apply_filters(q, category, platform, region, outcome)
         rows = q.all()
-    return [_row_to_dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = _row_to_dict(r)
+        # P1-12：剔除洞察聚合用不到的大字段（见函数 docstring）
+        d.pop("voice_audio_b64", None)
+        d.pop("dossier", None)
+        out.append(d)
+    return out
 
 
 def query_cases(

@@ -23,8 +23,9 @@ import webbrowser
 # ---- 路径（Python 字符串，UTF-8 无碍，cloudflared 参数用 D:/ 风格）----
 HERE = os.path.dirname(os.path.abspath(__file__))
 COMPOSE_FILE = os.path.join(HERE, "docker", "docker-compose.yml")
-CLOUDFLARED = r"D:\cloudflared.exe"
-TUNNEL_CONFIG = r"D:\rg-tunnel.yml"          # ASCII 路径，避免中文
+# 路径可经环境变量覆盖，避免硬编码本机绝对路径（P2-11）。
+CLOUDFLARED = os.environ.get("CLOUDFLARED_BIN", r"D:\cloudflared.exe")
+TUNNEL_CONFIG = os.environ.get("RG_TUNNEL_CONFIG", r"D:\rg-tunnel.yml")  # ASCII 路径，避免中文
 TUNNEL_NAME = "rg"
 PUBLIC_URL = "https://rg.a703201sworld.top"
 LOCAL_HEALTH = "http://127.0.0.1:65432/health"

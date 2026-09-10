@@ -29,22 +29,20 @@ dashscope（阿里云百炼国内站按量付费）是「自购 token」通道�
 
 import base64
 import contextvars
-import io
 import json
 import logging
 import math
 import os
 import random
 import re
-import struct
 import sys
 import threading
 import time
 import uuid
-import wave
 
 import requests
 import requests.exceptions as rex
+from audio_utils import gen_wav
 from calibration import get_active_threshold
 from constants import DEFECT_POOL, SEVERITY
 from dotenv import load_dotenv
@@ -722,20 +720,6 @@ def _fallback_defect_boxes(returned_path: str, defects: list[str]) -> list[dict]
     return out
 
 
-def _gen_wav(text: str, sr: int = 16000, dur: float = 1.2) -> str:
-    """占位 WAV（正弦音），TTS 不可用时充当可播放音频（与 pipeline._gen_wav 同口径）。"""
-    n = int(sr * dur)
-    buf = io.BytesIO()
-    w = wave.open(buf, "wb")
-    w.setnchannels(1)
-    w.setsampwidth(2)
-    w.setframerate(sr)
-    for i in range(n):
-        val = int(12000 * math.sin(2 * math.pi * 440 * i / sr) * (1 - i / n))
-        w.writeframes(struct.pack("<h", val))
-    w.close()
-    return base64.b64encode(buf.getvalue()).decode("ascii")
-
 
 # ===================== 单案取证（阶段A）实时编排 =====================
 def _honest_mode(caps: dict) -> str:
@@ -878,7 +862,7 @@ def live_analyze(
         caps["tts"] = True
     except Exception as e:
         logger.warning("live TTS 失败，回退占位音频: %s", e)
-        audio = _gen_wav(voice_text)
+        audio = gen_wav(voice_text)
         caps["tts"] = False
 
     # ⑤ 优先级评分（rerank 大规模多案时替换；单案用确定性公式，网关开通 qwen3-rerank 时可用）

@@ -1,5 +1,6 @@
 tunnel: d59bd848-dcc9-476d-a34f-4ce772eecadb
-credentials-file: C:/Users/a7032/.cloudflared/d59bd848-dcc9-476d-a34f-4ce772eecadb.json
+# 凭证文件不在此硬编码（避免暴露本机用户名路径，P2-11）。cloudflared 默认从
+# %USERPROFILE%/.cloudflared/<tunnel-id>.json 读取，无需显式指定即可找到本机凭证。
 ingress:
   - hostname: rg.a703201sworld.top
     service: http://127.0.0.1:65432

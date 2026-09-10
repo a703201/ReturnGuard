@@ -1068,7 +1068,7 @@ def calibrate_get():
     }
 
 
-@app.post("/api/calibrate")
+@app.post("/api/calibrate", response_model=dict)
 def calibrate_post(req: CalibrateRequest, request: Request):
     """用历史「真同款 / 真调包」样本标定 SAME_ITEM_THRESHOLD（Youden J 最优分离点），并落盘。
     样本不足（缺任一类）返回默认经验值，不覆盖既有标定（避免无意义回写）。
@@ -1134,7 +1134,7 @@ def import_csv(
     return {"ok": True, "source": source, "tenant": tenant_id or "public", **res}
 
 
-@app.post("/api/import_file")
+@app.post("/api/import_file", response_model=dict)
 def import_file_api(
     request: Request,
     file: UploadFile = File(...),
