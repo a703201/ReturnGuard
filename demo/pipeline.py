@@ -31,6 +31,7 @@ import threading
 from collections import Counter, OrderedDict, defaultdict
 from datetime import datetime
 from statistics import mean
+from typing import Any
 
 from audio_utils import gen_wav
 from calibration import get_active_threshold
@@ -163,7 +164,9 @@ _analyze_lock = threading.Lock()
 _ANALYZE_CACHE_MAX = 256
 
 
-def _analyze_cache_key(returned_path: str, product_path: str, listing_text: str, sku: str, amount: float) -> str:
+def _analyze_cache_key(
+    returned_path: str, product_path: str, listing_text: str, sku: str, amount: float
+) -> str:
     """mock 模式缓存键：图片内容指纹 + 业务入参；live 不使用本键（见 analyze_case）。"""
     return f"mock|{content_seed(returned_path, product_path)}|{sku}|{amount}|{hash(listing_text)}"
 
@@ -624,7 +627,7 @@ def _aggregate(cases: list[dict]) -> dict:
     total_refund = sum(float(c.get("amount", 0) or 0) for c in cases)
     # outcome 分布：已判定案件按真实结果，未判定（单案上传、无法判定输赢）单独归入「待分析」，
     # 不混入「未知」噪声桶；胜诉率只按已判定案件计算，避免上传单案稀释 KPI。
-    outcome_dist = Counter()
+    outcome_dist: Counter[str] = Counter()
     for c in cases:
         oc = c.get("outcome")
         outcome_dist[oc if oc in DECIDED_OUTCOMES else "待分析"] += 1
@@ -633,10 +636,10 @@ def _aggregate(cases: list[dict]) -> dict:
     win_rate = round(wins / decided, 3) if decided else 0.0
 
     # 三个维度的累加器：品类 / 供应商 / 平台
-    cat = defaultdict(
+    cat: defaultdict[str, Any] = defaultdict(
         lambda: {"cases": 0, "refund": 0.0, "sim": 0.0, "defects": Counter(), "won": 0}
     )
-    sup = defaultdict(
+    sup: defaultdict[str, Any] = defaultdict(
         lambda: {
             "cases": 0,
             "refund": 0.0,
@@ -650,13 +653,15 @@ def _aggregate(cases: list[dict]) -> dict:
         }
     )
     # decided=已判定案件数（胜诉率分母，与全局 win_rate 同口径，剔除「待分析」）
-    plat = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0})
+    plat: defaultdict[str, Any] = defaultdict(
+        lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0}
+    )
     # 平台 × 供应商 交叉累加器（供应商维度扩展：跨平台横向对比供货方质量）
-    matrix = defaultdict(
+    matrix: defaultdict[str, defaultdict[str, Any]] = defaultdict(
         lambda: defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0})
     )
     # SKU 维度（含日期，用于近期异常预警）
-    sku = defaultdict(
+    sku: defaultdict[str, Any] = defaultdict(
         lambda: {
             "cases": 0,
             "refund": 0.0,
@@ -668,15 +673,17 @@ def _aggregate(cases: list[dict]) -> dict:
             "dates": [],
         }
     )
-    defect_all = Counter()
-    root_all = Counter()
+    defect_all: Counter[str] = Counter()
+    root_all: Counter[str] = Counter()
     # 全量相似度累加（每案都计），用于代理争议率分母，避免只统计"有平台"案件导致虚高
     sim_all = 0.0
     # 地区 / 季节 维度累加器（方向2 维度扩展）
-    region = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0})
-    season = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    region: defaultdict[str, Any] = defaultdict(
+        lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0}
+    )
+    season: defaultdict[str, Any] = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
     # 时间序列累加器（B组：时间序列 + 预测预警）：按自然月 'YYYY-MM' 累加案件数与退款
-    ts = defaultdict(lambda: {"cases": 0, "refund": 0.0})
+    ts: defaultdict[str, Any] = defaultdict(lambda: {"cases": 0, "refund": 0.0})
     # 退货成本估算累加：物流成本按地区比例粗略估算（退款 + 物流 = 退货总成本）
     logistics_all = 0.0
 

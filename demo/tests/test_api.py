@@ -172,9 +172,7 @@ def test_manual_add_routes_to_source(real_user_headers, auth_headers):
         assert not any(x.get("sku") == sku for x in demo_real), "跨租户不应串台"
 
         # 清理：删除 real 源该单（需登录且属本租户）
-        del_r = c.delete(
-            f"/api/cases/{cid}", params={"source": "real"}, headers=real_user_headers
-        )
+        del_r = c.delete(f"/api/cases/{cid}", params={"source": "real"}, headers=real_user_headers)
         assert del_r.status_code == 200 and del_r.json()["deleted"] == 1
         after = c.get("/api/cases", params={"source": "real"}, headers=real_user_headers).json()[
             "items"

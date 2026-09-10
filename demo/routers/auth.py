@@ -82,7 +82,9 @@ def login_api(req: LoginRequest, request: Request):
         logger.warning("登录失败 ip=%s user=%s reason=invalid_credentials", client_ip, req.username)
         with _state_lock:
             _metrics["auth_fail"] += 1
-        shared_state.login_lock_register(req.username, common._LOGIN_MAX_FAILS, common._LOGIN_LOCK_SEC)
+        shared_state.login_lock_register(
+            req.username, common._LOGIN_MAX_FAILS, common._LOGIN_LOCK_SEC
+        )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     # 成功：清空该用户名失败计数
     shared_state.login_clear(req.username)

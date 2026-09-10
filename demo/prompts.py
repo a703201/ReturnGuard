@@ -37,6 +37,7 @@ def current_prompt_variant() -> str:
     """返回当前生效的 prompt variant 键（受 RG_PROMPT_VARIANT 环境变量控制）。"""
     return _ACTIVE_PROMPT_VARIANT if _ACTIVE_PROMPT_VARIANT in _PROMPT_VARIANTS else "v1"
 
+
 # ===================== 提示词注入防护（P1-5）=====================
 # 卖家可控的自由文本（listing_text / 商品描述 / OCR 提取的承诺）一旦直接拼入 prompt，
 # 恶意卖家可在描述中植入「忽略以上指令 / 切换角色 / 执行操作」等注入，操纵 AI 结论。

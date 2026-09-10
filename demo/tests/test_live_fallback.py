@@ -155,7 +155,9 @@ def test_live_keypoint_boxes_fallback(monkeypatch):
     monkeypatch.setattr(models_router, "vl_similarity", _sim_ok)
     monkeypatch.setattr(models_router, "embed_image", lambda url, **kw: [0.1] * 8)
     monkeypatch.setattr(models_router, "cosine", lambda a, b: 0.9)
-    monkeypatch.setattr(models_router, "vl_chat", lambda url, prompt=None, **kw: "外包装破损")  # 瑕疵标签真实
+    monkeypatch.setattr(
+        models_router, "vl_chat", lambda url, prompt=None, **kw: "外包装破损"
+    )  # 瑕疵标签真实
     monkeypatch.setattr(models_router, "ocr", lambda url, prompt=None, **kw: "承诺")
     monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
     monkeypatch.setattr(models_router, "tts", lambda text, voice="Chelsie", **kw: "BASE64AUDIO")

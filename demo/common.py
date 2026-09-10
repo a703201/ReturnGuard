@@ -109,7 +109,7 @@ APP_VERSION = _read_app_version()
 
 # ---- 可观测性（P2-9 / A26）：结构化 JSON 日志 + 请求追踪 + 基础指标 ----
 configure_logging()
-_metrics = defaultdict(int)
+_metrics: defaultdict[str, float] = defaultdict(float)
 _metrics["start_time"] = int(time.time())
 
 # ---- 写接口限流（P2-8）：演示态默认开启；环境 ANALYZE_RATE_LIMIT=0 关闭 ----

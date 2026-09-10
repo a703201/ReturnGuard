@@ -39,6 +39,7 @@ import sys
 import threading
 import time
 import uuid
+from typing import Any
 
 import requests
 import requests.exceptions as rex
@@ -126,9 +127,13 @@ _MODEL_ROUTER_PROFILES = {
     },
 }
 MODEL_ROUTER_PROFILE = os.environ.get("MODEL_ROUTER_PROFILE", "tokenplan")
-_PROFILE = _MODEL_ROUTER_PROFILES.get(MODEL_ROUTER_PROFILE, _MODEL_ROUTER_PROFILES["tokenplan"])
+# 各 profile 的值类型异构（base_url/key_env 为 str，models 为 dict[str,str]），
+# 显式标注为 dict[str, Any] 避免 mypy 把子字段误推为 Collection[str]。
+_PROFILE: dict[str, Any] = _MODEL_ROUTER_PROFILES.get(
+    MODEL_ROUTER_PROFILE, _MODEL_ROUTER_PROFILES["tokenplan"]
+)
 # 当前 profile 的模型标识字典（随 profile 切换，杜绝 base_url/base_key/模型名错配）。
-MODELS = _PROFILE["models"]
+MODELS: dict[str, str] = _PROFILE["models"]
 # base_url 解析规则（每个 profile 用各自独立的覆盖变量，杜绝 .env 里某个 profile 的 base_url
 # 把其他 profile 的端点错配——此前 tokenplan 的 MODEL_ROUTER_BASE_URL 曾把 official/dashscope
 # 端点污染成 Token Plan 地址，导致"切了 profile 仍打旧网关"）：
@@ -286,7 +291,7 @@ def _post(url: str, **kw):
             if status == 429 or status >= 500:
                 last_exc = RuntimeError(f"网关返回 {status}")
                 if attempt < LLM_MAX_RETRIES:
-                    time.sleep(LLM_BACKOFF_BASE * (2 ** attempt))
+                    time.sleep(LLM_BACKOFF_BASE * (2**attempt))
                     continue
                 r.raise_for_status()
             r.raise_for_status()
@@ -295,7 +300,7 @@ def _post(url: str, **kw):
         except (rex.Timeout, rex.ConnectionError) as e:
             last_exc = e
             if attempt < LLM_MAX_RETRIES:
-                time.sleep(LLM_BACKOFF_BASE * (2 ** attempt))
+                time.sleep(LLM_BACKOFF_BASE * (2**attempt))
                 continue
             _fail(e)
             raise
@@ -303,9 +308,10 @@ def _post(url: str, **kw):
             # 4xx（非429）等不可重试错误：直接抛出（仍计入错误/熔断）
             _fail(e)
             raise
-    if last_exc:
+    if last_exc is not None:
         _fail(last_exc)
-    raise last_exc
+        raise last_exc
+    raise RuntimeError("所有重试已耗尽但未捕获到异常（不应发生）")
 
 
 def _headers():
@@ -318,8 +324,12 @@ def _headers():
 # 彻底绕开「网关需回源拉取我们隧道图」这一最脆弱环节（cloudflared 进程一旦停，隧道 530，
 # 网关报 Failed to download multimodal content）。内联字节同样只流经阿里云国内站，数据不出境。
 _IMG_MIME = {
-    "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-    "webp": "image/webp", "gif": "image/gif", "bmp": "image/bmp",
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
 }
 
 
@@ -355,6 +365,7 @@ def _image_size(path: str) -> tuple[int, int] | None:
             head = f.read(32)
         if head[:8] == b"\x89PNG\r\n\x1a\n":
             import struct as _st
+
             w, h = _st.unpack(">II", head[16:24])
             return (w, h)
         if head[:2] == b"\xff\xd8":  # JPEG：扫描 SOF  marker
@@ -367,12 +378,25 @@ def _image_size(path: str) -> tuple[int, int] | None:
                     i += 1
                     continue
                 m = data[i + 1]
-                if m in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
-                         0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
-                    h = int.from_bytes(data[i + 5:i + 7], "big")
-                    w = int.from_bytes(data[i + 7:i + 9], "big")
+                if m in (
+                    0xC0,
+                    0xC1,
+                    0xC2,
+                    0xC3,
+                    0xC5,
+                    0xC6,
+                    0xC7,
+                    0xC9,
+                    0xCA,
+                    0xCB,
+                    0xCD,
+                    0xCE,
+                    0xCF,
+                ):
+                    h = int.from_bytes(data[i + 5 : i + 7], "big")
+                    w = int.from_bytes(data[i + 7 : i + 9], "big")
                     return (w, h)
-                seg = int.from_bytes(data[i + 2:i + 4], "big")
+                seg = int.from_bytes(data[i + 2 : i + 4], "big")
                 i += 2 + seg
     except Exception:  # noqa: BLE001
         return None
@@ -478,7 +502,7 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT, img_size=None, second_
     data = _extract_json(raw)
     items = data.get("boxes") or data.get("defects") or []
     boxes: list[dict] = []
-    iw, ih = (img_size or (None, None))
+    iw, ih = img_size or (None, None)
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -721,7 +745,6 @@ def _fallback_defect_boxes(returned_path: str, defects: list[str]) -> list[dict]
     return out
 
 
-
 # ===================== 单案取证（阶段A）实时编排 =====================
 def _honest_mode(caps: dict) -> str:
     """按 capabilities 的真实降级程度给出 mode 标注，杜绝"全回退仍标 live"。
@@ -816,7 +839,9 @@ def live_analyze(
 
     # ②' 缺陷定位（关键帧红框）：双图对比定位新增瑕疵；网关未开通/解析失败 → 确定性示意框
     try:
-        boxes = vl_detect_boxes(prod_src, DEFECT_BBOX_PROMPT, img_size=_image_size(returned_path), second_image=ret_src)
+        boxes = vl_detect_boxes(
+            prod_src, DEFECT_BBOX_PROMPT, img_size=_image_size(returned_path), second_image=ret_src
+        )
         if not boxes:
             raise ValueError("VL 未返回任何有效 bbox")
         caps["boxes"] = True

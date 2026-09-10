@@ -1,10 +1,11 @@
-# -*- coding: utf-8 -*-
 """Rebuild GROUP C as a coherent '同款 + 图文承诺' demo:
 - product_image = a realistic LISTING image (T-shirt photo + overlaid 承诺文字)
 - returned_image = the same clean T-shirt photo
 → similarity stays high (same item) AND OCR extracts the promise from the listing.
 """
+
 import os
+
 from PIL import Image, ImageDraw, ImageFont
 
 UP = os.path.join(os.path.dirname(__file__), "uploads")

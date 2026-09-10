@@ -237,12 +237,12 @@ except Exception:  # noqa: BLE001
     }
     GOOD_SUPPLIERS = ["S1", "S2", "S5", "S7"]
 
-    def _supplier_for(defects):  # noqa: F811
+    def _supplier_for(defects):  # noqa: F811  # type: ignore[misc]
         if any(t in QUALITY_DEFECTS for t in (defects or [])):
             return "S3" if (abs(hash("|".join(defects))) % 2 == 0) else "S6"
         return GOOD_SUPPLIERS[abs(hash("|".join(defects or ["clean"]))) % len(GOOD_SUPPLIERS)]
 
-    def _map_category(*hints):  # noqa: F811
+    def _map_category(*hints):  # noqa: F811  # type: ignore[misc]
         text = " ".join(str(h).lower() for h in hints if h)
         for cat, kws in CATEGORY_KEYWORDS:
             if any(k in text for k in kws):
@@ -252,7 +252,7 @@ except Exception:  # noqa: BLE001
     def _clamp(x, lo, hi):  # noqa: F811
         return max(lo, min(hi, x))
 
-    def _to_date(v):  # noqa: F811
+    def _to_date(v):  # noqa: F811  # type: ignore[misc]
         from datetime import date, datetime
 
         if isinstance(v, datetime):
@@ -268,7 +268,7 @@ except Exception:  # noqa: BLE001
                     continue
         return None
 
-    def apply_platform_mapping(cases, *, remap_all=False):  # noqa: F811
+    def apply_platform_mapping(cases, *, remap_all=False):  # noqa: F811  # type: ignore[misc]
         """词表导入失败时无法做规则映射，保持原 platform 值（不静默丢数据）。"""
         logger.warning("词表导入失败，跳过平台重映射")
         return 0

@@ -71,7 +71,7 @@ def _get_server_version_info_for_opengauss(self, connection):
 def _patch_opengauss_dialect(url: str) -> None:
     """仅在连接 openGauss / PostgreSQL 时改写方言版本探测，避免 import 期全局副作用。"""
     if "opengauss" in url or url.startswith("postgresql"):
-        PGDialect._get_server_version_info = _get_server_version_info_for_opengauss
+        PGDialect._get_server_version_info = _get_server_version_info_for_opengauss  # type: ignore[method-assign]
         logger.info("已挂接 openGauss 版本探测补丁")
 
 
@@ -193,7 +193,7 @@ def get_session(source: str = DEFAULT_SOURCE):
 Base = declarative_base()
 
 
-class KV(Base):
+class KV(Base):  # type: ignore[misc,valid-type]
     """共享键值表（SEC-12）：存储跨 worker 需一致的计数（如代际 generation）。
 
     多 worker 部署下，进程内代际计数会不同步 → 某 worker reseed 后其它 worker 仍返回
@@ -264,7 +264,7 @@ def get_generation(source: str = DEFAULT_SOURCE) -> int:
             return _gen_fallback.get(source, 0)
 
 
-class Case(Base):
+class Case(Base):  # type: ignore[misc,valid-type]
     """案件表：一条跨境退货/纠纷取证记录。
 
     字段与 cases.json 完全对齐；defect_tags 用 JSON 列兼容 list[str]；
@@ -537,7 +537,7 @@ def _seed_demo_tenant(seed_json: str | None = None) -> None:
             rows = json.load(f)
         for c in rows:
             row = _dict_to_row(c)
-            row.tenant_id = "demo"
+            row.tenant_id = "demo"  # type: ignore[assignment]
             s.add(row)
         s.commit()
         logger.info("[real] 已为 demo 租户预填 %d 条种子", len(rows))
@@ -658,12 +658,7 @@ def query_cases(
             page_q = filtered
         # P1-① 确定性排序：最新录入/取证的案件排在最前。无 ORDER BY 时 SQLite 行序不定，
         # 新案件可能落到末页，导致翻页/断言漏看（已致 test_manual_add_routes_to_source 偶发失败）。
-        rows = (
-            page_q.order_by(Case.id.desc())
-            .limit(page_size)
-            .offset((page - 1) * page_size)
-            .all()
-        )
+        rows = page_q.order_by(Case.id.desc()).limit(page_size).offset((page - 1) * page_size).all()
     items = [_row_to_slim_dict(r) if slim else _row_to_dict(r) for r in rows]
     return {
         "items": items,

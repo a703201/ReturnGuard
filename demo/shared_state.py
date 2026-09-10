@@ -122,6 +122,8 @@ def rate_check(key: str, limit: int, window: int = 60) -> bool:
             {"k": key, "now": now, "window": window},
         )
         row = conn.execute(_t_rl.select().where(_t_rl.c.key == key)).first()
+        if not row:
+            return True
         if row.cnt > limit:
             # 超限：撤销本次自增，保持计数原值（避免透支，并发下仍准确）
             conn.execute(_t_rl.update().where(_t_rl.c.key == key).values(cnt=row.cnt - 1))

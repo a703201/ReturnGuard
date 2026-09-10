@@ -10,17 +10,17 @@
 用 storage 图床（七牛）得到公网 URL 喂给模型，逐能力报告 OK / FAIL+原因。
 任一 FAIL 即说明该视觉模型在 Token Plan 网关未开通（会走 live 回退）。
 """
+
+import base64
 import os
 import sys
-import base64
-import tempfile
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(__file__))
 # 只在本机跑（非 pytest），models_router/storage 会自行 load_dotenv
 import models_router as mr
 import storage
-from prompts import DEFECT_RECOGNITION_PROMPT, DEFECT_BBOX_PROMPT, OCR_PROMISE_PROMPT
+from prompts import DEFECT_BBOX_PROMPT, DEFECT_RECOGNITION_PROMPT, OCR_PROMISE_PROMPT
 
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -56,8 +56,10 @@ def _pub(path: str, name: str) -> str:
 
 def main() -> int:
     print(f"[probe] profile={mr.MODEL_ROUTER_PROFILE} endpoint={mr.API_BASE}")
-    print(f"[probe] key_set={bool(mr.API_KEY)} 图床={storage.backend_name()} "
-          f"公网就绪={storage.is_public_ready()}")
+    print(
+        f"[probe] key_set={bool(mr.API_KEY)} 图床={storage.backend_name()} "
+        f"公网就绪={storage.is_public_ready()}"
+    )
     if not mr.API_KEY:
         print("[probe] FAIL: 未配置 MODEL_ROUTER_API_KEY")
         return 1
@@ -102,7 +104,9 @@ def main() -> int:
     # ①' VL 同款判定（新 ① 主路径：百炼兼容模式不支持视觉向量，改用 VL 直接判同款）
     try:
         vs = mr.vl_similarity(p, p)
-        results["①'vl_sim"] = f"OK 相似度={vs['similarity']} 同款={vs['same_item']} 理由={vs['reason'][:40]!r}"
+        results["①'vl_sim"] = (
+            f"OK 相似度={vs['similarity']} 同款={vs['same_item']} 理由={vs['reason'][:40]!r}"
+        )
     except Exception as e:  # noqa: BLE001
         results["①'vl_sim"] = f"FAIL {type(e).__name__}: {str(e)[:160]}"
 

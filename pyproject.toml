@@ -34,7 +34,22 @@ disallow_untyped_defs = false
 # 增量策略：先看紧「已标注类型」的代码（check_untyped_defs=false 不深查无标注函数体），
 # 让 mypy 作为 CI 门禁先落地、不阻断现有绿灯；后续为函数补注解后逐步收紧。
 check_untyped_defs = false
-exclude = ["demo/tests/.*"]
+# 第三方库（reportlab / openpyxl 等）已安装但缺类型 stub，导入报 import-untyped；
+# 项目不依赖其类型，统一降级为「按 Any 处理」，避免阻断 CI（P2-12 门禁聚焦自有代码）。
+disable_error_code = ["import-untyped"]
+# 仅类型检查「核心应用」模块。以下为一次性/数据/录屏辅助脚本（非运行时依赖），不纳入门禁。
+# 注意：CI 在 demo/ 目录以 `mypy .` 运行，路径相对 demo/，故此处用文件名（而非 demo.xxx）匹配。
+exclude = [
+  "seed_real\\.py",
+  "convert_datasets\\.py",
+  "build_c_listing\\.py",
+  "pdf_report\\.py",
+  "capture_live_demo\\.py",
+  "dataset_parse\\.py",
+  "verify_.*\\.py",
+  "test_.*\\.py",
+  "tests/.*",
+]
 
 [tool.pytest.ini_options]
 # 项目代码在 demo/ 下，conftest/测试从根目录（本地与 CI 一致）运行时必须把它加入 sys.path，

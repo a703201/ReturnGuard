@@ -91,8 +91,8 @@ def analyze(
 
     # 用随机前缀 + 清洗后的文件名落盘，并断言最终路径仍在 UPLOAD_DIR 内（防穿越）
     rid = uuid.uuid4().hex[:8]
-    rp = os.path.join(UPLOAD_DIR, f"{rid}_ret_{_safe_name(returned_image.filename)}")
-    pp = os.path.join(UPLOAD_DIR, f"{rid}_prod_{_safe_name(product_image.filename)}")
+    rp = os.path.join(UPLOAD_DIR, f"{rid}_ret_{_safe_name(returned_image.filename or '')}")
+    pp = os.path.join(UPLOAD_DIR, f"{rid}_prod_{_safe_name(product_image.filename or '')}")
     # 断言最终路径仍在 UPLOAD_DIR 内（防穿越）。用显式 raise 而非 assert：
     # python -O 会剥离 assert，导致兜底检查静默失效。
     if os.path.dirname(os.path.abspath(rp)) != UPLOAD_DIR:

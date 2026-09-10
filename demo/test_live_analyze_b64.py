@@ -4,6 +4,7 @@
 证明单案取证「视觉实跑」已收口：①'同款(VL) / ②瑕疵(VL) / ②'红框(VL) / ③OCR 应全部 caps=True，
 mode=live。embed(①向量) 在 dashscope 工作空间兼容模式不支持 → 走 VL 同款主路径（caps 不受影响）。
 """
+
 import os
 import sys
 import urllib.request
@@ -32,7 +33,9 @@ def _dl(seed: str, name: str) -> str:
 
 
 if __name__ == "__main__":
-    print(f"[e2e] profile={mr.MODEL_ROUTER_PROFILE} endpoint={mr.API_BASE} key_set={bool(mr.API_KEY)}")
+    print(
+        f"[e2e] profile={mr.MODEL_ROUTER_PROFILE} endpoint={mr.API_BASE} key_set={bool(mr.API_KEY)}"
+    )
     ret = _dl("rg_returned_xyz", "rg_returned_test.png")
     prod = _dl("rg_product_abc", "rg_product_test.png")
     print(f"[e2e] 退回件={ret}\n[e2e] 本店主图={prod}\n")
@@ -54,7 +57,9 @@ if __name__ == "__main__":
     print(f"capabilities= {caps}")
     print(f"similarity  = {out.get('similarity')}  same_item={out.get('same_item')}")
     print(f"defect_tags = {out.get('defect_tags')}")
-    print(f"defect_boxes= {len(out.get('defect_boxes', []))} 个  (live={out.get('defect_boxes_live')})")
+    print(
+        f"defect_boxes= {len(out.get('defect_boxes', []))} 个  (live={out.get('defect_boxes_live')})"
+    )
     print(f"ocr(promise)= {str(out.get('consistency'))[:80]!r}")
     print(f"dossier     = {str(out.get('dossier'))[:80]!r}")
     print(f"priority    = {out.get('priority_score')}")

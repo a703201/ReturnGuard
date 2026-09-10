@@ -83,7 +83,7 @@ _version_cache: dict[str, tuple[int, float]] = {}
 _VERSION_TTL = 60.0
 
 
-class User(AuthBase):
+class User(AuthBase):  # type: ignore[misc,valid-type]
     """账户表：一个用户即一个租户（tenant_id = username）。"""
 
     __tablename__ = "users"
@@ -124,7 +124,7 @@ def init_auth_db() -> None:
         ("pw_iters", f"INTEGER NOT NULL DEFAULT {_LEGACY_PBKDF2_ITERS}"),
     ):
         try:
-            with _auth_engine.begin() as conn:
+            with get_auth_engine().begin() as conn:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {ddl}"))
         except Exception:  # noqa: BLE001
             pass  # 列已存在 / 方言不支持（如某些 openGauss 变体），忽略

@@ -39,8 +39,10 @@ jobs:
       # 当前 check_untyped_defs=false，仅对「已标注类型」的代码做校验，避免无注解存量代码阻断流水线；
       # 后续为函数补全注解后逐步收紧。
       # P2-12：由「不阻断」升级为阻断门禁（去掉 continue-on-error），类型错误直接失败，提供强约束。
+      # 注意：working-directory 已是 demo，故用 mypy .；显式 --config-file ../pyproject.toml 确保
+      # 根目录的 [tool.mypy]（exclude 第三方 stub 缺失 + dev 脚本、disable_error_code=import-untyped）被加载。
       - name: Mypy type check
-        run: mypy demo
+        run: mypy . --config-file ../pyproject.toml
 
       # P2-12：安全扫描（SAST + 依赖 CVE）。
       # - bandit：源码静态安全审计，仅报高危（severity high, -lll），并对 tests 目录豁免；
