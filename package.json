@@ -1,0 +1,18 @@
+{
+  "name": "returnguard",
+  "version": "1.1.2",
+  "private": true,
+  "description": "ReturnGuard 退货情报站 — 前端静态资源构建链路（P2-6）",
+  "type": "module",
+  "scripts": {
+    "minify": "node scripts/minify.mjs",
+    "build": "node scripts/minify.mjs",
+    "serve": "python -m http.server 65432 -d demo/static"
+  },
+  "devDependencies": {
+    "terser": "^5.31.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

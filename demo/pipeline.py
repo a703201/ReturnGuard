@@ -26,6 +26,7 @@ import copy
 import hashlib
 import logging
 import random
+import re
 import threading
 from collections import Counter, OrderedDict, defaultdict
 from datetime import datetime
@@ -1027,6 +1028,50 @@ def _build_sourcing_loop(agg: dict) -> list[dict]:
     return items
 
 
+# ===================== P2-14 幻觉防护：输出数字与聚合一致性校验 =====================
+# LLM 归因文本（root_cause / report / sku_insights）可能「编造」与真实聚合不符的数字
+# （如把胜诉率说成 80% 而实际仅 34.6%）。这里在 live 归因后做一次数字对账：
+#   - 扫描 LLM 文本中「胜诉率XX%」类断言，与聚合真实 win_rate 比对；
+#   - 差异 >5 个百分点视为幻觉，就地改写为权威值，并记录 mismatch 计数。
+# 仅对文本做修正，不丢弃 LLM 的结构化结论（根因 / 建议仍保留），兼顾「防幻觉」与「不废结论」。
+_PCT_RE = re.compile(r"胜诉率\s*(?:约为?|约)?\s*(\d{1,3}(?:\.\d+)?)\s*%")
+_TOLERANCE_PP = 5.0  # 允许 ±5 个百分点误差，避免正常措辞差异被误改
+
+
+def _reconcile_text(agg: dict, text: str | None):
+    """对单段 LLM 文本做胜诉率数字对账。返回 (修正后文本, 是否修正过)。"""
+    if not text or agg.get("win_rate") is None:
+        return text, False
+    actual_pp = float(agg["win_rate"]) * 100.0
+    fixed = False
+
+    def _repl(m: re.Match) -> str:
+        nonlocal fixed
+        claimed = float(m.group(1))
+        if abs(claimed - actual_pp) > _TOLERANCE_PP:
+            fixed = True
+            return f"胜诉率{actual_pp:.0f}%"
+        return m.group(0)
+
+    return _PCT_RE.sub(_repl, text), fixed
+
+
+def _reconcile_insights(agg: dict, llm: dict) -> tuple[dict, int]:
+    """对 LLM 归因结果全字段对账。返回 (修正后 dict, mismatch 计数)。"""
+    mismatches = 0
+    for key in ("root_cause", "report"):
+        if isinstance(llm.get(key), str):
+            llm[key], f = _reconcile_text(agg, llm[key])
+            mismatches += 1 if f else 0
+    for item in llm.get("sku_insights", []) or []:
+        if isinstance(item, dict):
+            for fk in ("finding", "action"):
+                if isinstance(item.get(fk), str):
+                    item[fk], f = _reconcile_text(agg, item[fk])
+                    mismatches += 1 if f else 0
+    return llm, mismatches
+
+
 def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") -> dict:
     """阶段B 统一入口：群体洞察（功能⑥）。
     - mock：确定性规则归因，结果可复现，适合录屏演示。
@@ -1062,6 +1107,9 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
             from models_router import build_insights_live
 
             llm = build_insights_live(agg)
+            # P2-14：输出数字与聚合一致性对账（防 LLM 编造胜诉率等数字）
+            llm, _mism = _reconcile_insights(agg, llm)
+            agg["_consistency_mismatches"] = _mism
             # ⑧ 下一步怎么做：优先用 LLM 专属的 sourcing_advice，缺失时回退到 LLM 的
             # recommendations（保证 live 模式下 ⑧ 始终有内容，与 mock 字段结构一致）。
             live_advice = llm.get("sourcing_advice") or llm.get("recommendations") or []

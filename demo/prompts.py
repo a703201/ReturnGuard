@@ -12,8 +12,30 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+import os
 import re
+from typing import Any
+
+# ===================== P2-9 提示词版本管理 / A-B =====================
+# 所有对外 prompt 统一在此登记版本，便于回滚、对照与 A/B 实验：
+#   - PROMPT_VERSION：当前线上 prompt 版本（变更 prompt 文案时同步自增）。
+#   - _PROMPT_VARIANTS：variant 注册表；未来做 A/B 时在此登记新 variant 并切换
+#     RG_PROMPT_VARIANT 环境变量即可，无需改调用方。
+#   - current_prompt_variant()：返回当前生效 variant（默认 v1），供日志与产出溯源。
+# 版本号随洞察 system prompt 注入（见 INSIGHTS_SYSTEM_PERSONA），便于复盘时追溯
+# 「某次洞察结论用的是哪版 prompt」。
+PROMPT_VERSION = "2026.09.10"
+
+_PROMPT_VARIANTS: dict[str, str] = {
+    "v1": "基线（当前线上）",
+}
+
+_ACTIVE_PROMPT_VARIANT = os.environ.get("RG_PROMPT_VARIANT", "v1")
+
+
+def current_prompt_variant() -> str:
+    """返回当前生效的 prompt variant 键（受 RG_PROMPT_VARIANT 环境变量控制）。"""
+    return _ACTIVE_PROMPT_VARIANT if _ACTIVE_PROMPT_VARIANT in _PROMPT_VARIANTS else "v1"
 
 # ===================== 提示词注入防护（P1-5）=====================
 # 卖家可控的自由文本（listing_text / 商品描述 / OCR 提取的承诺）一旦直接拼入 prompt，
@@ -166,7 +188,8 @@ INSIGHTS_SYSTEM_PERSONA = (
     "你只基于提供的数据说话，不编造数字，不夸大；建议必须可执行、可落地。\n"
     "重要边界：你的职责是「数据驱动的选品避坑与品控改进建议」，不做纠纷裁决、"
     "不给法律意见、不判定责任归属（如「买家责任」「卖家全责」等）。"
-    "胜诉率（win_rate）仅作为参考指标反映历史纠纷结果分布，不代表选品成功率或未来预期。"
+    "胜诉率（win_rate）仅作为参考指标反映历史纠纷结果分布，不代表选品成功率或未来预期。\n"
+    f"[提示词版本：{PROMPT_VERSION} / variant={current_prompt_variant()}]"
 )
 
 

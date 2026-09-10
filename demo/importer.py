@@ -17,7 +17,7 @@ import logging
 import re
 import uuid
 
-from db import _norm_date_key, bulk_upsert_cases, load_cases, save_case
+from db import _norm_date_key, bulk_upsert_cases, load_cases
 from schemas import ManualCase
 
 logger = logging.getLogger("returnguard.importer")
@@ -160,17 +160,28 @@ def import_from_connector(connector, source: str = "real") -> dict:
 
     待平台凭证就绪后，connector.fetch_return_cases() 返回与 ManualCase 对齐的字典列表，
     此处统一落库。当前为可插拔接口，不改变 CSV 导入主链路。
+
+    P2-5：修复 N+1 —— 原实现逐行 `save_case`（每行独立事务），万级数据会产生数万条
+    语句且中途异常留脏数据；改为与 CSV / 文件导入一致的「单事务批量 upsert」。
     """
     rows = connector.fetch_return_cases()
     imported = skipped = 0
     errors: list[str] = []
+    data_rows: list[dict] = []
     for i, row in enumerate(rows, 1):
         try:
-            save_case(source, ManualCase(**row).model_dump())
-            imported += 1
+            data = ManualCase(**row).model_dump()
+            # 补齐稳定案件号（与 /api/cases、CSV 导入一致；connector 源头无 case_id）
+            data["case_id"] = "RG-" + uuid.uuid4().hex[:8].upper()
+            data_rows.append(data)
         except Exception as e:  # noqa: BLE001
             skipped += 1
-            errors.append(f"第{i}行落库失败: {e}")
+            errors.append(f"第{i}行解析失败: {e}")
+    # 单事务批量落库（修复 P2-5 N+1）
+    res = bulk_upsert_cases(source, data_rows)
+    imported = res["imported"]
+    skipped += res["skipped"]
+    errors.extend(res["errors"])
     logger.info("连接器导入完成 source=%s imported=%d skipped=%d", source, imported, skipped)
     return {"imported": imported, "skipped": skipped, "errors": errors}
 

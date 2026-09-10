@@ -37,9 +37,25 @@ jobs:
 
       # B-测试：mypy 类型检查（增量门禁）。
       # 当前 check_untyped_defs=false，仅对「已标注类型」的代码做校验，避免无注解存量代码阻断流水线；
-      # 后续为函数补全注解后逐步收紧。作为门禁落地但不阻断（continue-on-error），提供可见性。
+      # 后续为函数补全注解后逐步收紧。
+      # P2-12：由「不阻断」升级为阻断门禁（去掉 continue-on-error），类型错误直接失败，提供强约束。
       - name: Mypy type check
         run: mypy demo
+
+      # P2-12：安全扫描（SAST + 依赖 CVE）。
+      # - bandit：源码静态安全审计，仅报高危（severity high, -lll），并对 tests 目录豁免；
+      #   初期以「可见性优先」运行（continue-on-error），待基线稳定后可去掉该标志转为阻断。
+      # - pip-audit：检查依赖树已知 CVE，同样先以可见性优先运行，基线稳定后转阻断。
+      - name: Bandit SAST (high severity)
+        run: |
+          pip install bandit
+          bandit -r demo -lll -x demo/tests -q
+        continue-on-error: true
+
+      - name: Dependency CVE audit (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit -r demo/requirements.txt
         continue-on-error: true
 
       - name: Run tests with coverage

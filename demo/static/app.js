@@ -1,6 +1,7 @@
 import { state } from './store.js';
 import { apiFetch, authToken } from './api.js';
 import { $, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier, esc, exportReport, pct, populateFilters, realColor, renderAnnot, renderBadge, renderBarh, renderDonut, renderForecast, renderMatrix, renderOrchestration, renderSourcingLoop, renderSuppliers, renderTrendLine, setStep, trendLabel, winRateCell, wrColor } from './render.js';
+import { t, setLang, applyI18n, currentLang } from './i18n.js';
 
 // 胜诉率单元格：decided=0 表示该维度尚无已判定案件（全是「待分析」），
 
@@ -12,6 +13,28 @@ import { $, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier,
 // 所有数据接口仍经 apiFetch 附带 ?source=，无需前端手动维护。
 
 // 统一给接口地址附加当前数据源（?source=）
+
+// P2-6 骨架屏：首屏数据抵达前显示 shimmer 占位；各渲染函数覆盖 innerHTML 后自然消失。
+// 仅在首次 loadInsights 注入，避免筛选刷新时的不必要闪烁。
+const SKELETON_TARGETS = ['#catBars','#platBars','#regionBars','#seasonBars','#supBars',
+  '#rootDist','#costKpis','#forecastKpis','#matrixHeat','#trendLine','#sourcingLoop','#advice',
+  '#catTbl','#platTbl','#regionTbl','#seasonTbl','#skuTbl'];
+let _skelShown = false;
+function showSkeletons(){
+  SKELETON_TARGETS.forEach(s=>{
+    const el=$(s); if(!el) return;
+    if(el.tagName==='TABLE'){
+      const tb=el.querySelector('tbody');
+      if(tb) tb.innerHTML='<tr><td colspan="8"><div class="skel-row"><div class="skel w90"></div><div class="skel w70"></div></div></td></tr>';
+    } else {
+      el.innerHTML='<div class="skel-row"><div class="skel w90"></div><div class="skel w70"></div><div class="skel w50"></div></div>';
+    }
+  });
+  ['#kTotal','#kRefund','#kWin','#kDisp'].forEach(id=>{const e=$(id); if(e) e.classList.add('loading');});
+}
+function clearSkeletons(){
+  ['#kTotal','#kRefund','#kWin','#kDisp'].forEach(id=>{const e=$(id); if(e) e.classList.remove('loading');});
+}
 
 // HTML 转义（P1-3）：所有动态文本拼进 innerHTML 前统一转义，杜绝 live 模型自由文本引发的 XSS
 
@@ -99,6 +122,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 export async function loadInsights(){
   const status=$('#insStatus');
   status.textContent='加载中…'; status.classList.add('loading');
+  if(!_skelShown){ showSkeletons(); _skelShown=true; }
   const board=$('.board'); if(board){board.classList.remove('animated'); void board.offsetWidth; board.classList.add('animated');}
   try{
   const mode=state.source==='real'?'live':'mock', cat=$('#catSel').value, plat=$('#platSel').value;
@@ -305,7 +329,8 @@ export async function loadInsights(){
   renderDonut($('#kWinDonut'), d.win_rate||0);
   status.textContent='已更新 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
   status.classList.remove('loading');
-  }catch(e){ status.textContent='加载失败'; status.classList.remove('loading'); console.error('loadInsights 出错', e); }
+  clearSkeletons();
+  }catch(e){ status.textContent='加载失败'; status.classList.remove('loading'); clearSkeletons(); console.error('loadInsights 出错', e); }
 }
 
 
@@ -609,6 +634,14 @@ export function switchImportPane(which){
   // 清理旧版手动数据源开关的 localStorage 残留；source 现由登录态自动推导。
   localStorage.removeItem('rg_source');
 
+  // P2-7 i18n：恢复上次语言偏好并应用到可见标签
+  try {
+    setLang(currentLang());
+    const langSel = document.getElementById('langSel');
+    if (langSel) langSel.value = currentLang();
+    applyI18n();
+  } catch (e) { /* i18n 失败不阻断主流程 */ }
+
   // 数据录入页提示：登录后写入租户真实案件库；未登录则提示需登录。
   $('#entryTarget').textContent='将写入：'+(state.source==='real'?'真实案件库':'请登录后录入');
   const banner=$('#entryBanner');
@@ -646,6 +679,16 @@ $('#platSel').addEventListener('change',loadInsights);
 $('#regionSel').addEventListener('change',loadInsights);
 
 $('#seasonSel').addEventListener('change',loadInsights);
+
+// P2-7 i18n：切换界面语言（zh / en），持久化偏好并即时刷新可见标签
+(function initI18nSwitch(){
+  const sel=document.getElementById('langSel');
+  if(!sel) return;
+  sel.addEventListener('change',()=>{
+    setLang(sel.value);
+    applyI18n();
+  });
+})();
 
 $('#ovClose').addEventListener('click',closeOverlay);
 

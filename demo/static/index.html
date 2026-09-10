@@ -44,6 +44,18 @@
   .err{color:var(--bad);font-size:12px;margin-top:8px}
   .loading{animation:pulse 1.2s ease-in-out infinite}
 
+  /* ===== P2-6 骨架屏：首屏数据抵达前显示 shimmer 微光占位，渲染函数覆盖后自然消失 ===== */
+  .skel{position:relative;overflow:hidden;background:linear-gradient(90deg,#1e293b 25%,#2a3a52 37%,#1e293b 63%);background-size:400% 100%;animation:skelShimmer 1.3s ease-in-out infinite;border-radius:6px}
+  @keyframes skelShimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
+  .skel-row{display:flex;flex-direction:column;gap:8px;margin:6px 0;padding:2px 0}
+  .skel-row .skel{height:14px}
+  .skel-row .skel.w90{width:90%}.skel-row .skel.w70{width:70%}.skel-row .skel.w50{width:50%}
+  /* 浅色模式：骨架屏底色跟随卡片（避免深色块在白底上突兀） */
+  @media (prefers-color-scheme: light){
+    .skel{background:linear-gradient(90deg,#e2e8f0 25%,#cbd5e1 37%,#e2e8f0 63%)}
+  }
+
+
   /* ===== 全屏不滚动骨架 ===== */
   .app{display:flex;flex-direction:column;height:100vh;height:100dvh}
   .topbar{flex:0 0 auto;padding:10px 16px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #1e293b}
@@ -706,10 +718,10 @@
         </div>
         <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：AI 实算数据按租户隔离"></span>
         <div class="kpis">
-          <div class="kpi"><div class="v" id="kTotal">-</div><div class="l">已分析退货</div></div>
-          <div class="kpi"><div class="v" id="kRefund">-</div><div class="l">累计退款¥</div></div>
-          <div class="kpi kpi-win"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="60" height="60" viewBox="0 0 92 92"></svg><div class="l">维权胜诉率</div></div>
-          <div class="kpi"><div class="v" id="kDisp">-</div><div class="l">货不对板嫌疑率</div><div class="h" id="kDispNote" title="">代理指标 ⓘ</div></div>
+          <div class="kpi"><div class="v" id="kTotal">-</div><div class="l" data-i18n="kpi.total">已分析退货</div></div>
+          <div class="kpi"><div class="v" id="kRefund">-</div><div class="l" data-i18n="kpi.refund">累计退款¥</div></div>
+          <div class="kpi kpi-win"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="60" height="60" viewBox="0 0 92 92"></svg><div class="l" data-i18n="kpi.win">维权胜诉率</div></div>
+          <div class="kpi"><div class="v" id="kDisp">-</div><div class="l" data-i18n="kpi.disp">货不对板嫌疑率</div><div class="h" id="kDispNote" title="">代理指标 ⓘ</div></div>
         </div>
       </div>
       <div class="hrow2">
@@ -729,18 +741,22 @@
             <option value="秋">秋</option><option value="冬">冬</option>
           </select>
           <!-- 洞察模式由登录态自动路由：未登录→演示布局(mock)，已登录→AI 实算(live)，无需手动选择 -->
-          <button id="loadIns">刷新看板</button>
+          <button id="loadIns" data-i18n="btn.refresh">刷新看板</button>
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
           <span id="insStatus" class="pill" style="background:#334155">就绪</span>
-          <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:#1e293b;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer">登录</button>
+          <select id="langSel" title="切换界面语言 / Switch language" aria-label="语言">
+            <option value="zh" data-lang-label="lang.zh">中文</option>
+            <option value="en" data-lang-label="lang.en">English</option>
+          </select>
+          <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:#1e293b;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer" data-i18n="btn.login">登录</button>
         </div>
         <nav class="tabs" role="tablist" aria-label="主导航">
-          <button id="tabBtn-dash" role="tab" aria-selected="true" aria-controls="tab-dash" data-tab="dash" class="active">市场洞察</button>
-          <button id="tabBtn-plat" role="tab" aria-selected="false" aria-controls="tab-plat" data-tab="plat">平台举证包</button>
-          <button id="tabBtn-supplier" role="tab" aria-selected="false" aria-controls="tab-supplier" data-tab="supplier">供应商透视</button>
-          <button id="tabBtn-forensic" role="tab" aria-selected="false" aria-controls="tab-forensic" data-tab="forensic">单案取证</button>
-          <button id="tabBtn-entry" role="tab" aria-selected="false" aria-controls="tab-entry" data-tab="entry">数据录入</button>
+          <button id="tabBtn-dash" role="tab" aria-selected="true" aria-controls="tab-dash" data-tab="dash" class="active" data-i18n="tab.dash">市场洞察</button>
+          <button id="tabBtn-plat" role="tab" aria-selected="false" aria-controls="tab-plat" data-tab="plat" data-i18n="tab.plat">平台举证包</button>
+          <button id="tabBtn-supplier" role="tab" aria-selected="false" aria-controls="tab-supplier" data-tab="supplier" data-i18n="tab.supplier">供应商透视</button>
+          <button id="tabBtn-forensic" role="tab" aria-selected="false" aria-controls="tab-forensic" data-tab="forensic" data-i18n="tab.forensic">单案取证</button>
+          <button id="tabBtn-entry" role="tab" aria-selected="false" aria-controls="tab-entry" data-tab="entry" data-i18n="tab.entry">数据录入</button>
         </nav>
       </div>
     </header>
@@ -750,7 +766,7 @@
       <section id="tab-dash" class="tabpane active" role="tabpanel" aria-labelledby="tabBtn-dash">
         <div id="judgeGuide" class="judge-guide">
           <div class="jg-head">
-            <strong>📋 评委体验指引</strong>
+            <strong data-i18n="judge.title">📋 评委体验指引</strong>
             <button id="jgClose" type="button" aria-label="关闭指引" title="关闭">×</button>
           </div>
           <div class="jg-body">
@@ -763,8 +779,8 @@
           </div>
         </div>
         <div class="dash-toolbar">
-          <span class="dt-note">看板随顶部「品类 / 平台 / 洞察模式」筛选实时刷新 · 一键导出本期洞察</span>
-          <button id="btnReport" type="button">导出洞察报告</button>
+          <span class="dt-note" data-i18n="toolbar.note">看板随顶部「品类 / 平台 / 洞察模式」筛选实时刷新 · 一键导出本期洞察</span>
+          <button id="btnReport" type="button" data-i18n="btn.report">导出洞察报告</button>
         </div>
         <div class="board">
           <!-- 按列分组的看板（Issue B：按列折叠，展开前仅显示标题，点击展开；同列内单开折叠） -->
