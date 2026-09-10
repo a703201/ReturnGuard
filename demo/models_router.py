@@ -55,6 +55,7 @@ from prompts import (
     build_insights_prompt,
     consistency_prompt,
     dossier_prompt,
+    sanitize_user_content,
     voice_prompt,
 )
 
@@ -757,6 +758,8 @@ def live_analyze(
     returned_url / product_url：上传图的公网 URL（由 storage 层给出，图床落地 P3-17）；
     缺省时按 PUBLIC_IMAGE_BASE + 文件名拼装（保持旧行为）。
     """
+    # P1-5：卖家可控的 listing_text 在边界处即净化，杜绝经 OCR 回退/直接注入污染 AI 结论
+    listing_text = sanitize_user_content(listing_text)
     if not API_KEY:
         raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
     # 可观测：每次 live 取证生成 trace_id，贯穿日志与返回体，便于演示现场与排障串联。

@@ -6,7 +6,7 @@
 import json
 import uuid
 
-import main  # 用于 monkeypatch 代理信任列表
+import common  # 用于 monkeypatch 代理信任列表（P1-9 拆分后这些值迁移至 common 模块）
 from db import get_case
 from fastapi.testclient import TestClient
 from main import app
@@ -142,7 +142,7 @@ def test_calibrate_requires_admin_key(monkeypatch):
 
     设了 ADMIN_API_KEY 后，匿名（无密钥）→ 401；带 X-Admin-Key → 通过（样本不足则不落盘）。
     避免任何人匿名覆写胜诉率判定逻辑。"""
-    monkeypatch.setattr(main, "_ADMIN_KEY", "admin-secret")
+    monkeypatch.setattr(common, "_ADMIN_KEY", "admin-secret")
     with TestClient(app) as c:
         # 匿名（无 ADMIN_KEY）→ 401
         r1 = c.post("/api/calibrate", json={"same_sims": [0.9], "diff_sims": [0.2]})
@@ -177,21 +177,21 @@ class _StubRequest:
 
 def test_get_client_ip_proxy_aware(monkeypatch):
     """仅当直连属于可信代理时才采纳 X-Forwarded-For / X-Real-IP；否则用直连 IP（防伪造绕过限流）。"""
-    monkeypatch.setattr(main, "_AUTH_TRUSTED_PROXIES", ["127.0.0.1/32"])
-    assert main.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9, 10.0.0.1")) == "9.9.9.9"
-    assert main.get_client_ip(_StubRequest("127.0.0.1", xri="8.8.8.8")) == "8.8.8.8"
+    monkeypatch.setattr(common, "_AUTH_TRUSTED_PROXIES", ["127.0.0.1/32"])
+    assert common.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9, 10.0.0.1")) == "9.9.9.9"
+    assert common.get_client_ip(_StubRequest("127.0.0.1", xri="8.8.8.8")) == "8.8.8.8"
     # 未配置可信代理 → 忽略转发头
-    monkeypatch.setattr(main, "_AUTH_TRUSTED_PROXIES", [])
-    assert main.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9")) == "127.0.0.1"
+    monkeypatch.setattr(common, "_AUTH_TRUSTED_PROXIES", [])
+    assert common.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9")) == "127.0.0.1"
     # 直连不在可信列表 → 不采纳
-    monkeypatch.setattr(main, "_AUTH_TRUSTED_PROXIES", ["10.0.0.0/8"])
-    assert main.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9")) == "127.0.0.1"
+    monkeypatch.setattr(common, "_AUTH_TRUSTED_PROXIES", ["10.0.0.0/8"])
+    assert common.get_client_ip(_StubRequest("127.0.0.1", xff="9.9.9.9")) == "127.0.0.1"
 
 
 def test_duplicate_register_generic(monkeypatch):
     """重名注册返回泛化 400，不泄露'用户名已存在'（消除用户名枚举）。"""
-    monkeypatch.setattr(main, "_REGISTRATION_ENABLED", True)
-    monkeypatch.setattr(main, "_REGISTRATION_INVITE_CODE", "")
+    monkeypatch.setattr(common, "_REGISTRATION_ENABLED", True)
+    monkeypatch.setattr(common, "_REGISTRATION_INVITE_CODE", "")
     with TestClient(app) as c:
         u = "dup_" + uuid.uuid4().hex[:6]
         assert (

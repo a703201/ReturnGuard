@@ -14,7 +14,7 @@ import uuid
 from urllib.parse import parse_qs, quote, urlparse
 
 import auth as auth_mod
-import main as main_mod
+import common as common_mod  # P1-9 拆分后 get_client_ip / _AUTH_TRUSTED_PROXIES 迁移至 common
 import pytest
 import storage as storage_mod
 from fastapi.testclient import TestClient
@@ -179,12 +179,12 @@ def test_client_ip_respects_cloudflare_proxy(monkeypatch):
         headers = {"CF-Connecting-IP": "203.0.113.5"}
 
     # 场景1：配置了可信代理 → 还原真实访客 IP
-    monkeypatch.setattr(main_mod, "_AUTH_TRUSTED_PROXIES", ["127.0.0.1"])
-    assert main_mod.get_client_ip(_Req()) == "203.0.113.5", "SEC-3：应采纳 CF-Connecting-IP"
+    monkeypatch.setattr(common_mod, "_AUTH_TRUSTED_PROXIES", ["127.0.0.1"])
+    assert common_mod.get_client_ip(_Req()) == "203.0.113.5", "SEC-3：应采纳 CF-Connecting-IP"
 
     # 场景2：未配置可信代理（默认）→ 忽略伪造转发头，使用直连 IP
-    monkeypatch.setattr(main_mod, "_AUTH_TRUSTED_PROXIES", [])
-    assert main_mod.get_client_ip(_Req()) == "127.0.0.1", "SEC-3：未信代理时应忽略伪造 CF-IP"
+    monkeypatch.setattr(common_mod, "_AUTH_TRUSTED_PROXIES", [])
+    assert common_mod.get_client_ip(_Req()) == "127.0.0.1", "SEC-3：未信代理时应忽略伪造 CF-IP"
 
 
 # ===================== SEC-8 / SEC-9 收口回归 =====================

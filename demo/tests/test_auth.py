@@ -7,7 +7,7 @@
 import uuid
 
 import auth  # 用于重置懒引擎，确保用户库隔离
-import main  # 用于 monkeypatch 限流/封禁/注册开关等模块级状态
+import common  # 用于 monkeypatch 限流/封禁/注册开关等模块级状态（P1-9 拆分后这些值迁移至 common）
 import pytest
 import shared_state  # SEC-12：共享状态（限流/封禁）落库，测试需 reset
 from db import save_case  # 构造 public 基准数据（API 写入一律归属当前租户）
@@ -160,7 +160,7 @@ def _reset_auth_state(monkeypatch):
 def test_register_rate_limited(client, monkeypatch):
     """同 IP 注册超过上限即被 429 拦截（防批量建租户 spam）。"""
     _reset_auth_state(monkeypatch)
-    monkeypatch.setattr(main, "_AUTH_REGISTER_LIMIT", 2)
+    monkeypatch.setattr(common, "_AUTH_REGISTER_LIMIT", 2)
     ok = 0
     for i in range(4):
         r = client.post(
@@ -181,8 +181,8 @@ def test_login_lockout_after_fails(client, monkeypatch):
     攻击者可用「429 已锁定」vs「401 不存在」的差异枚举出真实用户名。
     """
     _reset_auth_state(monkeypatch)
-    monkeypatch.setattr(main, "_LOGIN_MAX_FAILS", 3)
-    monkeypatch.setattr(main, "_LOGIN_LOCK_SEC", 900)
+    monkeypatch.setattr(common, "_LOGIN_MAX_FAILS", 3)
+    monkeypatch.setattr(common, "_LOGIN_LOCK_SEC", 900)
     u = "lock_" + uuid.uuid4().hex[:6]
     client.post("/api/auth/register", json={"username": u, "password": "secret123"})
     for _ in range(3):  # 连续 3 次错密码
@@ -223,7 +223,7 @@ def test_logout_invalidates_token(client, monkeypatch):
 def test_invite_code_required_when_set(client, monkeypatch):
     """设置邀请码后，无/错邀请码注册被拒，匹配则通过。"""
     _reset_auth_state(monkeypatch)
-    monkeypatch.setattr(main, "_REGISTRATION_INVITE_CODE", "letmein")
+    monkeypatch.setattr(common, "_REGISTRATION_INVITE_CODE", "letmein")
     no_code = client.post(
         "/api/auth/register",
         json={"username": "inv1_" + uuid.uuid4().hex[:4], "password": "secret123"},
@@ -252,7 +252,7 @@ def test_invite_code_required_when_set(client, monkeypatch):
 def test_registration_disabled(client, monkeypatch):
     """REGISTRATION_ENABLED=false 时注册返回 403。"""
     _reset_auth_state(monkeypatch)
-    monkeypatch.setattr(main, "_REGISTRATION_ENABLED", False)
+    monkeypatch.setattr(common, "_REGISTRATION_ENABLED", False)
     r = client.post(
         "/api/auth/register",
         json={"username": "off_" + uuid.uuid4().hex[:4], "password": "secret123"},
