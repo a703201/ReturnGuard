@@ -1141,7 +1141,12 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
     # B组·选品避坑闭环：无论 mock/live，均把负面信号收敛成可执行清单（结构化、可落地）
     agg["sourcing_checklist"] = _build_sourcing_loop(agg)
     agg["mode"] = agg.get("mode", "mock")
-    # 同 P1-7：存入缓存的是 agg 的深拷贝，返回给调用方的 agg 与缓存副本互不别名，
-    # 调用方就地改写不会污染缓存。
+    # 缓存入库策略（可用性修复）：mock 结果确定性、live **成功**结果缓存以省 token；
+    # 但 **live 失败回退（mock(fallback)）不入缓存** —— 否则一次瞬时故障（网关抖动 / Docker DNS
+    # 抖动 / 超时）会被这条 LRU 记录"粘住"，直到案件集或代际变化才恢复，前端会**持续**显示
+    # "AI 实算失败"（本会话实测复现：DNS 已恢复但 live 仍秒回退，即命中该缓存）。
+    # 同 P1-7：存入缓存的是 agg 的深拷贝，返回给调用方的 agg 与缓存副本互不别名。
+    if agg.get("mode") == "mock(fallback)":
+        return agg
     _ins_cache_put(key, copy.deepcopy(agg))
     return agg

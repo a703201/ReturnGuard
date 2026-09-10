@@ -222,3 +222,36 @@ def test_rerank_fallback_to_local_formula(monkeypatch):
     assert res["capabilities"]["rerank"] is False
     assert "rerank" in res["degraded"]
     assert 0 < res["priority_score"] <= 1.0
+
+
+def test_live_insights_fallback_not_cached(monkeypatch):
+    """可用性回归：live 洞察失败回退结果**不入缓存**，避免瞬时故障被"粘住"。
+
+    背景：build_insights 的洞察缓存按 (mode, source, sig, 代际) 缓存。若把 live 失败回退
+    （mock(fallback)）也写进缓存，一次网关/DNS 瞬时抖动就会让前端**持续**显示"AI 实算失败"，
+    直到案件集或代际变化才恢复（无法自愈）。本用例断言：失败后再次调用应**重新尝试**（不被缓存短路）。
+    """
+    import models_router
+
+    calls = {"n": 0}
+
+    def _boom(*_a, **_k):
+        calls["n"] += 1
+        raise RuntimeError("gateway down (模拟瞬时故障)")
+
+    monkeypatch.setattr(models_router, "build_insights_live", _boom)
+    cases = [
+        {
+            "case_id": "RG-CACHE-1",
+            "sku": "SKU-C",
+            "amount": 10,
+            "outcome": "赢",
+            "defect_tags": ["功能故障"],
+            "date": "2025-01-01",
+        }
+    ]
+    a1 = pipeline.build_insights(cases, mode="live", source="demo")
+    assert a1["mode"] == "mock(fallback)"
+    a2 = pipeline.build_insights(cases, mode="live", source="demo")
+    assert a2["mode"] == "mock(fallback)"
+    assert calls["n"] == 2, "live 回退结果不应入缓存，第二次应重新真实尝试"
