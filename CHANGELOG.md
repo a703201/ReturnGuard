@@ -87,6 +87,17 @@
 - **N3 i18n 扩容**：`data-i18n` 由 14 处扩展到 **30 处**（15 张卡片标题 + 登录门按钮），`i18n.js` 字典补齐 zh/en。
 - **N4 构建链路可用化**：`scripts/minify.mjs` 输出到 `demo/static/dist/` 并**重写 ESM 相对导入**、生成 `dist/index.html`；`routers/frontend.py` 新增 `SERVE_MINIFIED=1` 开关（默认发未压缩源）；实测压缩 **-31%**；`dist/` 与 `node_modules/` 已 gitignore。
 
+### 2026-09-11 四项收口（正文级 i18n / 母语多语 TTS / ROI 回测 + A/B 台架 / 告警清零）
+
+> 第二轮审查报告（`ReturnGuard_大厂标准多维审查_20260910.md`）遗留四项全量收口。版本号维持 1.1.2。测试 **112 → 123 passed 全绿**，ruff / mypy（31 files）/ pytest 四道门禁本地全通过。
+
+- **#1 母语多语 TTS**：TTS 音色不再硬编码 `Chelsie`。`constants.py` 新增语言→音色映射与 `DEFAULT_LANGUAGE`（单一来源）；`models_router.tts()` 按 `language` 选音色；`live_analyze()` 新增 `language` 入参（LLM 用目标语言生成陈述、TTS 用对应音色）；`prompts.voice_statement()` 提供多语陈述模板（mock 与 live 文本回退共用同一口径，未知语言回退中文）；`/api/analyze` 接收 `language`、`/api/config` 下发 `languages` 清单；前端取证表单新增语言选择器，结果区展示「语言 · 音色」。新增 4 条回归用例。
+- **#2 正文级 i18n**：`data-i18n` 由 30 处扩展到 **116 处**（卡片 desc / 表头 / ROI 面板 / 评委指引 / 取证与录入表单标签）；**动态渲染层首次接入**——`render.js` / `app.js` 中 185 处硬编码中文改为 `t()` 调用（看板正文、供应商下钻、平台举证包、报告导出、状态提示、分页、导入结果）；`i18n.js` 字典 zh/en 各 **316 键**（原 119），键完整性由脚本逐项对账（无缺失、无冗余）；切换语言后会重渲染动态区块（此前动态区仍是旧语言）。后端返回的**数据值**（洞察正文、缺陷标签、供应商名）仍为其原始语言，已在 `docs/` 与注释中声明边界。
+- **#3 A/B 对照 + ROI 回测实证**：
+  - **ROI 回测**：`pipeline._roi_backtest()` 基于**真实聚合值**（案件量/退款/争议占比/胜诉率/物流成本）输出**保守 / 基准 / 乐观**三档可挽回区间 + 单因子敏感性（案件量、争议占比 ±20%），胜诉率提升受「上限 − 当前」双重约束不会溢出；`method` 与 `disclaimer` **随结果强制下发**并声明「模型回测，非 A/B 实测因果」；接入 `/api/insights` 与前端 ROI 面板（与上方全假设 what-if 并列展示）。新增 7 条回归用例（含诚实性字段断言）。
+  - **A/B 台架**：新增 `demo/ab_experiment.py`，同一批案件、同一模型、同一聚合输入下对比 prompt 变体 A/B，量化 JSON 可用率、幻觉对账 mismatch、耗时、字段填充率；`--mode mock` 可零成本干跑验证台架。⚠️ 修复台架自身缺陷：连跑 A/B 时变体 B 会**命中变体 A 的洞察缓存**（实测 0.01s 返回、mismatch 与 A 完全相同），已在每次运行前清空 `_ins_cache`。
+- **#4 SQLAlchemy DeprecationWarning 清零**：`auth.py` 的 `Column(DateTime, default=datetime.utcnow)` 改为 naive-UTC 等价实现（保持列类型与存储格式不变、零迁移），19 条 `datetime.utcnow()` 弃用告警 → **0**，规避未来 SQLAlchemy 版本移除该 API 导致的升级 break。
+
 ---
 
 ## [1.1.1] — 2026-08-27

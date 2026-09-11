@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>ReturnGuard 退货情报站（大屏看板）</title>
+<title data-i18n="app.title">ReturnGuard 退货情报站（大屏看板）</title>
 <style>
   :root{--bg:#0f172a;--card:#1e293b;--acc:#38bdf8;--ok:#34d399;--warn:#fbbf24;--bad:#f87171;--txt:#e2e8f0;--border:#334155;--bg2:#0b1220;--txt2:#cbd5e1;--txt3:#94a3b8}
 
@@ -118,6 +118,15 @@
   .roi-num{font-size:20px;font-weight:800;color:var(--acc)}
   .roi-cap{font-size:11.5px;color:var(--txt2)}
   .roi-formula{font-size:11px;color:var(--txt2);margin:4px 0 0}
+  /* ROI 真实回测区间（后端 roi_backtest 下发） */
+  .roi-bt{margin-top:10px;border:1px solid rgba(148,163,184,.28);border-radius:10px;padding:10px 12px;background:rgba(148,163,184,.06)}
+  .roi-bt-head{font-size:12px;font-weight:700;color:var(--txt);margin-bottom:6px}
+  .roi-bt-tbl{width:100%;border-collapse:collapse;font-size:12px}
+  .roi-bt-tbl th{text-align:left;color:var(--txt3);font-weight:600;padding:4px 8px 4px 0;border-bottom:1px solid var(--border)}
+  .roi-bt-tbl td{padding:4px 8px 4px 0;color:var(--txt2);border-bottom:1px solid rgba(148,163,184,.12)}
+  .roi-bt-tbl td:first-child{color:var(--txt);font-weight:600}
+  .roi-bt-tbl td.num{font-variant-numeric:tabular-nums;color:var(--acc);font-weight:600}
+  .roi-bt-foot{font-size:11px;color:var(--txt3);margin-top:6px;line-height:1.6}
 
   .card:not(.collapsed){flex:1 1 0;min-height:0;display:flex;flex-direction:column}
   /* 展开/收起动效：高度由 JS 实测内容高度（真 auto 高度），过渡 + 淡入 + 微位移 */
@@ -714,37 +723,37 @@
         <div class="brand">
           <h1>ReturnGuard 退货情报站</h1>
           <span id="appVer" style="display:inline-block;margin-left:10px;padding:2px 9px;border:1px solid #334155;border-radius:999px;font-size:12px;color:#94a3b8;vertical-align:middle;font-weight:600">V…</span>
-          <div class="sub">把每一笔退货变成市场情报 · 大屏实时洞察（左：给老板看的洞察看板；右：取证工具）</div>
+          <div class="sub" data-i18n="app.sub">把每一笔退货变成市场情报 · 大屏实时洞察（左：给老板看的洞察看板；右：取证工具）</div>
         </div>
         <span id="userTag" class="pill" style="background:var(--ok);display:none;align-self:center;white-space:nowrap" title="当前租户：AI 实算数据按租户隔离"></span>
         <div class="kpis">
           <div class="kpi"><div class="v" id="kTotal">-</div><div class="l" data-i18n="kpi.total">已分析退货</div></div>
           <div class="kpi"><div class="v" id="kRefund">-</div><div class="l" data-i18n="kpi.refund">累计退款¥</div></div>
           <div class="kpi kpi-win"><div class="v" id="kWin">-</div><svg id="kWinDonut" class="donut" width="60" height="60" viewBox="0 0 92 92"></svg><div class="l" data-i18n="kpi.win">维权胜诉率</div></div>
-          <div class="kpi"><div class="v" id="kDisp">-</div><div class="l" data-i18n="kpi.disp">货不对板嫌疑率</div><div class="h" id="kDispNote" title="">代理指标 ⓘ</div></div>
+          <div class="kpi"><div class="v" id="kDisp">-</div><div class="l" data-i18n="kpi.disp">货不对板嫌疑率</div><div class="h" id="kDispNote" title="" data-i18n="kpi.dispNote">代理指标 ⓘ</div></div>
         </div>
       </div>
       <div class="hrow2">
         <div class="bar-top">
-          <select id="catSel"><option value="">全部品类</option></select>
-          <select id="platSel"><option value="">全部平台</option></select>
+          <select id="catSel"><option value="" data-i18n="filter.allCat">全部品类</option></select>
+          <select id="platSel"><option value="" data-i18n="filter.allPlat">全部平台</option></select>
           <select id="regionSel" title="按销售地区下钻（维度扩展）">
-            <option value="">全部地区</option>
+            <option value="" data-i18n="filter.allRegion">全部地区</option>
             <option value="US">US</option><option value="UK">UK</option>
             <option value="DE">DE</option><option value="FR">FR</option>
             <option value="ES">ES</option><option value="RU">RU</option>
             <option value="BR">BR</option>
           </select>
           <select id="seasonSel" title="按季节下钻（维度扩展）">
-            <option value="">全部季节</option>
-            <option value="春">春</option><option value="夏">夏</option>
-            <option value="秋">秋</option><option value="冬">冬</option>
+            <option value="" data-i18n="filter.allSeason">全部季节</option>
+            <option value="春" data-i18n="season.spring">春</option><option value="夏" data-i18n="season.summer">夏</option>
+            <option value="秋" data-i18n="season.autumn">秋</option><option value="冬" data-i18n="season.winter">冬</option>
           </select>
           <!-- 洞察模式由登录态自动路由：未登录→演示布局(mock)，已登录→AI 实算(live)，无需手动选择 -->
           <button id="loadIns" data-i18n="btn.refresh">刷新看板</button>
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
-          <span id="insStatus" class="pill" style="background:#334155">就绪</span>
+          <span id="insStatus" class="pill" style="background:#334155" data-i18n="app.ready">就绪</span>
           <select id="langSel" title="切换界面语言 / Switch language" aria-label="语言">
             <option value="zh" data-lang-label="lang.zh">中文</option>
             <option value="en" data-lang-label="lang.en">English</option>
@@ -788,38 +797,38 @@
             <div class="card" data-card="c1-1" data-col="1">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c11">钱都亏在哪些品类</h3>
               <div class="card-body">
-                <p class="desc">退货热力：哪类退货最多、最亏钱、最难赢。行越红越该警惕。</p>
+                <p class="desc" data-i18n="desc.c11">退货热力：哪类退货最多、最亏钱、最难赢。行越红越该警惕。</p>
                 <div id="catBars" class="chart"></div>
-                <table id="catTbl"><thead><tr><th>品类</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th></tr></thead><tbody></tbody></table>
+                <table id="catTbl"><thead><tr><th data-i18n="th.category">品类</th><th data-i18n="th.cases">笔数</th><th data-i18n="th.refund">退款¥</th><th data-i18n="th.win">胜诉率</th><th data-i18n="th.topDefect">头号问题</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
             <div class="card" data-card="c1-2" data-col="1">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c12">各平台维权难度</h3>
               <div class="card-body">
-                <p class="desc">不同平台判买家赢的倾向不同；买家友好型（如 AliExpress）更难赢。详见「平台举证包」。</p>
+                <p class="desc" data-i18n="desc.c12">不同平台判买家赢的倾向不同；买家友好型（如 AliExpress）更难赢。详见「平台举证包」。</p>
                 <div id="platBars" class="chart"></div>
-                <table id="platTbl"><thead><tr><th>平台</th><th>笔数</th><th>胜诉率</th><th>退款¥</th></tr></thead><tbody></tbody></table>
+                <table id="platTbl"><thead><tr><th data-i18n="th.platform">平台</th><th data-i18n="th.cases">笔数</th><th data-i18n="th.win">胜诉率</th><th data-i18n="th.refund">退款¥</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
             <div class="card" data-card="c1-3" data-col="1">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c13">给老板的洞察总结</h3>
               <div class="card-body">
-                <p class="desc">一段话讲清本期退货全貌，不用懂技术也能拿去汇报。</p>
+                <p class="desc" data-i18n="desc.c13">一段话讲清本期退货全貌，不用懂技术也能拿去汇报。</p>
                 <pre id="report"></pre>
               </div>
             </div>
             <div class="card" data-card="c1-4" data-col="1">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c14">退货地区分布</h3>
               <div class="card-body">
-                <p class="desc">按宏观销售地区看纠纷量与退款，定位高退货区域，辅助区域化选品与物流策略。</p>
+                <p class="desc" data-i18n="desc.c14">按宏观销售地区看纠纷量与退款，定位高退货区域，辅助区域化选品与物流策略。</p>
                 <div id="regionBars" class="chart"></div>
-                <table id="regionTbl"><thead><tr><th>地区</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+                <table id="regionTbl"><thead><tr><th data-i18n="th.region">地区</th><th data-i18n="th.cases">笔数</th><th data-i18n="th.refund">退款¥</th><th data-i18n="th.win">胜诉率</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
             <div class="card" data-card="c1-5" data-col="1">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c15">退货时间序列趋势</h3>
               <div class="card-body">
-                <p class="desc">按月统计退货案件量（实线为历史，虚线为预测）。识别退货爬坡节奏，配合下方预测预警提前布局。</p>
+                <p class="desc" data-i18n="desc.c15">按月统计退货案件量（实线为历史，虚线为预测）。识别退货爬坡节奏，配合下方预测预警提前布局。</p>
                 <div id="trendLine" class="chart"></div>
                 <div id="trendNote" class="note"></div>
               </div>
@@ -829,7 +838,7 @@
             <div class="card" data-card="c2-1" data-col="2">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c21">退货预测预警</h3>
               <div class="card-body">
-                <p class="desc">基于历史月度序列做线性外推，预测未来 3 个月退货量与退款，并给出上行预警。</p>
+                <p class="desc" data-i18n="desc.c21">基于历史月度序列做线性外推，预测未来 3 个月退货量与退款，并给出上行预警。</p>
                 <div id="forecastKpis" class="chart"></div>
                 <div id="forecastList"></div>
                 <div id="forecastAlerts"></div>
@@ -838,7 +847,7 @@
             <div class="card" data-card="c2-2" data-col="2">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c22">退货为什么发生</h3>
               <div class="card-body">
-                <p class="desc">把退货原因归到几大类，告诉你最该先治哪一环。</p>
+                <p class="desc" data-i18n="desc.c22">把退货原因归到几大类，告诉你最该先治哪一环。</p>
                 <div id="rootDist"></div>
                 <pre id="rootCause" style="margin-top:10px"></pre>
               </div>
@@ -846,23 +855,23 @@
             <div class="card" data-card="c2-3" data-col="2">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c23">最近暴增的退货</h3>
               <div class="card-body">
-                <p class="desc">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
-                <div id="alerts"><span class="note">本期无异常（近 30 天增量未超阈值）。</span></div>
+                <p class="desc" data-i18n="desc.c23">监控近 30 天比前期明显增多的商品，提前发现批次/物流/供应商问题。</p>
+                <div id="alerts"><span class="note" data-i18n="alerts.none">本期无异常（近 30 天增量未超阈值）。</span></div>
               </div>
             </div>
             <div class="card" data-card="c2-4" data-col="2">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c24">下一步怎么做</h3>
               <div class="card-body">
-                <p class="desc">落到动作的选品避坑与品控建议。</p>
+                <p class="desc" data-i18n="desc.c24">落到动作的选品避坑与品控建议。</p>
                 <div id="advice"></div>
               </div>
             </div>
             <div class="card" data-card="c2-5" data-col="2">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c25">退货季节趋势</h3>
               <div class="card-body">
-                <p class="desc">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
+                <p class="desc" data-i18n="desc.c25">按季节看退货走势，识别季节性强/弱品类，提前备货与质量管控。</p>
                 <div id="seasonBars" class="chart"></div>
-                <table id="seasonTbl"><thead><tr><th>季节</th><th>笔数</th><th>退款¥</th><th>胜诉率</th></tr></thead><tbody></tbody></table>
+                <table id="seasonTbl"><thead><tr><th data-i18n="th.season">季节</th><th data-i18n="th.cases">笔数</th><th data-i18n="th.refund">退款¥</th><th data-i18n="th.win">胜诉率</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
           </div>
@@ -870,14 +879,14 @@
             <div class="card" data-card="c3-1" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c31">选品避坑闭环 · 可执行清单</h3>
               <div class="card-body">
-                <p class="desc">把退货证据收敛成可直接落地的动作项（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控），按严重度排序。拿到就能做决策。</p>
+                <p class="desc" data-i18n="desc.c31">把退货证据收敛成可直接落地的动作项（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控），按严重度排序。拿到就能做决策。</p>
                 <div id="sourcingLoop"></div>
               </div>
             </div>
             <div class="card" data-card="c3-2" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="true" data-i18n="card.c32">哪些供应商最该换</h3>
               <div class="card-body">
-                <p class="desc">按缺陷率与胜诉率打质量分。黑榜=高风险建议换，红榜=可长期合作。</p>
+                <p class="desc" data-i18n="desc.c32">按缺陷率与胜诉率打质量分。黑榜=高风险建议换，红榜=可长期合作。</p>
                 <div id="supBars" class="chart"></div>
                 <div id="supBlack"></div>
                 <div id="supRed" style="margin-top:8px"></div>
@@ -886,21 +895,21 @@
             <div class="card" data-card="c3-3" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c33">最烧钱的退货商品</h3>
               <div class="card-body">
-                <p class="desc">按退款金额排的退货商品（卡内可滚动）。点开看高发问题。</p>
-                <table id="skuTbl"><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>笔数</th><th>退款¥</th><th>胜诉率</th><th>头号问题</th><th>预警</th></tr></thead><tbody></tbody></table>
+                <p class="desc" data-i18n="desc.c33">按退款金额排的退货商品（卡内可滚动）。点开看高发问题。</p>
+                <table id="skuTbl"><thead><tr><th>SKU</th><th data-i18n="th.category">品类</th><th data-i18n="th.supplier">供应商</th><th data-i18n="th.cases">笔数</th><th data-i18n="th.refund">退款¥</th><th data-i18n="th.win">胜诉率</th><th data-i18n="th.topDefect">头号问题</th><th data-i18n="th.alert">预警</th></tr></thead><tbody></tbody></table>
               </div>
             </div>
             <div class="card" data-card="c3-4" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c34">平台 × 供应商 维权交叉</h3>
               <div class="card-body">
-                <p class="desc">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
+                <p class="desc" data-i18n="desc.c34">同一供应商在不同平台胜诉率差异，暴露平台判罚+供货质量双重信号。越绿越能赢。</p>
                 <div id="matrixHeat" class="chart scrollx"></div>
               </div>
             </div>
             <div class="card" data-card="c3-5" data-col="3">
               <h3 class="card-head" tabindex="0" role="button" aria-expanded="false" data-i18n="card.c35">退货成本 & 供应商黑名单</h3>
               <div class="card-body">
-                <p class="desc">退货总成本 = 退款 + 物流（按地区估算）；自动列出「高风险 / 待改进」档位的供应商与可解释理由（分级与黑名单共用同一套阈值）。</p>
+                <p class="desc" data-i18n="desc.c35">退货总成本 = 退款 + 物流（按地区估算）；自动列出「高风险 / 待改进」档位的供应商与可解释理由（分级与黑名单共用同一套阈值）。</p>
                 <div id="costKpis" class="chart"></div>
                 <div id="blacklist"></div>
               </div>
@@ -908,29 +917,42 @@
           </div>
           <!-- ROI 量化面板（客单价 / 争议占比接入真实看板数据） -->
           <div class="card roi-card" style="margin:14px 0 4px">
-            <h3>用了 ReturnGuard，退货纠纷能少亏多少？<span class="badge">ROI 量化测算 · 接入真实看板</span></h3>
+            <h3>用了 ReturnGuard，退货纠纷能少亏多少？<span class="badge" data-i18n="roi.badge">ROI 量化测算 · 接入真实看板</span></h3>
             <p class="desc">「平均客单价」与「争议 / 可维权占比」已按<b>当前看板真实数据</b>自动填入（标注「真实」，可手动微调）；其余为可调假设。实时估算「靠证据说话」能挽回多少误判退款，以及把取证从人工几小时压到几分钟的人力节省。<b>仅为测算，不参与任何裁决。</b></p>
-            <p class="roi-src" id="roiSrc" style="font-size:12px;color:var(--txt3);margin:0 0 10px">数据来源：加载看板后自动填入真实数据</p>
+            <p class="roi-src" id="roiSrc" style="font-size:12px;color:var(--txt3);margin:0 0 10px" data-i18n="roi.srcNote">数据来源：加载看板后自动填入真实数据</p>
             <div class="roi-grid">
-              <label>年退货订单量（单 · 假设）<input type="number" id="roiQty" value="12000" min="0"></label>
-              <label>平均客单价（¥ · 真实）<input type="number" id="roiPrice" value="180" min="0"></label>
-              <label>争议 / 可维权占比（% · 真实）<input type="number" id="roiDisp" value="35" min="0" max="100"></label>
-              <label>胜诉率提升（百分点 · 假设）<input type="number" id="roiGain" value="22" min="0" max="100"></label>
-              <label>取证人工时薪（¥/h · 假设）<input type="number" id="roiWage" value="40" min="0"></label>
+              <label><span data-i18n="roi.qty">年退货订单量（单 · 假设）</span><input type="number" id="roiQty" value="12000" min="0"></label>
+              <label><span data-i18n="roi.price">平均客单价（¥ · 真实）</span><input type="number" id="roiPrice" value="180" min="0"></label>
+              <label><span data-i18n="roi.disp">争议 / 可维权占比（% · 真实）</span><input type="number" id="roiDisp" value="35" min="0" max="100"></label>
+              <label><span data-i18n="roi.gain">胜诉率提升（百分点 · 假设）</span><input type="number" id="roiGain" value="22" min="0" max="100"></label>
+              <label><span data-i18n="roi.wage">取证人工时薪（¥/h · 假设）</span><input type="number" id="roiWage" value="40" min="0"></label>
             </div>
             <div class="roi-out">
-              <div class="roi-kpi"><span class="roi-num" id="roiSave">¥0</span><span class="roi-cap">预计年挽回误判退款</span></div>
-              <div class="roi-kpi"><span class="roi-num" id="roiTime">¥0</span><span class="roi-cap">年取证人力节省</span></div>
-              <div class="roi-kpi"><span class="roi-num" id="roiMin">3 分钟</span><span class="roi-cap">单均取证耗时（原人工 ~2 小时）</span></div>
+              <div class="roi-kpi"><span class="roi-num" id="roiSave">¥0</span><span class="roi-cap" data-i18n="roi.capSave">预计年挽回误判退款</span></div>
+              <div class="roi-kpi"><span class="roi-num" id="roiTime">¥0</span><span class="roi-cap" data-i18n="roi.capTime">年取证人力节省</span></div>
+              <div class="roi-kpi"><span class="roi-num" id="roiMin" data-i18n="roi.min">3 分钟</span><span class="roi-cap" data-i18n="roi.capMin">单均取证耗时（原人工 ~2 小时）</span></div>
             </div>
-            <p class="roi-formula">测算逻辑：年挽回 ≈ 年退货量 × 客单价 × 争议占比 × 胜诉率提升；人力节省 = 年退货量 ×（2h − 3min）× 时薪。客单价与争议占比取自当前看板真实数据，其余为可调假设，改任意项即重算。</p>
+            <p class="roi-formula" data-i18n="roi.formula">测算逻辑：年挽回 ≈ 年退货量 × 客单价 × 争议占比 × 胜诉率提升；人力节省 = 年退货量 ×（2h − 3min）× 时薪。客单价与争议占比取自当前看板真实数据，其余为可调假设，改任意项即重算。</p>
+            <!-- A/B·ROI 实证：后端基于真实聚合值回测的三档区间（模型回测，非 A/B 实测因果） -->
+            <div id="roiBacktest" class="roi-bt" style="display:none">
+              <div class="roi-bt-head" data-i18n="roi.btTitle">基于已沉淀案件的真实回测区间（保守 / 基准 / 乐观）</div>
+              <table class="roi-bt-tbl"><thead><tr>
+                <th data-i18n="roi.btScenario">情景</th>
+                <th data-i18n="roi.btDelta">胜诉率提升</th>
+                <th data-i18n="roi.btCases">由败转胜</th>
+                <th data-i18n="roi.btRefund">挽回退款</th>
+                <th data-i18n="roi.btLogistics">挽回物流</th>
+                <th data-i18n="roi.btHours">节省工时</th>
+              </tr></thead><tbody id="roiBtBody"></tbody></table>
+              <div class="roi-bt-foot" id="roiBtFoot"></div>
+            </div>
           </div>
           <!-- C组：AI 实算（real 源）未登录时的全宽登录门（默认隐藏） -->
           <div id="loginGate" class="card">
             <div style="text-align:center;padding:36px 20px">
               <div style="font-size:42px;line-height:1;margin-bottom:12px">🔒</div>
-              <h3 style="margin:0 0 8px">AI 实算按租户隔离</h3>
-              <p id="loginGateMsg" class="desc" style="max-width:480px;margin:0 auto 18px">请登录后查看您的 AI 实算数据。</p>
+              <h3 style="margin:0 0 8px" data-i18n="gate.title">AI 实算按租户隔离</h3>
+              <p id="loginGateMsg" class="desc" style="max-width:480px;margin:0 auto 18px" data-i18n="gate.msg">请登录后查看您的 AI 实算数据。</p>
               <button id="loginGateBtn" type="button" data-i18n="btn.loginGate" style="background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer">登录 / 注册</button>
             </div>
           </div>
@@ -939,8 +961,8 @@
       <section id="tab-plat" class="tabpane" role="tabpanel" aria-labelledby="tabBtn-plat">
         <div class="scrollpane">
           <div class="card" style="margin-bottom:12px">
-            <h3>平台适配举证包<span class="badge">复赛交付物 A · 按平台告诉你要交什么证据</span></h3>
-            <p class="desc">把 Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop 九大平台的退货/纠纷举证规则与 ReturnGuard 取证能力对齐；单案举证选平台即自动带出必备材料清单（只列客观要求，不做裁决结论）。</p>
+            <h3>平台适配举证包<span class="badge" data-i18n="badge.plat">复赛交付物 A · 按平台告诉你要交什么证据</span></h3>
+            <p class="desc" data-i18n="plat.desc">把 Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop 九大平台的退货/纠纷举证规则与 ReturnGuard 取证能力对齐；单案举证选平台即自动带出必备材料清单（只列客观要求，不做裁决结论）。</p>
             <h4 style="margin:6px 0 4px">核心规则对照表</h4>
             <div id="platCmp" class="scrollx"></div>
             <h4 style="margin:14px 0 4px">各平台举证模板（必备材料 / 常见失分）</h4>
@@ -953,8 +975,8 @@
       <section id="tab-supplier" class="tabpane" role="tabpanel" aria-labelledby="tabBtn-supplier">
         <div class="sup-view">
           <div class="card" style="margin-bottom:12px">
-            <h3>供应商质量总览<span class="badge">扩展 C · 红黑榜增强 + 点击下钻</span></h3>
-            <p class="desc">按质量分排序（低→高，黑榜在前）。每家属「缺陷率 / 胜诉率 / 平均退款 / SKU 数 / 平台覆盖」多维标签，下方色条为该供应商缺陷构成。点击任一卡片下钻看 SKU 清单、平台分布与缺陷明细。受顶部品类/平台筛选联动。</p>
+            <h3>供应商质量总览<span class="badge" data-i18n="badge.supplier">扩展 C · 红黑榜增强 + 点击下钻</span></h3>
+            <p class="desc" data-i18n="supplier.desc">按质量分排序（低→高，黑榜在前）。每家属「缺陷率 / 胜诉率 / 平均退款 / SKU 数 / 平台覆盖」多维标签，下方色条为该供应商缺陷构成。点击任一卡片下钻看 SKU 清单、平台分布与缺陷明细。受顶部品类/平台筛选联动。</p>
             <div id="supList"></div>
           </div>
         </div>
@@ -964,51 +986,53 @@
       <section id="tab-forensic" class="tabpane" role="tabpanel" aria-labelledby="tabBtn-forensic">
         <div class="forensic-wrap">
           <div class="card">
-            <h3>一笔退货怎么快速举证</h3>
+            <h3 data-i18n="sec.how">一笔退货怎么快速举证</h3>
             <div class="steps" id="forensicSteps" aria-label="取证流程">
-              <span class="st cur" data-s="1">上传对比图</span><i></i>
-              <span class="st" data-s="2">AI 分析</span><i></i>
-              <span class="st" data-s="3">生成举证材料</span>
+              <span class="st cur" data-s="1" data-i18n="step.upload">上传对比图</span><i></i>
+              <span class="st" data-s="2" data-i18n="step.analyze">AI 分析</span><i></i>
+              <span class="st" data-s="3" data-i18n="step.material">生成举证材料</span>
             </div>
-            <p class="desc">上传退货图 + 本店主图，自动比对是否同款、有无破损/缺件，生成可提交平台仲裁的举证材料。每处理一单，看板数据实时 +1。</p>
+            <p class="desc" data-i18n="sec.howDesc">上传退货图 + 本店主图，自动比对是否同款、有无破损/缺件，生成可提交平台仲裁的举证材料。每处理一单，看板数据实时 +1。</p>
             <form id="f">
-              <label>退货商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
-              <label>店里原本的商品图 *</label><input type="file" name="product_image" accept="image/*" required>
-              <label>商品编号 SKU</label><input type="text" name="sku" value="SKU-3C01">
-              <label>这笔订单金额 (¥)</label><input type="number" name="amount" value="120" step="0.01">
-              <label>商品页承诺（可选）</label><textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
-              <label>运行方式</label>
+              <label data-i18n="f.returnedImg">退货商品图 *</label><input type="file" name="returned_image" accept="image/*" required>
+              <label data-i18n="f.productImg">店里原本的商品图 *</label><input type="file" name="product_image" accept="image/*" required>
+              <label data-i18n="f.sku">商品编号 SKU</label><input type="text" name="sku" value="SKU-3C01">
+              <label data-i18n="f.amount">这笔订单金额 (¥)</label><input type="number" name="amount" value="120" step="0.01">
+              <label data-i18n="f.listing">商品页承诺（可选）</label><textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
+              <label data-i18n="f.mode">运行方式</label>
               <select name="mode">
-                <option value="mock" selected>演示模式（离线可用）</option>
-                <option value="live">AI 实算（需配置 API Key）</option>
+                <option value="mock" selected data-i18n="opt.mock">演示模式（离线可用）</option>
+                <option value="live" data-i18n="opt.live">AI 实算（需配置 API Key）</option>
               </select>
-              <label>销售平台（关联举证包）</label>
-              <select name="platform" id="formPlat"><option value="">未指定</option><option>Amazon</option><option>AliExpress</option><option>Temu</option><option>SHEIN</option><option>eBay</option><option>Shopee</option><option>Lazada</option><option>Walmart</option><option>TikTok Shop</option><option>UCI-Retail</option><option>TheLook</option></select>
-              <label>品类（补全维度，便于进洞察）</label>
-              <select name="category" id="formCat"><option value="">未指定</option></select>
-              <label>供应商（补全维度，便于进洞察）</label>
-              <select name="supplier" id="formSup"><option value="">未指定</option></select>
-              <button type="submit" id="btn">开始举证</button>
+              <label data-i18n="f.platform">销售平台（关联举证包）</label>
+              <select name="platform" id="formPlat"><option value="" data-i18n="opt.unspecified">未指定</option><option>Amazon</option><option>AliExpress</option><option>Temu</option><option>SHEIN</option><option>eBay</option><option>Shopee</option><option>Lazada</option><option>Walmart</option><option>TikTok Shop</option><option>UCI-Retail</option><option>TheLook</option></select>
+              <label data-i18n="f.category">品类（补全维度，便于进洞察）</label>
+              <select name="category" id="formCat"><option value="" data-i18n="opt.unspecified">未指定</option></select>
+              <label data-i18n="f.supplier">供应商（补全维度，便于进洞察）</label>
+              <select name="supplier" id="formSup"><option value="" data-i18n="opt.unspecified">未指定</option></select>
+              <label data-i18n="f.language">母语语音语言（④陈述 + ⑥TTS 音色）</label>
+              <select name="language" id="formLang"><option value="zh" selected>中文 · Chelsie</option></select>
+              <button type="submit" id="btn" data-i18n="btn.analyze">开始举证</button>
             </form>
-            <div id="analyzing" class="analyzing hide"><span class="spin"></span><span id="analyzingText">正在生成取证结果…</span><button type="button" id="btnCancelAnalyze" style="margin-left:auto;background:transparent;border:1px solid currentColor;color:inherit;border-radius:6px;padding:2px 10px;cursor:pointer">取消</button></div>
+            <div id="analyzing" class="analyzing hide"><span class="spin"></span><span id="analyzingText" data-i18n="res.analyzing">正在生成取证结果…</span><button type="button" id="btnCancelAnalyze" style="margin-left:auto;background:transparent;border:1px solid currentColor;color:inherit;border-radius:6px;padding:2px 10px;cursor:pointer" data-i18n="btn.cancel">取消</button></div>
             <div id="err" class="err"></div>
           </div>
           <div class="card">
-            <h3>举证结果</h3>
+            <h3 data-i18n="res.title">举证结果</h3>
             <div id="res" class="hide" style="margin-top:6px">
               <div style="margin-bottom:8px"><span id="modeBadge" class="badge mock hide"></span></div>
               <div>这俩是不是同一件？<b id="sim"></b>（越接近 100% 越像原货；低则疑似调包/非同款）</div>
               <div class="bar"><i id="simbar"></i></div>
               <div style="margin-top:8px">判断：<span id="same" class="pill"></span> · 和商品页描述是否一致：<span id="cons"></span></div>
               <div style="margin-top:8px">发现的问题：<span id="defects"></span></div>
-              <div style="margin-top:10px">退货图缺陷标注（关键帧红框）：</div>
+              <div style="margin-top:10px" data-i18n="res.boxNote">退货图缺陷标注（关键帧红框）：</div>
               <div class="annot-wrap"><canvas id="annot"></canvas></div>
               <div id="boxBadge" class="box-badge"></div>
-              <div class="annot-note">※ 红框为真实视觉模型坐标时标注「AI 实算」；当前网关未开通视觉理解时自动回退为演示示意框（按缺陷类型生成，置信度为示意值），全程不替代平台裁决。</div>
+              <div class="annot-note" data-i18n="res.redboxNote">※ 红框为真实视觉模型坐标时标注「AI 实算」；当前网关未开通视觉理解时自动回退为演示示意框（按缺陷类型生成，置信度为示意值），全程不替代平台裁决。</div>
               <div style="margin-top:8px">优先处理级别：<b id="prio"></b></div>
-              <div class="dossier-head"><span>自动生成的举证材料</span><button type="button" id="copyDossier">复制</button></div>
+              <div class="dossier-head"><span data-i18n="res.dossierHead">自动生成的举证材料</span><button type="button" id="copyDossier" data-i18n="btn.copy">复制</button></div>
               <pre id="dossier"></pre>
-              <div style="margin-top:8px">可直接播放给客服/仲裁方的语音说明：</div>
+              <div style="margin-top:8px">母语语音说明（<span id="voiceLang" class="pill" style="font-size:11px"></span>）：</div>
               <pre id="vtext"></pre>
               <audio id="audio" controls style="margin-top:6px;width:100%"></audio>
               <div id="platEvWrap" class="hide" style="margin-top:12px">
@@ -1016,12 +1040,12 @@
                 <ul id="platEv" class="ev"></ul>
               </div>
               <div class="orch" id="orchWrap" style="margin-top:14px;display:none">
-                <div class="orch-title">多模型协同编排链路 · 逐能力真实 / 回退</div>
+                <div class="orch-title" data-i18n="res.orchTitle">多模型协同编排链路 · 逐能力真实 / 回退</div>
                 <div class="orch-chain" id="orchChain"></div>
-                <div class="orch-hint">网关渐进开通哪些模型，哪些即实时变真；任一能力不可用时仅该步回退演示，其余真实能力仍生效。</div>
+                <div class="orch-hint" data-i18n="res.orchHint">网关渐进开通哪些模型，哪些即实时变真；任一能力不可用时仅该步回退演示，其余真实能力仍生效。</div>
               </div>
             </div>
-            <div id="resEmpty" class="note">提交左侧表单后，这里显示该单的取证结果与平台举证要点。</div>
+            <div id="resEmpty" class="note" data-i18n="res.empty">提交左侧表单后，这里显示该单的取证结果与平台举证要点。</div>
           </div>
         </div>
       </section>
@@ -1030,7 +1054,7 @@
       <section id="tab-entry" class="tabpane" role="tabpanel" aria-labelledby="tabBtn-entry">
         <div class="src-banner" id="entryBanner">
           <div class="sb-head">
-            <strong>📌 数据源提示</strong>
+            <strong data-i18n="src.hint">📌 数据源提示</strong>
             <button id="sbClose" type="button" aria-label="关闭提示" title="关闭">×</button>
           </div>
           <div class="sb-body"></div>
@@ -1077,10 +1101,10 @@
                 <div><label>SKU 名称</label><input name="sku_name" placeholder="如 无线耳机 Pro"></div>
               </div>
               <div class="row2">
-                <div><label>品类</label><input name="category" placeholder="如 3C数码"></div>
-                <div><label>供应商</label>
+                <div><label data-i18n="th.category">品类</label><input name="category" placeholder="如 3C数码"></div>
+                <div><label data-i18n="th.supplier">供应商</label>
                   <select name="supplier" id="formEntrySup">
-                    <option value="">未指定</option>
+                    <option value="" data-i18n="opt.unspecified">未指定</option>
                     <optgroup label="优质供应商">
                       <option value="S1">S1 鼎峰精密</option>
                       <option value="S2">S2 云仓优选</option>
@@ -1099,7 +1123,7 @@
               <div class="row2">
                 <div><label>销售平台</label>
                   <select name="platform">
-                    <option value="">未指定</option>
+                    <option value="" data-i18n="opt.unspecified">未指定</option>
                     <optgroup label="主流跨境">
                       <option>Amazon</option><option>AliExpress</option><option>Temu</option><option>SHEIN</option><option>eBay</option>
                     </optgroup>
@@ -1132,7 +1156,7 @@
               <input name="defect_tags" placeholder="如 外包装破损,功能故障">
               <label>与 listing 承诺一致性</label>
               <input name="consistency" placeholder="如 存在差异（货不对板）">
-              <label>商品页承诺（可选）</label>
+              <label data-i18n="f.listing">商品页承诺（可选）</label>
               <textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
               <div class="entry-actions">
                 <button type="submit" id="entryBtn">添加到当前数据源</button>

@@ -107,7 +107,7 @@ def health():
 @router.get("/api/config")
 def api_config():
     """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源、图床状态等。"""
-    from constants import SUPPLIERS
+    from constants import DEFAULT_LANGUAGE, SUPPLIERS, TTS_VOICES
     from models_router import MODEL_ROUTER_PROFILE
 
     return {
@@ -121,6 +121,13 @@ def api_config():
         # 供应商花名册（P1-15）：唯一事实来源在 constants.SUPPLIERS，前端据此渲染下拉/下钻，
         # 不再内嵌硬编码副本（消除与 convert_datasets.py 双份漂移）。
         "suppliers": SUPPLIERS,
+        # 母语语音可选语言（语言 → 展示名 / 音色）：前端据此渲染单案取证的语言选择器，
+        # 与后端 constants.TTS_VOICES 单一来源，避免前端硬编码语言清单。
+        "languages": [
+            {"code": code, "label": meta["label"], "voice": meta["voice"]}
+            for code, meta in TTS_VOICES.items()
+        ],
+        "default_language": DEFAULT_LANGUAGE,
         # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=赛事指定 Model Router，
         # 复赛提交时切到 official 即演示用赛事指定端点（详见 demo/.env.example）。
         # 注意：不再回传内部网关地址 model_router_endpoint（P2-信息泄露），前端无需该值。

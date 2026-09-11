@@ -255,3 +255,51 @@ def test_live_insights_fallback_not_cached(monkeypatch):
     a2 = pipeline.build_insights(cases, mode="live", source="demo")
     assert a2["mode"] == "mock(fallback)"
     assert calls["n"] == 2, "live 回退结果不应入缓存，第二次应重新真实尝试"
+
+
+# ===================== 母语多语 TTS =====================
+def test_voice_statement_multilingual():
+    """母语陈述模板：按语言输出（含 SKU），未知语言回退中文。"""
+    from prompts import voice_statement
+
+    en = voice_statement("en", "SKU-1", 0.9, True, ["功能故障"])
+    assert "SKU-1" in en and "same item" in en
+    zh = voice_statement("zh", "SKU-1", 0.9, True, ["功能故障"])
+    assert "同一件商品" in zh
+    # 未知语言整体回退中文（相同入参下与 zh 逐字相同）
+    assert voice_statement("xx", "SKU-1", 0.9, True, ["功能故障"]) == zh
+
+
+def test_tts_voice_for_language():
+    """语言 → 音色映射（单一来源 constants.tts_voice_for），未知语言回退默认音色。"""
+    from constants import tts_voice_for
+
+    assert tts_voice_for("en") == "Ethan"
+    assert tts_voice_for("zh") == "Chelsie"
+    assert tts_voice_for("xx") == "Chelsie"
+
+
+def test_live_analyze_language_threading(monkeypatch):
+    """live_analyze 的 language 透传到 ④ 陈述与 ⑥ TTS，并在返回体标注语言/音色。"""
+    captured: dict = {}
+    _mock_all_but_rerank(monkeypatch, _rerank_ok)
+    monkeypatch.setattr(models_router, "llm", lambda prompt, model=None, **kw: "结论")
+
+    def _tts(text, voice=None, language=None, **kw):
+        captured["voice"] = voice
+        captured["language"] = language
+        return "B64"
+
+    monkeypatch.setattr(models_router, "tts", _tts)
+    res = pipeline.analyze_case("r.png", "p.png", "", "SKU-X", 10.0, mode="live", language="en")
+    assert res["language"] == "en"
+    assert res["voice"] == "Ethan"  # 由 constants.tts_voice_for 派生
+    assert captured["language"] == "en"  # tts 收到目标语言（音色在 tts 内部选）
+
+
+def test_mock_analyze_language():
+    """mock 模式也按 language 出母语陈述（离线演示即可展示多语）。"""
+    res = pipeline.analyze_case("r.png", "p.png", "", "SKU-Z", 12.0, mode="mock", language="ja")
+    assert res["language"] == "ja"
+    assert "SKU-Z" in res["voice_text"]
+    assert res["voice"] == "Chelsie"

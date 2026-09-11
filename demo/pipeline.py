@@ -38,13 +38,16 @@ from calibration import get_active_threshold
 from constants import (
     BLACKLIST_LEVELS,
     DECIDED_OUTCOMES,
+    DEFAULT_LANGUAGE,
     DEFECT_POOL,
     REGION_MAP,
     SEVERITY,
     SUPPLIER_LEVEL_THRESHOLDS,
     SUPPLIER_LEVEL_TOP,
+    tts_voice_for,
 )
 from imghash import content_seed
+from prompts import voice_statement
 
 # re-export：保留历史内部引用名 _REGION_MAP（数据本体已迁到 constants 单一来源）
 _REGION_MAP = REGION_MAP
@@ -85,10 +88,16 @@ def _mock_similarity(returned_path: str, product_path: str) -> float:
 
 # ===================== 阶段A · 个案举证（功能①②③④⑤）=====================
 def _mock(
-    returned_path: str, product_path: str, listing_text: str, sku: str, amount: float
+    returned_path: str,
+    product_path: str,
+    listing_text: str,
+    sku: str,
+    amount: float,
+    language: str = DEFAULT_LANGUAGE,
 ) -> dict:
     """mock 模式的单案取证：用确定性规则模拟一单结果（无需模型）。
-    字段含义与 live 模式一致，便于前端/洞察层无缝切换。"""
+    字段含义与 live 模式一致，便于前端/洞察层无缝切换。
+    language：母语陈述的目标语言（与 live 同口径，模板取自 prompts.voice_statement）。"""
     sim = _mock_similarity(returned_path, product_path)
     # 用图片内容种子决定瑕疵数量与种类（确定性，避免随机文件名导致结果漂移）。
     # P2-④ 改用局部 random.Random 实例，避免 random.seed() 污染进程全局 RNG，
@@ -118,11 +127,7 @@ def _mock(
         f"与 listing 承诺一致性：{consistency}\n"
         f"处置建议：{'提交客观证据，主张买家责任' if same else '据实举证商品状态，争取合理退款'}。"
     )
-    voice_text = (
-        f"您好，这是关于订单 {sku} 的退货举证。系统比对显示退回商品与本店商品相似度为 {sim}，"
-        f"{'为同一件商品' if same else '存在明显差异'}；主要问题为{', '.join(defects)}。"
-        f"请核查后公正裁决，谢谢。"
-    )
+    voice_text = voice_statement(language, sku, sim, same, defects)
     # 缺陷区域示意框（mock 确定性占位；live 接通后由视觉模型返回真实 bbox）
     # 归一化坐标(0~1)，前端按比例绘制红框；演示数据仅作"示意"，不替代真实检测。
     defect_boxes: list[dict] = []
@@ -147,6 +152,9 @@ def _mock(
         "consistency": consistency,
         "dossier": dossier,
         "voice_text": voice_text,
+        # 母语语音：与 live 同口径透出目标语言与音色（前端展示 / 归档检索）
+        "language": language,
+        "voice": tts_voice_for(language),
         "voice_audio_b64": gen_wav(voice_text),
         "priority_score": priority,
         "defect_boxes": defect_boxes,
@@ -165,10 +173,18 @@ _ANALYZE_CACHE_MAX = 256
 
 
 def _analyze_cache_key(
-    returned_path: str, product_path: str, listing_text: str, sku: str, amount: float
+    returned_path: str,
+    product_path: str,
+    listing_text: str,
+    sku: str,
+    amount: float,
+    language: str = DEFAULT_LANGUAGE,
 ) -> str:
-    """mock 模式缓存键：图片内容指纹 + 业务入参；live 不使用本键（见 analyze_case）。"""
-    return f"mock|{content_seed(returned_path, product_path)}|{sku}|{amount}|{hash(listing_text)}"
+    """mock 模式缓存键：图片内容指纹 + 业务入参 + 目标语言；live 不使用本键（见 analyze_case）。"""
+    return (
+        f"mock|{content_seed(returned_path, product_path)}|{sku}|{amount}"
+        f"|{language}|{hash(listing_text)}"
+    )
 
 
 def _get_analyze_cache(key: str):
@@ -208,6 +224,7 @@ def analyze_case(
     mode: str = "mock",
     returned_url: str | None = None,
     product_url: str | None = None,
+    language: str = DEFAULT_LANGUAGE,
 ) -> dict:
     """阶段A 统一入口：对一笔退货做取证，返回结构化结果（功能①②③④⑤）。
     - mode="mock"：确定性规则，免 Key 立即可演示；命中内容指纹缓存则直接返回（P1-7）。
@@ -215,6 +232,7 @@ def analyze_case(
       确保现场演示不会因网络/额度问题而卡死（失败回退结果不进缓存，避免掩盖环境错误）。
     - returned_url / product_url：上传图公网 URL（由 storage 图床层给出），透传给 live_analyze
       供视觉/向量/OCR 模型服务端回源。
+    - language：母语陈述目标语言（④ 陈述文本语言 + ⑥ TTS 音色），透传 live 并纳入 mock 缓存键。
     """
     if mode == "live":
         try:
@@ -228,22 +246,23 @@ def analyze_case(
                 amount,
                 returned_url=returned_url,
                 product_url=product_url,
+                language=language,
             )
         except Exception as e:  # 失败回退 mock，保证演示不中断
             logger.exception("live 取证失败，回退 mock: %s", e)
-            res = _mock(returned_path, product_path, listing_text, sku, amount)
+            res = _mock(returned_path, product_path, listing_text, sku, amount, language)
             res["mode"] = "mock(fallback)"
             # P2-3：对外只给脱敏文案，异常细节仅留在服务端日志，避免泄露内部信息
             res["error"] = _safe_error_text(e)
             return res
     # mock 模式（含 live 失败回退的非缓存回退）按内容指纹命中缓存，跳过重复计算
-    key = _analyze_cache_key(returned_path, product_path, listing_text, sku, amount)
+    key = _analyze_cache_key(returned_path, product_path, listing_text, sku, amount, language)
     cached = _get_analyze_cache(key)
     if cached is not None:
         # 返回深拷贝：main.py 会对结果就地补写 case_id / platform 等字段，
         # 若直接复用缓存对象会导致下一请求拿到被污染的旧值。
         return copy.deepcopy(cached)
-    res = _mock(returned_path, product_path, listing_text, sku, amount)
+    res = _mock(returned_path, product_path, listing_text, sku, amount, language)
     # 存入缓存的是 res 的深拷贝：返回给调用方的 res 与缓存中的副本互不别名，
     # 调用方（main.py）就地补写 case_id / platform 等字段时不会污染缓存副本，
     # 后续请求命中缓存拿到的仍是干净结果（P1-7）。
@@ -1079,6 +1098,99 @@ def _reconcile_insights(agg: dict, llm: dict) -> tuple[dict, int]:
     return llm, mismatches
 
 
+# ============================================================================
+# ROI 回测（把「用了能少亏多少」做成可辩护的区间，而非单点数字）
+# 口径边界（诚实性要求）：
+#   - **真实量**（来自已沉淀案件聚合）：案件量 / 退款额 / 争议占比 / 胜诉率 / 物流成本
+#   - **假设量**（外置可审，非实测）：胜诉率提升幅度（三档）、单案人工耗时、时薪
+#   - 性质：**模型回测（model-based backtest）**，不是 A/B 实测因果；disclaimer 随结果下发，
+#     前端必须同屏展示，禁止单独引用「乐观档」作为收益承诺。
+# ============================================================================
+ROI_SCENARIOS: tuple[tuple[str, str, float], ...] = (
+    ("conservative", "保守", 0.05),
+    ("base", "基准", 0.15),
+    ("optimistic", "乐观", 0.25),
+)
+ROI_LABOR_HOURS_PER_CASE = 2.0  # 人工取证/申诉单案耗时（小时）
+ROI_LABOR_HOURS_WITH_TOOL = 3 / 60  # 用工具后单案耗时（3 分钟）
+ROI_MAX_WIN_RATE = 0.95  # 胜诉率上限，避免提升幅度溢出成 >100%
+
+
+def _roi_backtest(agg: dict) -> dict:
+    """基于看板**真实聚合值**回测可挽回区间，输出保守/基准/乐观三档 + 单因子敏感性。
+
+    计算链：争议案件数 = 总案件 × 真实争议占比 → 由败转胜案件 = 争议案件 × 有效提升幅度
+    （幅度受「上限 − 当前胜诉率」与「原本败诉比例」双重约束，不会算出超过 100% 的胜诉率）
+    → 挽回退款 / 物流 + 人工工时节省。
+    """
+    total = float(agg.get("total_cases") or 0)
+    if total <= 0:
+        return {"available": False, "reason": "暂无案件数据，无法回测"}
+
+    refund_total = float(agg.get("total_refund") or 0)
+    dispute_rate = min(max(float(agg.get("avg_dispute_rate") or 0), 0.0), 1.0)
+    win_rate = min(max(float(agg.get("win_rate") or 0), 0.0), 1.0)
+    logistics_total = float(agg.get("logistics_cost") or 0)
+
+    dispute_cases = total * dispute_rate
+    avg_refund = refund_total / total
+    avg_logistics = logistics_total / total
+    headroom = max(0.0, min(ROI_MAX_WIN_RATE - win_rate, 1.0 - win_rate))
+
+    scenarios = []
+    for key, label, delta in ROI_SCENARIOS:
+        eff = min(delta, headroom)
+        won_back = dispute_cases * eff
+        scenarios.append(
+            {
+                "key": key,
+                "label": label,
+                "delta_win_rate": round(delta, 4),
+                "effective_delta": round(eff, 4),
+                "cases_won_back": round(won_back, 1),
+                "recover_refund": round(won_back * avg_refund, 2),
+                "recover_logistics": round(won_back * avg_logistics, 2),
+                "labor_hours_saved": round(
+                    dispute_cases * (ROI_LABOR_HOURS_PER_CASE - ROI_LABOR_HOURS_WITH_TOOL), 1
+                ),
+            }
+        )
+
+    def _at(cases: float, dr: float) -> float:
+        """基准档在 (案件量, 争议占比) 扰动下的挽回退款额，用于单因子敏感性。"""
+        return round(cases * dr * min(0.15, headroom) * avg_refund, 2)
+
+    return {
+        "available": True,
+        "method": "model-based backtest（基于真实聚合值的模型回测，非 A/B 实测因果）",
+        "basis": {
+            "total_cases": int(total),
+            "dispute_cases": round(dispute_cases, 1),
+            "win_rate": round(win_rate, 4),
+            "avg_refund": round(avg_refund, 2),
+            "avg_logistics": round(avg_logistics, 2),
+            "win_rate_headroom": round(headroom, 4),
+        },
+        "assumptions": {
+            "delta_win_rate": {"conservative": 0.05, "base": 0.15, "optimistic": 0.25},
+            "labor_hours_per_case_manual": ROI_LABOR_HOURS_PER_CASE,
+            "labor_hours_per_case_with_tool": round(ROI_LABOR_HOURS_WITH_TOOL, 3),
+            "win_rate_cap": ROI_MAX_WIN_RATE,
+        },
+        "scenarios": scenarios,
+        "sensitivity": {
+            "cases_-20%": _at(total * 0.8, dispute_rate),
+            "cases_+20%": _at(total * 1.2, dispute_rate),
+            "dispute_rate_-20%": _at(total, dispute_rate * 0.8),
+            "dispute_rate_+20%": _at(total, min(dispute_rate * 1.2, 1.0)),
+        },
+        "disclaimer": (
+            "三档区间由「真实案件量 × 真实争议占比 × 假设胜诉率提升」推算；"
+            "提升幅度与人工耗时为假设项，未经 A/B 实测，不作为对实际收益的承诺。"
+        ),
+    }
+
+
 def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") -> dict:
     """阶段B 统一入口：群体洞察（功能⑥）。
     - mock：确定性规则归因，结果可复现，适合录屏演示。
@@ -1140,6 +1252,8 @@ def build_insights(cases: list[dict], mode: str = "mock", source: str = "demo") 
         agg = _mock_attribution(agg)  # mock 模式：确定性规则归因
     # B组·选品避坑闭环：无论 mock/live，均把负面信号收敛成可执行清单（结构化、可落地）
     agg["sourcing_checklist"] = _build_sourcing_loop(agg)
+    # ROI 回测：基于真实聚合值的三档区间 + 敏感性（模型回测，非 A/B 实测；disclaimer 随结果下发）
+    agg["roi_backtest"] = _roi_backtest(agg)
     agg["mode"] = agg.get("mode", "mock")
     # 缓存入库策略（可用性修复）：mock 结果确定性、live **成功**结果缓存以省 token；
     # 但 **live 失败回退（mock(fallback)）不入缓存** —— 否则一次瞬时故障（网关抖动 / Docker DNS

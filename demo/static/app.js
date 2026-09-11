@@ -121,7 +121,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 
 export async function loadInsights(){
   const status=$('#insStatus');
-  status.textContent='加载中…'; status.classList.add('loading');
+  status.textContent=t('st.loading'); status.classList.add('loading');
   if(!_skelShown){ showSkeletons(); _skelShown=true; }
   const board=$('.board'); if(board){board.classList.remove('animated'); void board.offsetWidth; board.classList.add('animated');}
   try{
@@ -132,7 +132,7 @@ export async function loadInsights(){
   if(plat) qs.set('platform',plat);
   if(reg) qs.set('region',reg);
   if(seas) qs.set('season',seas);
-  const r=await apiFetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error('洞察接口 '+r.status);
+  const r=await apiFetch('/api/insights?'+qs.toString()); if(!r.ok) throw new Error(t('st.insightsApi')+' '+r.status);
   const d=await r.json();
   state.ins = d;  // 供供应商下钻本地计算
   // C组：real 源（登录态）未登录时显示登录门；已登录但 AI 仍在计算时显示加载态
@@ -142,8 +142,8 @@ export async function loadInsights(){
     if(authToken()){
       if(_board){ _board.classList.remove('gated'); }
       const _lgm=document.getElementById('loginGateMsg');
-      if(_lgm){ _lgm.textContent='AI 正在计算洞察结果，请稍候…'; }
-      status.textContent='计算中…'; status.classList.add('loading');
+      if(_lgm){ _lgm.textContent=t('st.computing'); }
+      status.textContent=t('st.calculating'); status.classList.add('loading');
       // 显示加载卡片而非登录门
       const _gate=document.getElementById('loginGate');
       if(_gate){ _gate.style.display='none'; }
@@ -152,7 +152,7 @@ export async function loadInsights(){
       if(!_load){
         _load=document.createElement('div'); _load.id='computingHint';
         _load.className='card';
-        _load.innerHTML='<div style="text-align:center;padding:40px 20px"><div class="analyzing" style="display:inline-flex;justify-content:center;margin-bottom:14px"><span class="spin"></span><span>AI 正在计算洞察结果</span></div><p class="desc" style="margin:0">首次登录后需要运行 AI 聚类分析，通常需要 10–30 秒。</p></div>';
+        _load.innerHTML='<div style="text-align:center;padding:40px 20px"><div class="analyzing" style="display:inline-flex;justify-content:center;margin-bottom:14px"><span class="spin"></span><span>'+t('st.computingTitle')+'</span></div><p class="desc" style="margin:0">'+t('st.computingHint')+'</p></div>';
         _load.style.display='';
         const _b=document.querySelector('.board');
         if(_b) _b.insertBefore(_load, _b.firstChild);
@@ -162,8 +162,8 @@ export async function loadInsights(){
     // 未登录 → 显示登录门
     if(_board) _board.classList.add('gated');
     const _lgm=document.getElementById('loginGateMsg');
-    if(_lgm) _lgm.textContent=d.message||'请登录后查看 AI 实算数据';
-    status.textContent='请登录'; status.classList.remove('loading');
+    if(_lgm) _lgm.textContent=d.message||t('st.needLoginData');
+    status.textContent=t('st.needLogin'); status.classList.remove('loading');
     // 隐藏加载提示
     const _load=document.getElementById('computingHint');
     if(_load) _load.style.display='none';
@@ -176,24 +176,24 @@ export async function loadInsights(){
   // 实算数据为空时给出引导（演示布局默认有种子，不会空）
   const emptyHint=$('#scopeTag');
   if(d.source==='real' && d.total_cases===0){
-    emptyHint.textContent='实算数据为空 · 去「数据录入」添加';
+    emptyHint.textContent=t('st.realEmpty');
     emptyHint.style.background='var(--warn)';
   }
   // 模式标签：登录态走 AI 实算；未登录为演示布局
   const isRealSource = state.source==='real';
-  const modeLabel= isRealSource ? 'AI 实算' : '演示布局';
-  $('#insModeTag').textContent=modeLabel+(d.error&&!isRealSource?' (已切回演示布局)':'');
+  const modeLabel= isRealSource ? t('rep.live') : t('rep.mock');
+  $('#insModeTag').textContent=modeLabel+(d.error&&!isRealSource?' '+t('st.fallbackTag'):'');
   $('#insModeTag').style.background=isRealSource?'var(--ok)':'var(--warn)';
-  $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||'全平台')+(reg?' / '+reg:'')+(seas?' / '+seas:'');
+  $('#scopeTag').textContent=(cat?cat+' / ':'')+(plat||t('rep.allPlatforms'))+(reg?' / '+reg:'')+(seas?' / '+seas:'');
 
   // KPI（带动画）
   animateValue($('#kTotal'), d.total_cases, v=>Math.round(v).toLocaleString());
-  animateValue($('#kRefund'), d.total_refund||0, v=>Number(v).toLocaleString('zh-CN',{maximumFractionDigits:2}));
+  animateValue($('#kRefund'), d.total_refund||0, v=>Number(v).toLocaleString(t('locale'),{maximumFractionDigits:2}));
   $('#kWin').style.color=wrColor(d.win_rate||0);
   animateValue($('#kWin'), d.win_rate||0, v=>pct(v));
   $('#kDisp').style.color='var(--bad)';
   animateValue($('#kDisp'), d.avg_dispute_rate||0, v=>pct(v));
-  const note=d.dispute_rate_note||'代理指标：由退货图与本店主图相似度推算，非平台争议笔数。';
+  const note=d.dispute_rate_note||t('st.disputeNote');
   $('#kDispNote').title=note;
 
   // ① 品类热力
@@ -212,7 +212,7 @@ export async function loadInsights(){
   const rc=d.root_cause_dist||{}; const rmax=Math.max(1,...Object.values(rc));
   Object.entries(rc).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
     const div=document.createElement('div'); div.style.marginTop='6px';
-    div.innerHTML=`<div style="font-size:12px;display:flex;justify-content:space-between"><span>${esc(k)}</span><span>${v} 笔</span></div>`
+    div.innerHTML=`<div style="font-size:12px;display:flex;justify-content:space-between"><span>${esc(k)}</span><span>${v} ${t('dyn.unitCases')}</span></div>`
       +`<div class="bar"><i style="width:${Math.round(v/rmax*100)}%;background:var(--warn)"></i></div>`;
     rd.appendChild(div);
   });
@@ -222,18 +222,18 @@ export async function loadInsights(){
   const sc=d.supplier_scorecard||[];
   const black=sc.filter(s=>s.level==='高风险');
   const red=sc.slice(-3).reverse();
-  const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">黑榜 · 高风险，建议换</div>';
+  const sg=$('#supBlack'); sg.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">'+t('st.blackList')+'</div>';
   (black.length?black:sc.slice(0,1)).forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--bad)';
-    div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
-      +`<span class="pill" style="background:var(--bad)">质量分 ${s.quality_score}</span>`;
+    div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">${t('m.defectRate')}${pct(s.defect_rate)} · ${t('m.winRate')}${pct(s.win_rate)} · ${s.cases}${t('dyn.unitCases')}</span></span>`
+      +`<span class="pill" style="background:var(--bad)">${t('m.quality')} ${s.quality_score}</span>`;
     sg.appendChild(div);
   });
-  const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">红榜 · 优质，可长期合作</div>';
+  const sr=$('#supRed'); sr.innerHTML='<div style="font-size:12px;color:var(--ok);font-weight:600">'+t('st.redList')+'</div>';
   red.forEach(s=>{
     const div=document.createElement('div'); div.className='sup'; div.style.borderColor='var(--ok)';
-    div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">缺陷率${pct(s.defect_rate)} · 胜诉率${pct(s.win_rate)} · ${s.cases}笔</span></span>`
-      +`<span class="pill" style="background:var(--ok)">质量分 ${s.quality_score}</span>`;
+    div.innerHTML=`<span><b style="color:var(--txt)">${esc(s.supplier)}</b> ${esc(s.name)}<br><span style="color:var(--txt3);font-size:11px">${t('m.defectRate')}${pct(s.defect_rate)} · ${t('m.winRate')}${pct(s.win_rate)} · ${s.cases}${t('dyn.unitCases')}</span></span>`
+      +`<span class="pill" style="background:var(--ok)">${t('m.quality')} ${s.quality_score}</span>`;
     sr.appendChild(div);
   });
 
@@ -252,7 +252,7 @@ export async function loadInsights(){
     const div=document.createElement('div'); div.className='alert';
     div.textContent='⚠ '+a.reason; al.appendChild(div);
   });
-  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">本期无异常（近 30 天增量未超阈值）。</span>';
+  if(!(d.anomaly_alerts||[]).length) al.innerHTML='<span class="note">'+t('st.noAnomaly')+'</span>';
 
   // ⑥ SKU 明细
   const st=$('#skuTbl').querySelector('tbody'); st.innerHTML='';
@@ -269,11 +269,11 @@ export async function loadInsights(){
   // ⑦⑧ 报告 + 建议
   $('#report').textContent=d.report||'-';
   const adv=$('#advice'); adv.innerHTML='';
-  (d.sourcing_advice||d.recommendations||[]).forEach(t=>{
+  (d.sourcing_advice||d.recommendations||[]).forEach(tt=>{
     const div=document.createElement('div'); div.style.cssText='background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:13px;color:var(--txt)';
-    div.textContent='▸ '+t; adv.appendChild(div);
+    div.textContent='▸ '+tt; adv.appendChild(div);
   });
-  if(d.error) $('#report').textContent+='\n[提示] AI 实算失败，已切回演示布局：'+d.error;
+  if(d.error) $('#report').textContent+='\n'+t('st.liveFailHint')+d.error;
 
   // ⑬ 地区分布
   const rt=$('#regionTbl').querySelector('tbody'); rt.innerHTML='';
@@ -297,9 +297,9 @@ export async function loadInsights(){
 
   // ⑮ 退货成本 & 供应商黑名单
   $('#costKpis').innerHTML =
-    `<div class="kv"><span>物流成本（估算）</span><b>¥${Number(d.logistics_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`
-    +`<div class="kv"><span>退货总成本（退款+物流）</span><b>¥${Number(d.total_return_cost||0).toLocaleString('zh-CN',{maximumFractionDigits:0})}</b></div>`;
-  const bl=$('#blacklist'); bl.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">供应商黑名单 · 高风险 / 待改进档位（按分级判定，非分数阈值）</div>';
+    `<div class="kv"><span>${t('m.logistics')}（${t('rep.est')}）</span><b>¥${Number(d.logistics_cost||0).toLocaleString(t('locale'),{maximumFractionDigits:0})}</b></div>`
+    +`<div class="kv"><span>${t('m.returnCost')}（${t('rep.refundPlusShip')}）</span><b>¥${Number(d.total_return_cost||0).toLocaleString(t('locale'),{maximumFractionDigits:0})}</b></div>`;
+  const bl=$('#blacklist'); bl.innerHTML='<div style="font-size:12px;color:var(--bad);font-weight:600">'+t('st.blacklistTop')+'</div>';
   const blacks=d.supplier_blacklist||[];
   if(blacks.length){
     blacks.forEach(s=>{
@@ -309,14 +309,14 @@ export async function loadInsights(){
       bl.appendChild(div);
     });
   } else {
-    bl.innerHTML+='<span class="note">暂无「高风险 / 待改进」档位的供应商。</span>';
+    bl.innerHTML+='<span class="note">'+t('st.noBlacklist')+'</span>';
   }
 
   // ⑯⑰⑱ B组：时间序列 / 预测预警 / 选品避坑闭环
   renderTrendLine($('#trendLine'), d.time_series||[], d.forecast||{});
   $('#trendNote').textContent = (d.time_series&&d.time_series.length)
-    ? `历史 ${d.time_series.length} 个月；趋势 ${trendLabel((d.forecast||{}).trend)}`
-    : '暂无带日期的案件，无法生成时间序列（录入时填写「案件日期」即可）。';
+    ? `${t('st.trendMonths')} ${d.time_series.length} ${t('st.months')}；${t('dyn.trend')} ${trendLabel((d.forecast||{}).trend)}`
+    : t('st.noDatedCases');
   renderForecast($('#forecastKpis'), $('#forecastList'), $('#forecastAlerts'), d.forecast||{}, d.forecast_alerts||[]);
   renderSourcingLoop($('#sourcingLoop'), d.sourcing_checklist||[]);
 
@@ -328,10 +328,11 @@ export async function loadInsights(){
   renderSuppliers(d);
   renderDonut($('#kWinDonut'), d.win_rate||0);
   syncRoi(d);  // ROI 面板接入真实看板数据（客单价/争议占比/胜诉率口径）
-  status.textContent='已更新 · '+new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+  syncRoiBacktest(d);  // ROI 真实回测区间（后端基于真实聚合值，三档情景 + 敏感性）
+  status.textContent=t('st.updated')+' · '+new Date().toLocaleTimeString(t('locale'),{hour:'2-digit',minute:'2-digit'});
   status.classList.remove('loading');
   clearSkeletons();
-  }catch(e){ status.textContent='加载失败'; status.classList.remove('loading'); clearSkeletons(); console.error('loadInsights 出错', e); }
+  }catch(e){ status.textContent=t('st.loadFail'); status.classList.remove('loading'); clearSkeletons(); console.error('loadInsights 出错', e); }
 }
 
 
@@ -341,8 +342,8 @@ export async function loadPlatforms(){
   try{
     const r=await fetch('/api/platforms'); const d=await r.json();
     const ps=d.platforms||[];
-    const attrs=[['return_window','退货窗口'],['response_window','响应时限'],['shipping_payer','运费承担'],['burden_bias','举证偏向']];
-    let html='<tr><th>维度</th>'+ps.map(p=>`<th>${esc(p.label)}</th>`).join('')+'</tr>';
+    const attrs=[['return_window',t('plat.returnWindow')],['response_window',t('plat.responseWindow')],['shipping_payer',t('plat.shippingPayer')],['burden_bias',t('plat.burdenBias')]];
+    let html='<tr><th>'+t('plat.dim')+'</th>'+ps.map(p=>`<th>${esc(p.label)}</th>`).join('')+'</tr>';
     attrs.forEach(([k,name])=>{
       html+='<tr><th>'+name+'</th>'+ps.map(p=>`<td>${esc(p[k])}</td>`).join('')+'</tr>';
     });
@@ -355,22 +356,22 @@ export async function loadPlatforms(){
       tmpl+=`<div class="plat-acc" data-key="${esc(p.key)}">`
         +`<button type="button" class="plat-head" aria-expanded="false">`
         +`<span class="plat-name">${esc(p.label)}</span>`
-        +`<span class="plat-hint">举证偏向：${esc(p.burden_bias||'-')}</span>`
+        +`<span class="plat-hint">${t('plat.burdenBias')}：${esc(p.burden_bias||'-')}</span>`
         +`<span class="plat-arrow" aria-hidden="true">▸</span>`
         +`</button>`
         +`<div class="plat-body">`
-        +`<div class="kv"><span>退货窗口</span><b>${esc(p.return_window)}</b></div>`
-        +`<div class="kv"><span>响应时限</span><b>${esc(p.response_window)}</b></div>`
-        +`<div class="kv"><span>运费承担</span><b>${esc(p.shipping_payer)}</b></div>`
-        +`<div class="kv"><span>举证偏向</span><b>${esc(p.burden_bias)}</b></div>`
-        +`<div style="font-size:12px;color:var(--txt3);margin-top:10px">必备举证材料</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">常见失分 / 败诉原因</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">平台特殊条款</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
-        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">ReturnGuard 怎么帮你举证</div><ul class="ev cap">${capItems}</ul>`
+        +`<div class="kv"><span>${t('plat.returnWindow')}</span><b>${esc(p.return_window)}</b></div>`
+        +`<div class="kv"><span>${t('plat.responseWindow')}</span><b>${esc(p.response_window)}</b></div>`
+        +`<div class="kv"><span>${t('plat.shippingPayer')}</span><b>${esc(p.shipping_payer)}</b></div>`
+        +`<div class="kv"><span>${t('plat.burdenBias')}</span><b>${esc(p.burden_bias)}</b></div>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:10px">${t('plat.requiredEvidence')}</div><ul class="ev">${p.required_evidence.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">${t('plat.lossReasons')}</div><ul class="ev bad">${p.common_loss_reasons.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">${t('plat.specialClauses')}</div><ul class="ev dim">${(p.special_clauses||[]).map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`
+        +`<div style="font-size:12px;color:var(--txt3);margin-top:8px">${t('plat.howWeHelp')}</div><ul class="ev cap">${capItems}</ul>`
         +`</div></div>`;
     });
     $('#platTmpl').innerHTML=tmpl;
-  }catch(e){ $('#platCmp').innerHTML='<span class="err">举证包加载失败</span>'; }
+  }catch(e){ $('#platCmp').innerHTML='<span class="err">'+t('plat.loadFail')+'</span>'; }
 }
 
 // 平台举证包折叠：事件委托，单开折叠（点其他平台自动收上当前）
@@ -416,11 +417,11 @@ export async function doAnalyze(e){
   e.preventDefault();
   $('#err').textContent=''; $('#res').classList.add('hide'); $('#resEmpty').classList.add('hide');
   $('#modeBadge').classList.add('hide');
-  const btn=$('#btn'); btn.disabled=true; btn.textContent='举证中…';
+  const btn=$('#btn'); btn.disabled=true; btn.textContent=t('an.running');
   // 分析中状态：live 模式耗时长，明确提示避免误以为卡死
   const fd=new FormData($('#f'));
   $('#analyzing').classList.remove('hide');
-  $('#analyzingText').textContent = fd.get('mode')==='live' ? '真实 AI 分析中（约 30-60 秒，请稍候）…' : '正在生成取证结果…';
+  $('#analyzingText').textContent = fd.get('mode')==='live' ? t('an.liveHint') : t('an.mockHint');
   setStep(2);
   // P1-4：可取消 + 超时自中止（live 视觉调用可能较久）
   analyzeCtrl=new AbortController();
@@ -431,14 +432,14 @@ export async function doAnalyze(e){
     const d=await r.json().catch(()=>({}));
     // 取证是写接口，匿名会被 401 拒：弹出登录框衔接上，而不是只留一行"请先登录"红字
     if(!r.ok){
-      if(r.status===401){ openAuthModal(); throw new Error('取证需先登录，请在弹窗输入 demo / demo123'); }
-      throw new Error(d.detail||'请求失败');
+      if(r.status===401){ openAuthModal(); throw new Error(t('an.needLogin')); }
+      throw new Error(d.detail||t('an.requestFail'));
     }
     $('#sim').textContent=Math.round(d.similarity*100)+'%';
     $('#simbar').style.width=Math.round(d.similarity*100)+'%';
     // P2-4 前端：阈值统一取自 /api/config（state.threshold），不再硬编码 0.82
     $('#simbar').style.background=d.similarity>=state.threshold?'var(--ok)':'var(--bad)';
-    $('#same').textContent=d.same_item?'是同一件':'疑似调包/非同款';
+    $('#same').textContent=d.same_item?t('an.sameItem'):t('an.swapped');
     $('#same').style.background=d.same_item?'var(--ok)':'var(--bad)';
     $('#cons').textContent=d.consistency;
     // P1-3：缺陷标签拼进 innerHTML 前转义，杜绝 live 模型自由文本 XSS
@@ -450,6 +451,9 @@ export async function doAnalyze(e){
     $('#prio').textContent=d.priority_score;
     $('#dossier').textContent=d.dossier;
     $('#vtext').textContent=d.voice_text;
+    // 母语语音：展示本单陈述语言与音色（后端返回 language/voice；mock 亦有）
+    const vl=$('#voiceLang');
+    if(vl) vl.textContent=(d.language||'zh')+' · '+(d.voice||'-');
     $('#audio').src='data:audio/wav;base64,'+d.voice_audio_b64;
     if(d.platform && (d.platform_evidence||[]).length){
       $('#platName').textContent=d.platform;
@@ -461,20 +465,21 @@ export async function doAnalyze(e){
     setStep(3);
     renderBadge(d.mode);
     renderOrchestration(d);
-    const cb=$('#copyDossier'); cb.textContent='复制'; cb.classList.remove('copied');
+    const cb=$('#copyDossier'); cb.textContent=t('dyn.copy'); cb.classList.remove('copied');
+    state.lastAnalyze = d;  // 供切换语言后重渲染模式徽标与编排链路（dossier/语音为后端数据，不随语言变）
     $('#res').classList.remove('hide');
   }catch(err){
     $('#analyzing').classList.add('hide'); setStep(1);
     // P1-4：区分主动取消/超时与真实错误
     if(err && err.name==='AbortError'){
-      $('#err').textContent='已取消分析（或超时自动中止，可改演示模式重试）。';
+      $('#err').textContent=t('an.aborted');
     } else {
-      $('#err').textContent='错误：'+err.message;
+      $('#err').textContent=t('dyn.errorPrefix')+err.message;
     }
   }
   finally{
     clearTimeout(timer); analyzeCtrl=null;
-    btn.disabled=false; btn.textContent='开始举证';
+    btn.disabled=false; btn.textContent=t('an.start');
   }
 }
 
@@ -500,24 +505,24 @@ export async function loadEntryList(page){
     const res=await r.json();
     const list=res.items||[];
     const wrap=$('#entryTableWrap');
-    if(!list.length){ wrap.innerHTML='<span class="note">当前数据源暂无案件。</span>'; return; }
+    if(!list.length){ wrap.innerHTML='<span class="note">'+t('ent.empty')+'</span>'; return; }
     const total=res.total||0;
     const totalPages=Math.max(1, Math.ceil(total/state.pageSize));
-    let html='<table><thead><tr><th>SKU</th><th>品类</th><th>供应商</th><th>金额</th><th>判定</th><th></th></tr></thead><tbody>';
+    let html='<table><thead><tr><th>SKU</th><th>'+t('m.category')+'</th><th>'+t('ent.supplier')+'</th><th>'+t('ent.amount')+'</th><th>'+t('ent.verdict')+'</th><th></th></tr></thead><tbody>';
     list.forEach(x=>{
       html+=`<tr><td>${esc(x.sku)}</td><td>${esc(x.category)}</td><td>${esc(x.supplier)}</td>`
-        +`<td>¥${Number(x.amount||0).toFixed(0)}</td><td>${esc(x.outcome||'待分析')}</td>`
-        +`<td><button class="entry-del" data-id="${esc(x.case_id)}">删除</button></td></tr>`;
+        +`<td>¥${Number(x.amount||0).toFixed(0)}</td><td>${esc(x.outcome||t('dyn.pendingShort'))}</td>`
+        +`<td><button class="entry-del" data-id="${esc(x.case_id)}">${t('ent.delete')}</button></td></tr>`;
     });
     html+='</tbody></table>';
-    html+=`<div class="pager"><button id="prevPage" ${state.entryPage<=1?'disabled':''}>‹ 上一页</button>`
-        +`<span class="pager-info">第 ${state.entryPage}/${totalPages} 页 · 共 ${total} 条</span>`
-        +`<button id="nextPage" ${state.entryPage>=totalPages?'disabled':''}>下一页 ›</button></div>`;
+    html+=`<div class="pager"><button id="prevPage" ${state.entryPage<=1?'disabled':''}>‹ ${t('ent.prev')}</button>`
+        +`<span class="pager-info">${t('ent.page')} ${state.entryPage}/${totalPages} · ${t('ent.total')} ${total}</span>`
+        +`<button id="nextPage" ${state.entryPage>=totalPages?'disabled':''}>${t('ent.next')} ›</button></div>`;
     wrap.innerHTML=html;
     const prev=$('#prevPage'), next=$('#nextPage');
     if(prev) prev.onclick=()=>loadEntryList(Math.max(1, state.entryPage-1));
     if(next) next.onclick=()=>loadEntryList(Math.min(totalPages, state.entryPage+1));
-  }catch(e){ $('#entryTableWrap').innerHTML='<span class="err">列表加载失败</span>'; }
+  }catch(e){ $('#entryTableWrap').innerHTML='<span class="err">'+t('ent.loadFail')+'</span>'; }
 }
 
 
@@ -525,7 +530,7 @@ export async function loadEntryList(page){
 
 export async function submitEntry(e){
   e.preventDefault();
-  const btn=$('#entryBtn'); btn.disabled=true; btn.textContent='提交中…';
+  const btn=$('#entryBtn'); btn.disabled=true; btn.textContent=t('ent.submitting');
   $('#entryMsg').textContent=''; $('#entryMsg').className='entry-msg';
   try{
     const fd=new FormData($('#entryForm'));
@@ -536,13 +541,13 @@ export async function submitEntry(e){
     payload.defect_tags=(payload.defect_tags||'').split(',').map(s=>s.trim()).filter(Boolean);
     const r=await apiFetch('/api/cases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const d=await r.json();
-    if(!r.ok){ if(r.status===401){ openAuthModal(); } throw new Error(d.detail||'提交失败'); }
-    $('#entryMsg').textContent='✓ 已添加到「'+(state.source==='real'?'真实案件库':'演示布局')+'」：'+d.case_id;
+    if(!r.ok){ if(r.status===401){ openAuthModal(); } throw new Error(d.detail||t('ent.submitFail')); }
+    $('#entryMsg').textContent='✓ '+t('ent.added')+'「'+(state.source==='real'?t('ent.realDb'):t('rep.mock'))+'」：'+d.case_id;
     $('#entryMsg').className='entry-msg ok';
     $('#entryForm').reset();
     loadEntryList(); loadInsights();  // 同步刷新列表与看板
-  }catch(err){ $('#entryMsg').textContent='错误：'+err.message; $('#entryMsg').className='entry-msg err'; }
-  finally{ btn.disabled=false; btn.textContent='添加到当前数据源'; }
+  }catch(err){ $('#entryMsg').textContent=t('dyn.errorPrefix')+err.message; $('#entryMsg').className='entry-msg err'; }
+  finally{ btn.disabled=false; btn.textContent=t('ent.submit'); }
 }
 
 
@@ -551,29 +556,29 @@ export async function submitEntry(e){
 export async function submitImport(){
   const btn=$('#importBtn'); const f=$('#importFile'); const msg=$('#importMsg'); const res=$('#importResult');
   msg.textContent=''; msg.className='entry-msg'; res.innerHTML='';
-  if(!f.files || !f.files.length){ msg.textContent='请先选择数据集文件（.xlsx/.csv）'; msg.className='entry-msg err'; return; }
-  btn.disabled=true; btn.textContent='导入中…';
+  if(!f.files || !f.files.length){ msg.textContent=t('imp.pickFile'); msg.className='entry-msg err'; return; }
+  btn.disabled=true; btn.textContent=t('imp.importing');
   try{
     const fd=new FormData();
     fd.append('file', f.files[0]);
     const r=await apiFetch('/api/import_file',{method:'POST',body:fd});
     const d=await r.json();
     // 匿名写入 -> 401：弹登录框而不是只抛一行错误，避免演示卡在"点了没反应"
-    if(r.status===401){ openAuthModal(); throw new Error('导入需先登录'); }
-    if(!r.ok || !d.ok) throw new Error(d.error||d.detail||'导入失败');
+    if(r.status===401){ openAuthModal(); throw new Error(t('imp.needLogin')); }
+    if(!r.ok || !d.ok) throw new Error(d.error||d.detail||t('imp.fail'));
     res.innerHTML =
-      '<div>识别类型：<span class="v">'+esc(d.detected||'未知')+'</span></div>'+
-      '<div><span class="k">新增</span> <span class="v">'+d.imported+'</span>　'+
-      '<span class="k">更新(删旧留新)</span> <span class="v upd">'+d.updated+'</span>　'+
-      '<span class="k">跳过(同日/更旧)</span> <span class="v skip">'+d.skipped+'</span>　'+
-      '<span class="k">文件内重复</span> <span class="v skip">'+d.file_duplicates+'</span></div>';
-    if(d.errors && d.errors.length){ res.innerHTML += '<div class="k">提示：'+esc(d.errors.slice(0,5).join('；'))+'</div>'; }
-    msg.textContent='✓ 导入完成（真实案件库），看板已刷新。'; msg.className='entry-msg ok';
+      '<div>'+t('imp.detected')+'<span class="v">'+esc(d.detected||t('imp.unknown'))+'</span></div>'+
+      '<div><span class="k">'+t('imp.added')+'</span> <span class="v">'+d.imported+'</span>　'+
+      '<span class="k">'+t('imp.updated')+'</span> <span class="v upd">'+d.updated+'</span>　'+
+      '<span class="k">'+t('imp.skipped')+'</span> <span class="v skip">'+d.skipped+'</span>　'+
+      '<span class="k">'+t('imp.dupInFile')+'</span> <span class="v skip">'+d.file_duplicates+'</span></div>';
+    if(d.errors && d.errors.length){ res.innerHTML += '<div class="k">'+t('imp.hint')+esc(d.errors.slice(0,5).join('；'))+'</div>'; }
+    msg.textContent='✓ '+t('imp.done'); msg.className='entry-msg ok';
     loadInsights(); loadEntryList();
   }catch(err){
-    msg.textContent='错误：'+err.message; msg.className='entry-msg err';
+    msg.textContent=t('dyn.errorPrefix')+err.message; msg.className='entry-msg err';
   }
-  finally{ btn.disabled=false; btn.textContent='导入并去重'; }
+  finally{ btn.disabled=false; btn.textContent=t('imp.submit'); }
 }
 
 
@@ -583,8 +588,8 @@ export async function submitCsvImport(){
   const btn=$('#importCsvBtn'); const ta=$('#importCsvText'); const msg=$('#importMsg'); const res=$('#importResult');
   msg.textContent=''; msg.className='entry-msg'; res.innerHTML='';
   const csv=(ta.value||'').trim();
-  if(!csv){ msg.textContent='请先粘贴 CSV 内容（首行为表头，至少含 sku 列）'; msg.className='entry-msg err'; return; }
-  btn.disabled=true; btn.textContent='解析中…';
+  if(!csv){ msg.textContent=t('imp.pasteCsv'); msg.className='entry-msg err'; return; }
+  btn.disabled=true; btn.textContent=t('imp.parsing');
   try{
     const fd=new FormData();
     fd.append('csv_text', csv);
@@ -592,23 +597,23 @@ export async function submitCsvImport(){
     const d=await r.json();
     if(!r.ok){
       // 匿名 -> 401：直接弹出登录框，而不是只留一行错误（否则演示链路断在这里）
-      if(r.status===401){ openAuthModal(); throw new Error('导入需先登录'); }
-      throw new Error(d.detail||d.error||'导入失败');
+      if(r.status===401){ openAuthModal(); throw new Error(t('imp.needLogin')); }
+      throw new Error(d.detail||d.error||t('imp.fail'));
     }
     const skipped=d.skipped||0, errs=d.errors||[];
     res.innerHTML =
-      '<div><span class="k">新增</span> <span class="v">'+d.imported+'</span>　'+
-      '<span class="k">跳过(缺字段/重复)</span> <span class="v skip">'+skipped+'</span></div>'+
-      (errs.length ? '<div class="k">提示：'+esc(errs.slice(0,5).join('；'))+'</div>' : '');
+      '<div><span class="k">'+t('imp.added')+'</span> <span class="v">'+d.imported+'</span>　'+
+      '<span class="k">'+t('imp.skippedCsv')+'</span> <span class="v skip">'+skipped+'</span></div>'+
+      (errs.length ? '<div class="k">'+t('imp.hint')+esc(errs.slice(0,5).join('；'))+'</div>' : '');
     msg.textContent = d.imported>0
-      ? '✓ 已导入 '+d.imported+' 条（真实案件库），看板已刷新。'
-      : '⚠ 未导入任何行，请检查 sku 列是否存在。';
+      ? '✓ '+t('imp.importedN').replace('{n}', d.imported)
+      : t('imp.nothingImported');
     msg.className = d.imported>0 ? 'entry-msg ok' : 'entry-msg err';
     if(d.imported>0){ ta.value=''; loadInsights(); loadEntryList(); }
   }catch(err){
-    msg.textContent='错误：'+err.message; msg.className='entry-msg err';
+    msg.textContent=t('dyn.errorPrefix')+err.message; msg.className='entry-msg err';
   }
-  finally{ btn.disabled=false; btn.textContent='解析并导入'; }
+  finally{ btn.disabled=false; btn.textContent=t('imp.submitCsv'); }
 }
 
 
@@ -630,6 +635,9 @@ export function switchImportPane(which){
     if(c.version) $('#appVer').textContent='V'+String(c.version).replace(/^v/i,'');
     // P1-15：供应商花名册由后端 /api/config 单一来源下发，前端不再内嵌硬编码副本
     if(c.suppliers && typeof c.suppliers==='object') state.supplierNames=c.suppliers;
+    // 母语语音：可选语言清单（语言→展示名/音色）由后端下发，前端不硬编码
+    if(Array.isArray(c.languages) && c.languages.length) state.languages=c.languages;
+    if(c.default_language) state.defaultLanguage=c.default_language;
   }catch(e){ /* 网络异常则用默认 0.82 兜底 */ }
 
   // 清理旧版手动数据源开关的 localStorage 残留；source 现由登录态自动推导。
@@ -644,10 +652,10 @@ export function switchImportPane(which){
   } catch (e) { /* i18n 失败不阻断主流程 */ }
 
   // 数据录入页提示：登录后写入租户真实案件库；未登录则提示需登录。
-  $('#entryTarget').textContent='将写入：'+(state.source==='real'?'真实案件库':'请登录后录入');
+  $('#entryTarget').textContent=t('ent.willWrite')+(state.source==='real'?t('ent.realDb'):t('ent.needLoginToAdd'));
   const banner=$('#entryBanner');
   if(state.source==='real'){
-    banner.querySelector('.sb-body').textContent='⚠ 当前已登录：看板与录入均作用于您的租户真实案件库（与演示布局物理隔离）。';
+    banner.querySelector('.sb-body').textContent=t('ent.loggedInBanner');
     banner.classList.add('show'); banner.classList.remove('hidden');
   }
 
@@ -688,6 +696,13 @@ $('#seasonSel').addEventListener('change',loadInsights);
   sel.addEventListener('change',()=>{
     setLang(sel.value);
     applyI18n();
+    // 看板/供应商/平台举证包/筛选下拉均由 JS 动态渲染（文案走 t()），
+    // 切语言后必须重渲染，否则动态区块仍是旧语言。
+    populateFilters();
+    loadInsights();
+    loadPlatforms();
+    // 单案取证结果的模式徽标与编排链路也重渲染（dossier/语音文本为后端数据，不随语言变）
+    if(state.lastAnalyze){ renderBadge(state.lastAnalyze.mode); renderOrchestration(state.lastAnalyze); }
   });
 })();
 
@@ -868,6 +883,35 @@ document.querySelectorAll('.board .col .card').forEach(c=>{
   // ROI 面板接入真实看板数据（N6）：把「平均客单价（退款/案件数）/ 争议占比（代理嫌疑率）」
   // 按当前看板真实值填入并标注来源；「年退货量 / 胜诉率提升 / 时薪」保留为可调假设
   // （无历史基线可填）。由 loadInsights 成功后调用，保证测算与看板同源。
+  // ROI 真实回测区间：后端 roi_backtest 基于已沉淀案件的真实聚合值算出三档情景。
+  // 与上方「交互式测算」的区别：这里是**真实案件量 × 真实争议占比**，只把胜诉率提升当假设；
+  // 上方是全假设的what-if。两者并列展示，避免把假设值说成实测收益。
+  function syncRoiBacktest(d){
+    const wrap=document.getElementById('roiBacktest');
+    if(!wrap) return;
+    const bt=d && d.roi_backtest;
+    if(!bt || !bt.available){ wrap.style.display='none'; return; }
+    wrap.style.display='';
+    const body=document.getElementById('roiBtBody');
+    const money=v=>'¥'+Math.round(v||0).toLocaleString('zh-CN');
+    body.innerHTML=(bt.scenarios||[]).map(s=>`<tr>`
+      +`<td>${esc(s.label)}</td>`
+      +`<td class="num">+${Math.round((s.effective_delta||0)*100)}pp</td>`
+      +`<td class="num">${s.cases_won_back} ${t('dyn.unitCases')}</td>`
+      +`<td class="num">${money(s.recover_refund)}</td>`
+      +`<td class="num">${money(s.recover_logistics)}</td>`
+      +`<td class="num">${s.labor_hours_saved} h</td>`
+      +`</tr>`).join('');
+    const b=bt.basis||{}, sens=bt.sensitivity||{};
+    document.getElementById('roiBtFoot').innerHTML=
+      `${t('roi.btBasis')}${Number(b.total_cases||0).toLocaleString('zh-CN')} ${t('dyn.unitCases')}`
+      +` · ${t('roi.btDispute')}${b.dispute_cases} ${t('dyn.unitCases')}`
+      +` · ${t('roi.btWinRate')}${Math.round((b.win_rate||0)*100)}%`
+      +` · ${t('roi.btAvgRefund')}${money(b.avg_refund)}<br>`
+      +`${t('roi.btSens')}${money(sens['cases_-20%'])} ~ ${money(sens['cases_+20%'])}（${t('roi.btSensNote')}）<br>`
+      +`${esc(bt.disclaimer||'')}`;
+  }
+
   function syncRoi(d){
     if(!d) return;
     const total=Number(d.total_cases||0);

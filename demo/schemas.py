@@ -55,6 +55,9 @@ class AnalyzeResult(BaseModel):
     platform_evidence: list[str] = []
     mode: str = "mock"
     error: str | None = None
+    # 母语语音：本单 ④ 陈述文本语言 / ⑥ TTS 音色（zh/en/es/pt/de/fr/ja/ko）
+    language: str = "zh"
+    voice: str = ""
     # live 模式逐能力真实/回退标记（similarity/defects/ocr/tts），便于演示说明哪些走了真实模型
     capabilities: dict[str, bool] = {}
 

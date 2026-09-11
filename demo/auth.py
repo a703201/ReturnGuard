@@ -18,7 +18,7 @@ import re
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from sqlalchemy import Column, DateTime, Integer, String, create_engine, text
@@ -95,7 +95,10 @@ class User(AuthBase):  # type: ignore[misc,valid-type]
         Integer, default=CURRENT_PBKDF2_ITERS, nullable=False
     )  # 落库时的 KDF 轮数（rehash-on-login 渐进升级）
     tenant_name = Column(String(128), default="")  # 展示用企业/店铺名
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # 创建时间：UTC。原用已废弃的 datetime.utcnow()（SQLAlchemy 每次插入都告警，
+    # 未来版本将移除）；改用带时区的 datetime.now(timezone.utc) 并去掉 tzinfo，
+    # 保持与既有列类型（DateTime 无时区）及历史存储格式一致，零迁移风险。
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None))
     token_version = Column(
         Integer, default=0, nullable=False
     )  # 令牌吊销/登出：自增即令旧 token 失效

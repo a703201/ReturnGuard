@@ -1,0 +1,93 @@
+{
+  "config": {
+    "runs": 2,
+    "cases": 60,
+    "mode": "live",
+    "out": "../docs/ab_result.json",
+    "variants": "A,B"
+  },
+  "summary": {
+    "A": {
+      "runs": 2,
+      "ok_rate": 1.0,
+      "json_ok_rate": 1.0,
+      "mismatch_mean": 0,
+      "latency_mean_s": 47.36,
+      "fields_filled_mean": 4
+    },
+    "B": {
+      "runs": 2,
+      "ok_rate": 1.0,
+      "json_ok_rate": 1.0,
+      "mismatch_mean": 0,
+      "latency_mean_s": 46.57,
+      "fields_filled_mean": 4
+    }
+  },
+  "rows": [
+    {
+      "variant": "A",
+      "ok": true,
+      "mode": "live",
+      "json_ok": true,
+      "mismatch": 0,
+      "latency_s": 41.16,
+      "fields": {
+        "root_cause": true,
+        "sku_insights": true,
+        "recommendations": true,
+        "sourcing_advice": true
+      },
+      "fields_filled": 4,
+      "run": 1
+    },
+    {
+      "variant": "A",
+      "ok": true,
+      "mode": "live",
+      "json_ok": true,
+      "mismatch": 0,
+      "latency_s": 53.56,
+      "fields": {
+        "root_cause": true,
+        "sku_insights": true,
+        "recommendations": true,
+        "sourcing_advice": true
+      },
+      "fields_filled": 4,
+      "run": 2
+    },
+    {
+      "variant": "B",
+      "ok": true,
+      "mode": "live",
+      "json_ok": true,
+      "mismatch": 0,
+      "latency_s": 40.95,
+      "fields": {
+        "root_cause": true,
+        "sku_insights": true,
+        "recommendations": true,
+        "sourcing_advice": true
+      },
+      "fields_filled": 4,
+      "run": 1
+    },
+    {
+      "variant": "B",
+      "ok": true,
+      "mode": "live",
+      "json_ok": true,
+      "mismatch": 0,
+      "latency_s": 52.19,
+      "fields": {
+        "root_cause": true,
+        "sku_insights": true,
+        "recommendations": true,
+        "sourcing_advice": true
+      },
+      "fields_filled": 4,
+      "run": 2
+    }
+  ]
+}

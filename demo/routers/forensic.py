@@ -26,6 +26,7 @@ from common import (
     query_cases,
     save_case,
 )
+from constants import SUPPORTED_LANGUAGES
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from quota import check_live_quota
@@ -46,6 +47,7 @@ def analyze(
     supplier: str = Form(""),
     platform: str = Form(""),
     mode: str = Form("mock"),
+    language: str = Form("zh"),
 ):
     """阶段A · 个案举证接口。
 
@@ -75,6 +77,9 @@ def analyze(
         raise HTTPException(status_code=400, detail="mode 仅支持 mock / live")
     if platform and not is_valid_platform(platform):
         raise HTTPException(status_code=400, detail="platform 不在支持列表")
+    # 母语陈述目标语言：白名单校验，避免下游模板/音色取空
+    if language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(status_code=400, detail="language 不在支持列表")
 
     # SEC-13 live 独立配额闸：live 链路真实消耗服务端付费 Key，而公网演示账号
     # demo/demo123 是已对外发布的公开凭据，通用限流（60 次/分钟）挡不住"低频持续"
@@ -121,6 +126,7 @@ def analyze(
             mode,
             returned_url=ret_url,
             product_url=prod_url,
+            language=language,
         )
         # P2-② 案件号统一：单案取证与手动录入共用 "RG-" + 8 位大写十六进制前缀，
         # 此前取证用裸 8 位小写 hex、录入用 "RG-" 前缀，格式不一致影响检索/展示。

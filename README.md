@@ -125,7 +125,14 @@ flowchart TB
 - **N3 i18n 扩容**：`data-i18n` 由 14 处扩展到 **30 处**（新增 15 张卡片标题 + 关键按钮），`i18n.js` 字典补齐 zh/en。
 - **N4 构建链路可用化**：`scripts/minify.mjs` 输出到 `dist/` 并**重写 ESM 相对导入**（`./x.js` → `./x.min.js`），生成 `dist/index.html`；设 `SERVE_MINIFIED=1` 即启用压缩产物（实测 **-31%**），默认仍发未压缩源，演示现场零风险。
 
-> 当前测试 **111 passed 全绿**（`ruff format` / `ruff check` / `mypy` / `pytest --cov-fail-under=75` 四道门禁本地全通过，覆盖率 76.7%）。
+> 当前测试 **123 passed 全绿**（`ruff format` / `ruff check` / `mypy` / `pytest --cov-fail-under=75` 四道门禁本地全通过，覆盖率 76.7%）。
+
+### 2026-09-11 四项收口（审查报告全部缺陷项清零）
+- **母语多语 TTS**：语言→音色映射为单一来源（`demo/constants.py`），`tts()` / `live_analyze()` 按 `language` 选音色；`/api/analyze` 接收 `language`、`/api/config` 下发 `languages`；前端取证表单可选语言，结果区展示「语言 · 音色」。
+- **正文级 i18n**：`data-i18n` 30 → **123** 处，并把**动态渲染层**（`render.js` + `app.js`）共 **192** 处硬编码中文接入 `t()`；字典 zh/en 各 **315 键**。新增 `scripts/check_i18n.py` 做键完整性校验（零缺失 / 零冗余 / zh-en 一致），可直接进 CI。
+  > 边界声明：**后端返回的数据值**（洞察正文、缺陷标签、供应商名等）仍为其原始语言，i18n 覆盖的是界面与结构化文案。
+- **ROI 回测 + A/B 台架**：`pipeline._roi_backtest()` 用真实聚合值给出保守/基准/乐观三档可挽回区间与敏感性，`method`/`disclaimer` 强制随结果下发（**模型回测，非 A/B 实测因果**）；`demo/ab_experiment.py` 为可复现的 prompt 变体对照台架（live 实跑 + `--mode mock` 零成本干跑）。详见 **`docs/AB_ROI_实证说明.md`**。
+- **告警清零**：`datetime.utcnow()` 引发的 19 条 SQLAlchemy DeprecationWarning → 0。
 
 ## 快速开始
 ```bash

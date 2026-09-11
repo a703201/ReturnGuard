@@ -50,6 +50,34 @@ SEVERITY: dict[str, float] = {
 }
 
 # ===========================================================================
+# 母语语音（TTS）：支持语言 → 音色 / 语言标签（单一来源）
+# ===========================================================================
+# 跨境场景下举证陈述应能用**买家/平台所在语言**朗读。这里把「语言 → 音色」固化到单一来源，
+# 供 models_router（选 voice）、pipeline（mock 陈述模板）、routers（参数校验）与前端
+# （经 /api/config 下发的选择器）共用。
+# 音色取自 qwen 系列 TTS 的可用音色（Chelsie / Ethan / Serena，均支持多语种合成）；
+# 若网关开通了带 language_type 的通道，可按需在 payload 追加（见 models_router.tts 注释）。
+TTS_VOICES: dict[str, dict[str, str]] = {
+    "zh": {"label": "中文", "voice": "Chelsie"},
+    "en": {"label": "English", "voice": "Ethan"},
+    "es": {"label": "Español", "voice": "Serena"},
+    "pt": {"label": "Português", "voice": "Serena"},
+    "de": {"label": "Deutsch", "voice": "Ethan"},
+    "fr": {"label": "Français", "voice": "Serena"},
+    "ja": {"label": "日本語", "voice": "Chelsie"},
+    "ko": {"label": "한국어", "voice": "Serena"},
+}
+DEFAULT_LANGUAGE = "zh"
+SUPPORTED_LANGUAGES: tuple[str, ...] = tuple(TTS_VOICES.keys())
+DEFAULT_TTS_VOICE = "Chelsie"
+
+
+def tts_voice_for(language: str | None) -> str:
+    """按语言取 TTS 音色；未知语言回退默认音色（单一来源，杜绝各处硬编码）。"""
+    return TTS_VOICES.get(language or "", {}).get("voice") or DEFAULT_TTS_VOICE
+
+
+# ===========================================================================
 # 销售地区归一化（单一来源：pipeline / convert_datasets / dataset_parse 共用）
 # ===========================================================================
 # 国家码（US / DE / …）或数据集里的国家全名（UCI Online Retail 用

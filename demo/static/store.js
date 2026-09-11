@@ -11,6 +11,9 @@ export const state = {
   pageSize: 20,         // 每页条数
   threshold: 0.82,      // 同款一致性阈值（运行时从 /api/config 拉取单一来源值，兜底 0.82）
   supplierNames: null,   // 供应商花名册（P1-15：运行时从 /api/config 下发，杜绝前端硬编码副本）
+  languages: null,       // 母语语音可选语言（语言→展示名/音色，运行时从 /api/config 下发）
+  defaultLanguage: 'zh', // 默认陈述语言（后端 constants.DEFAULT_LANGUAGE 下发）
+  lastAnalyze: null,     // 最近一次单案取证结果，供切换语言后重渲染徽标/编排链路
 };
 
 // source 为派生属性：登录即 real，未登录即 demo。注销旧 localStorage rg_source 避免残留。

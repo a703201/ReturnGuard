@@ -165,14 +165,78 @@ def dossier_prompt(sku: str, similarity: float, defects: list[str], consistency:
 
 
 # 4c. 母语口头陈述（TTS 前置文本）
-def voice_prompt(similarity: float, defects: list[str]) -> str:
+# 目标语言清单与 constants.TTS_VOICES 对齐；这里只放"给模型看的语言名"，与音色解耦。
+_VOICE_LANG_NAME: dict[str, str] = {
+    "zh": "中文",
+    "en": "English",
+    "es": "español",
+    "pt": "português",
+    "de": "Deutsch",
+    "fr": "français",
+    "ja": "日本語",
+    "ko": "한국어",
+}
+
+
+def voice_prompt(similarity: float, defects: list[str], language: str = "zh") -> str:
+    """生成「母语口头陈述」的 prompt。language 决定输出语言（跨境场景按买家/平台语言举证）。"""
+    lang_name = _VOICE_LANG_NAME.get(language, "中文")
     defect_str = "、".join(defects) if defects else "无明显瑕疵"
     return (
-        "你正在帮助一位中国跨境卖家，就一笔退货向平台用母语做一段口头举证陈述。"
-        "请用第一人称、口语化、有说服力但实事求是，面向平台仲裁人员。\n"
+        f"你正在帮助一位跨境卖家，就一笔退货向平台用**目标语言**做一段口头举证陈述。"
+        f"请用第一人称、口语化、有说服力但实事求是，面向平台仲裁人员。\n"
+        f"**必须只用 {lang_name} 输出**，不要混入其他语言、不要中英夹杂。\n"
         f"要点：退回件相似度 {similarity:.2f}，主要问题：{defect_str}。\n"
-        "请生成一段 60 字以内的中文陈述，不要称呼、不要标点堆砌，可直接朗读。"
+        f"请生成一段 60 词以内的 {lang_name} 陈述，不要称呼、不要序号，可直接朗读。"
     )
+
+
+# ---- 母语陈述模板（mock 与 live 文本回退共用，单一来源，避免两处口径分叉）----
+# 占位符：{sku} {sim} {verdict} {defects}
+_VOICE_TEMPLATE: dict[str, str] = {
+    "zh": "您好，这是关于订单 {sku} 的退货举证。系统比对显示退回商品与本店商品相似度为 {sim}，{verdict}；主要问题为{defects}。请核查后公正裁决，谢谢。",
+    "en": "Hello, this is the return evidence statement for order {sku}. Our comparison shows a similarity of {sim} between the returned item and our listed product, {verdict}; the main issues are: {defects}. Please review fairly. Thank you.",
+    "es": "Hola, esta es la declaración de pruebas de la devolución del pedido {sku}. La comparación muestra una similitud de {sim} entre el artículo devuelto y nuestro producto, {verdict}; los problemas principales son: {defects}. Gracias.",
+    "pt": "Olá, esta é a declaração de evidências da devolução do pedido {sku}. A comparação mostra similaridade de {sim} entre o item devolvido e o nosso produto, {verdict}; os principais problemas são: {defects}. Obrigado.",
+    "de": "Hallo, dies ist die Beweiserklärung zur Rücksendung der Bestellung {sku}. Der Vergleich zeigt eine Ähnlichkeit von {sim} zwischen dem zurückgesandten Artikel und unserem Produkt, {verdict}; Hauptprobleme: {defects}. Vielen Dank.",
+    "fr": "Bonjour, voici la déclaration de preuves pour le retour de la commande {sku}. La comparaison montre une similarité de {sim} entre l'article retourné et notre produit, {verdict} ; principaux problèmes : {defects}. Merci.",
+    "ja": "こんにちは。注文 {sku} の返品に関する証拠陳述です。返送品と当店商品の類似度は {sim} で、{verdict}。主な問題は{defects}です。ご確認のほどよろしくお願いいたします。",
+    "ko": "안녕하세요. 주문 {sku}의 반품 증거 진술입니다. 반품 상품과 당사 상품의 유사도는 {sim}이며, {verdict}. 주요 문제는 {defects}입니다. 감사합니다.",
+}
+_VOICE_VERDICT_SAME: dict[str, str] = {
+    "zh": "为同一件商品",
+    "en": "indicating it is the same item",
+    "es": "lo que indica que es el mismo artículo",
+    "pt": "indicando que é o mesmo item",
+    "de": "was auf denselben Artikel hinweist",
+    "fr": "ce qui indique qu'il s'agit du même article",
+    "ja": "同一商品と判定されました",
+    "ko": "동일 상품으로 판정되었습니다",
+}
+_VOICE_VERDICT_DIFF: dict[str, str] = {
+    "zh": "存在明显差异",
+    "en": "indicating a clear discrepancy",
+    "es": "lo que indica una diferencia evidente",
+    "pt": "indicando uma divergência evidente",
+    "de": "was auf eine deutliche Abweichung hinweist",
+    "fr": "ce qui indique une différence manifeste",
+    "ja": "明らかな相違が確認されました",
+    "ko": "뚜렷한 차이가 확인되었습니다",
+}
+
+
+def voice_statement(
+    language: str, sku: str, similarity: float, same_item: bool, defects: list[str]
+) -> str:
+    """按语言生成母语陈述文本（mock 与 live 文本回退共用同一实现）。
+
+    未知语言**整体回退中文**（模板与判定短语一起回退，避免出现「中文模板 + 空判定」的残句）。
+    """
+    lang = language if language in _VOICE_TEMPLATE else "zh"
+    tpl = _VOICE_TEMPLATE[lang]
+    verdict = (_VOICE_VERDICT_SAME if same_item else _VOICE_VERDICT_DIFF)[lang]
+    defect_str = "、".join(defects) if defects else "无明显瑕疵"
+    return tpl.format(sku=sku, sim=similarity, verdict=verdict, defects=defect_str)
 
 
 # ===================== ⑤ 案件优先级重排（rerank）=====================

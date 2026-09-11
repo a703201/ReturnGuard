@@ -45,7 +45,7 @@ import requests
 import requests.exceptions as rex
 from audio_utils import gen_wav
 from calibration import get_active_threshold
-from constants import DEFECT_POOL, SEVERITY
+from constants import DEFAULT_LANGUAGE, DEFECT_POOL, SEVERITY, SUPPORTED_LANGUAGES, tts_voice_for
 from dotenv import load_dotenv
 from imghash import content_seed
 from prompts import (
@@ -58,6 +58,7 @@ from prompts import (
     dossier_prompt,
     sanitize_user_content,
     voice_prompt,
+    voice_statement,
 )
 
 logger = logging.getLogger("returnguard.models_router")
@@ -697,14 +698,25 @@ def rerank(query, documents, model=None):
 
 
 # ===================== ⑥ 母语语音陈述（TTS）=====================
-def tts(text, voice="Chelsie"):
+def tts(text, voice=None, language=None):
     """调用 TTS 模型生成语音（base64 编码的音频）。
+
+    **母语多语**：`language`（zh/en/es/pt/de/fr/ja/ko）决定音色（constants.tts_voice_for），
+    `voice` 显式指定时优先。文本本身由上层（live_analyze）用目标语言生成，两者配合实现"母语陈述"。
     profile 自适应：official=qwen/qwen3-tts-instruct-flash（voice 用 Chelsie/Ethan/Serena），
-    tokenplan=qwen-audio-3.0-tts-plus。OpenAI 兼容 /audio/speech 路径。"""
+    tokenplan=qwen-audio-3.0-tts-plus。OpenAI 兼容 /audio/speech 路径。
+
+    说明：部分 TTS 通道支持 `language_type`（如 "English"）以更准确发音；OpenAI 兼容端点是否
+    接受该字段因网关而异，默认**不发送**以免 400；如需开启，设 TTS_SEND_LANGUAGE_TYPE=1。"""
+    if not voice:
+        voice = tts_voice_for(language)
+    payload = {"model": MODELS["tts"], "input": text, "voice": voice}
+    if language and os.environ.get("TTS_SEND_LANGUAGE_TYPE") == "1":
+        payload["language_type"] = language
     r = _post(
         f"{API_BASE}/audio/speech",
         headers=_headers(),
-        json={"model": MODELS["tts"], "input": text, "voice": voice},
+        json=payload,
         timeout=60,
     )
     r.raise_for_status()
@@ -781,6 +793,7 @@ def live_analyze(
     amount: float,
     returned_url: str | None = None,
     product_url: str | None = None,
+    language: str = DEFAULT_LANGUAGE,
 ) -> dict:
     """方案「阶段A·个案举证」live 编排：并行取证 → 一致性核验 → 卷宗+语音 → 优先级评分。
 
@@ -790,9 +803,14 @@ def live_analyze(
 
     returned_url / product_url：上传图的公网 URL（由 storage 层给出，图床落地 P3-17）；
     缺省时按 PUBLIC_IMAGE_BASE + 文件名拼装（保持旧行为）。
+    language：母语陈述的目标语言（zh/en/es/pt/de/fr/ja/ko）——决定 ④ 陈述文本语言与 ⑥ TTS 音色。
     """
     # P1-5：卖家可控的 listing_text 在边界处即净化，杜绝经 OCR 回退/直接注入污染 AI 结论
     listing_text = sanitize_user_content(listing_text)
+    # 母语：语言白名单校验（未知语言回退默认，避免下游模板/音色取空）
+    if language not in SUPPORTED_LANGUAGES:
+        logger.warning("未知 language=%s，回退默认 %s", language, DEFAULT_LANGUAGE)
+        language = DEFAULT_LANGUAGE
     if not API_KEY:
         raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
     # 可观测：每次 live 取证生成 trace_id，贯穿日志与返回体，便于演示现场与排障串联。
@@ -873,7 +891,7 @@ def live_analyze(
     try:
         consistency = llm(consistency_prompt(sim, defects, promise or listing_text))
         dossier = llm(dossier_prompt(sku, sim, defects, consistency))
-        voice_text = llm(voice_prompt(sim, defects))
+        voice_text = llm(voice_prompt(sim, defects, language))
         caps["text"] = True
     except Exception as e:
         logger.warning("live 文本生成失败，回退确定性卷宗/陈述: %s", e)
@@ -887,16 +905,12 @@ def live_analyze(
             f"判定：{'疑似同款' if same else '疑似货不对板'}\n"
             f"瑕疵：{', '.join(defects)}\n（文本生成服务暂不可用，已回退确定性模板）"
         )
-        voice_text = (
-            f"您的订单商品 SKU {sku} 相似度 {sim:.2f}，"
-            f"{'疑似为同一件商品' if same else '疑似货不对板'}，"
-            f"主要问题：{', '.join(defects)}。建议保留开箱视频作为举证。"
-        )
+        voice_text = voice_statement(language, sku, round(sim, 2), same, defects)
         caps["text"] = False
 
-    # ⑥ 母语语音（网关开通 TTS 即真实）
+    # ⑥ 母语语音（网关开通 TTS 即真实）：按目标语言选音色，文本已由 LLM 用该语言生成
     try:
-        audio = tts(voice_text)
+        audio = tts(voice_text, language=language)
         caps["tts"] = True
     except Exception as e:
         logger.warning("live TTS 失败，回退占位音频: %s", e)
@@ -932,6 +946,9 @@ def live_analyze(
         "dossier": dossier,
         "voice_text": voice_text,
         "voice_audio_b64": audio,
+        # 母语语音：本单陈述使用的目标语言与音色（前端据此展示「母语：English · 音色 Ethan」）
+        "language": language,
+        "voice": tts_voice_for(language),
         "priority_score": priority,
         "defect_boxes": boxes,  # live 真实 bbox（网关开通 qwen3-vl-plus）或确定性示意框（回退）
         "defect_boxes_live": caps.get("boxes", False),  # True=真实视觉坐标，False=示意回退
