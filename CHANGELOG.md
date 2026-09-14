@@ -4,6 +4,38 @@
 
 ---
 
+## [1.1.5] — 2026-09-14
+
+> 全项目文档与代码实现一致性收口：修正 3 处**事实性错误**，补齐 API 文档缺失的 8 个端点，并新增**文档漂移守护测试**防止再次失准。
+
+### 文档修正（事实性错误）
+- **`docs/SCHEMA.md` — real 源库名错误**：原文写「demo/real/auth 三库均 `db:5432/returnguard`」，与部署不符。实际 `docker/docker-compose.yml` 中 `REAL_DATABASE_URL` 指向**独立库 `returnguard_real`**（写库绝不污染演示库）。
+- **`docs/SCHEMA.md` — 字段数错误且漏记关键列**：「27 字段」实为 **28**（1 主键 + 27 业务字段），且**完全漏记 `tenant_id`**——多租户隔离的核心键。已补入字段表并更新索引数 5 → **6**（含 `ix_cases_tenant_id`）。
+- **`docs/CODE_REVIEW.md` — 图床默认值错误**：原文「默认 `self`」，实际链路优先级为 `self > public_base > local`，**未配置隧道/反代时默认 `local`**。
+- **`demo/schema.sql` 与 ORM 脱节**：缺 `tenant_id`、`sku_name` 仍为 `VARCHAR(128)`（ORM 已扩至 256），注释仍称「约 672 条种子」（实为 1206）。已与 `db.Case` **28 列逐一对齐**（含索引），并改注为「离线参考 DDL；正常由 `create_all` 自动建表」。
+
+### 接口文档补齐（`docs/API.md`）
+- **补齐 8 个已上线但未入档的端点**：`GET /health`、`GET /api/config`、`GET /api/platforms`、`GET /api/img/{key}`、`GET /api/export_pdf`、`POST /api/import_file`、`GET /api/calibrate`，并新增「接口一览」总表（3.1 ~ 3.15）。
+- **`POST /api/analyze`**：补 `category` / `supplier` / `platform` / `language` 四个请求参数；补 `language` / `voice` / `capabilities` / `defect_boxes_live` / `returned_image_url` / `platform` / `platform_evidence` 响应字段。
+- **`GET /api/insights`**：补 `region` / `season` 下钻参数；补 `region_view` / `season_view` / `supplier_blacklist` / `logistics_cost` / `total_return_cost` / `dispute_rate_note` / `reconciled_from` / **`roi_backtest`**（含子结构表）响应字段。
+- **`GET /api/cases`**：补 `slim` / `page` / `page_size` / `region` / `outcome` 参数与响应信封（原文档仅写「返回数组」）。
+- **`PUBLIC_IMAGE_BASE` 由「必需」改为「可选」**：视觉输入现已默认**内联 base64**（`models_router._img_source`），无需公网图床或对象存储同步。
+- 模型能力表改为 `official` / `tokenplan` **双列对照**；主路径更正为 **VL 双图直接判同款**（向量降为备选）；补八语种 TTS 音色映射表。
+- 安全章节范围 SEC-1~12 → **SEC-1~13**（补 live 配额闸与数据库回环监听）。
+
+### 其他文档
+- `README.md`：SEC 范围补 13、测试数更新、`docs/API.md` 交叉引用修正（§3.6 → §3.10）、目录补全（`routers/` / `quota.py` / `i18n.js` / `check_i18n.py` 等）、快速开始补容器方式与端口说明。
+- `demo/README.md`：重写目录树（对齐 `routers/*` 拆分后的实际结构）、图片地址改注为**可选**、补测试与校验命令。
+- `docs/PRD.md`：v1.0 → **v2.1**；补维度扩展 / ROI 回测 / 平台举证包 / 多租户 / i18n 三语四节；§7 环境变量与 §11 依赖更正（移除「必需公网图床」）；里程碑 M2~M5 状态更新。
+- `openGauss部署指南.md`：`/api/config.version` 期望值 1.1.2 → 1.1.5；本地直跑改 `127.0.0.1`。
+
+### 新增
+- **`demo/tests/test_docs_consistency.py`（12 例）—— 文档漂移守护**：`schema.sql` 列名/顺序与 ORM 一致、索引齐全、`SCHEMA.md` 字段数与 ORM 一致且不漏列、real 库名正确、**全部已注册路由都已入档**、`/api/analyze` 与 `/api/insights` 关键参数已记录、各文档版本号与 `VERSION` 一致、CHANGELOG 首条 == `VERSION`、API.md 语种集合与 `i18n.js` 一致、SEC 范围含 13。
+- `demo/db.py`：`Case.mode` 注释补 `manual`（网页录入实际写入值，原注释缺）。
+- 测试总数 **138 → 150 passed**。
+
+---
+
 ## [1.1.4] — 2026-09-14
 
 > 修复「**本机正常、公网升级不生效**」的根因：中间 CDN 覆写缓存头。改为**静态资源 URL 版本化**，从机制上不依赖链路是否遵守缓存协议。

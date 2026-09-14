@@ -290,7 +290,7 @@ class Case(Base):  # type: ignore[misc,valid-type]
     defect_description = Column(Text)  # 瑕疵文字描述
     consistency = Column(Text)  # 与 listing 承诺一致性判定
     outcome = Column(String(32))  # 赢/部分退款/输/未知
-    mode = Column(String(32))  # synthetic/mock/live
+    mode = Column(String(32))  # manual/mock/live/synthetic
     # 以下为单案上传(/api/analyze)时附带，种子数据可能为空
     listing_text = Column(Text)
     priority_score = Column(Float)

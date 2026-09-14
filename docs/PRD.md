@@ -1,9 +1,9 @@
 # ReturnGuard 跨境退货情报站 · 产品需求文档（PRD）
 
-> **文档版本**：v1.0（评审稿）
-> **最后更新**：2026-08-16
-> **负责人**：ReturnGuard 团队
-> **关联文档**：《ReturnGuard 接口文档》（`docs/API.md`）、`ModelRouter_API.docx`（模型能力参考）
+> **文档版本**：v2.1
+> **最后更新**：2026-09-14（对应应用版本 1.1.5）
+> **负责人**：ReturnGuard 团队（Lumio）
+> **关联文档**：`docs/API.md`（接口契约）、`docs/SCHEMA.md`（表结构）、`docs/AB_ROI_实证说明.md`（ROI / A/B 口径）、`docs/CODE_REVIEW.md`（审查记录）、`CHANGELOG.md`、`ModelRouter_API.docx`（模型能力参考）
 
 ---
 
@@ -71,33 +71,55 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 
 > 上表为 **official（赛事指定 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。详见 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
 
-### 5.2 阶段 B · 群体洞察（功能⑥）
+### 5.2 阶段 B · 群体洞察（功能⑥，产品核心）
 聚合维度：
-- KPI：案件数、累计退款额、胜诉率、纠纷率、结果分布。
+- KPI：案件数、累计退款额、胜诉率、纠纷率（代理指标）、结果分布。
 - 品类退货热力（按退款额排序 + 高发缺陷）。
 - 缺陷分布、根因分布（物流与包装 / 供应商履约 / 供应商质量 / Listing 与图文 / 非质量）。
-- 供应商红黑榜（质量分 = 100×(0.5×胜诉率 + 0.5×(1−真实缺陷率))，分级：优质 / 合格 / 待改进 / 高风险）。
-- 平台胜诉对比。
+- 供应商红黑榜（质量分 = 100×(0.5×胜诉率 + 0.5×(1−真实缺陷率))，分级：优质 / 合格 / 待改进 / 高风险）+ 黑名单自动生成。
+- 平台胜诉对比 + **平台 × 供应商交叉矩阵**。
+- **维度扩展**：地区视图（`region_view`）与季节视图（`season_view`），支持按 `region` / `season` 下钻。
+- **退货成本估算**：物流成本（按地区）+ 退货总成本（退款 + 物流）。
 - SKU 纠纷明细 + 近 30 天异常预警（案件≥6 且近 30 天≥前期 1.8 倍视为集中爆发）。
+- 时间序列趋势 + 次月预测预警。
+- **选品避坑可执行清单**（规避供应商 / 上新前必核验 / 暂停推广 / 前置品控，按严重度排序）。
+- **ROI 真实回测**：基于真实聚合值的保守 / 基准 / 乐观三档 + 敏感性分析，强制随结果下发 `method` / `disclaimer`（详见 `docs/AB_ROI_实证说明.md`）。
 - 选品 / 品控建议、洞察报告正文。
 
-### 5.3 双模式设计
-- **mock**：确定性规则 + 合成数据，免 Key，结果可复现，适合录屏演示。
-- **live**：调用 Model Router 真实模型；任何异常回退 mock 并标注 `mode=mock(fallback)`，保证演示不中断。（详见《接口文档》§5）
+### 5.3 平台适配举证包（复赛交付物 A）
+覆盖九大平台（Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop）的退货纠纷举证规则与 ReturnGuard 取证能力映射；单案取证时选定平台即自动带出**必备举证材料清单**（只列客观要求，不做裁决结论）。
+
+### 5.4 多租户与账户体系
+- 一个用户 = 一个租户；`real` 源案件按 `tenant_id` 隔离（数据库层面独立库 `returnguard_real`）。
+- 注册 / 登录 / 令牌（无状态 HMAC 签名，7 天过期）/ 登出（令牌版本自增即时失效）。
+- 归属不明的历史数据归入显式 `public` 桶，**不再隐式共享给任意登录用户**（SEC-P0）。
+
+### 5.5 界面本地化（i18n）
+- 界面支持 **zh / en / fr** 三语，顶栏切换并持久化（`localStorage.rg_lang`）。
+- 静态文案走 `data-i18n` / `data-i18n-label`，动态渲染走 `t()`；三语键集合由 `scripts/check_i18n.py` 强制对齐。
+- 数字与日期按语言格式化（`locale` 键：`zh-CN` / `en-US` / `fr-FR`）。
+- 后端数据值（洞察正文、缺陷标签、供应商名）保持原始语言；表单 `value` 为入库枚举，不随翻译改变。
+- 母语语音陈述支持 8 个语种（`zh`/`en`/`es`/`pt`/`de`/`fr`/`ja`/`ko`），前端界面语言与语音语种相互独立。
+
+### 5.6 双模式设计
+- **mock**：确定性规则，免 Key，结果可复现，适合录屏演示。
+- **live**：调用 Model Router 真实模型；**逐能力** try/except 回退（任一能力不可用仅该步降级，其余仍真实），全部失败才整体回退并标注 `mode=mock(fallback)`。`capabilities` 字典如实标注每步真实 / 回退。（详见《接口文档》§5）
 
 ---
 
 ## 6. 关键流程
-- **单案取证**：`上传双图 → 落盘 uploads → pipeline.analyze_case → 沉淀案件库(save_case) → 返回前端`。
-- **群体洞察**：`load_cases → _aggregate 多维统计 → (live) build_insights_live LLM 归因 → 返回看板`。
+- **单案取证**：`上传双图 → 落盘 uploads（签名短链访问）→ pipeline.analyze_case → 图片内联 base64 送模型（live）→ 沉淀案件库(real 源, save_case) → 返回前端`。
+- **群体洞察**：`load_cases → _aggregate 多维统计 → (live) build_insights_live LLM 归因 + 数值一致性校验(_reconcile_insights) → 附加 roi_backtest → 返回看板`。
 
 ---
 
 ## 7. 非功能性需求
 - **性能**：单案 mock < 500ms；live < 30s（受模型时延影响）。
-- **可用性**：live 失败自动回退 mock；数据库**统一 openGauss**（开发与部署共用同一 openGauss 实例，业务代码零改动；仅离线 / CI 回退 SQLite）。
-- **部署**：Docker Compose（openGauss + FastAPI），build context 为仓库根（`..`）。
-- **安全**：`MODEL_ROUTER_API_KEY`、`PUBLIC_IMAGE_BASE` 仅以环境变量注入，不入库、不进前端、不写入镜像。
+- **可用性**：live 逐能力回退，**失败结果不写缓存**（避免网关恢复后仍返回旧降级值）；数据库**统一 openGauss**（demo/auth → `returnguard`，real → 独立库 `returnguard_real`；业务代码零改动；仅离线 / CI 回退 SQLite）。
+- **部署**：Docker Compose（openGauss + FastAPI），build context 为仓库根（`..`）；应用对外仅绑 `127.0.0.1:65432`，数据库仅监听回环，供 Cloudflare Tunnel 暴露。
+- **安全**：`MODEL_ROUTER_API_KEY`、`AUTH_SECRET` 等敏感值仅以环境变量注入，不入库、不进前端、不写入镜像。详见《接口文档》§6（SEC-1 ~ SEC-13）。
+- **可观测**：`GET /health` 探针 + `GET /metrics` 运行指标（需管理员）。
+- **前端交付**：静态资源 URL 版本化（`?v=<VERSION>`）+ `no-store`，保证发版即生效、不受浏览器 / CDN 缓存影响。
 
 ---
 
@@ -108,14 +130,15 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 
 ## 9. 系统集成架构
 ```
-前端（退货情报站 index.html）
-        │  HTTP /api/*
+前端（退货情报站 index.html · 5 Tab · zh/en/fr）
+        │  HTTP /api/*   （静态资源带 ?v=<版本>，no-store）
         ▼
-FastAPI（demo/main.py）
-   ├─ pipeline（取证 + 洞察业务逻辑）
-   ├─ db（SQLAlchemy：统一 openGauss，开发&部署共用）
+FastAPI（demo/main.py 装配层 → routers/* 按域拆分）
+   ├─ pipeline（取证 + 洞察业务逻辑 + ROI 回测）
+   ├─ db（SQLAlchemy：openGauss；demo/auth=returnguard，real=returnguard_real）
+   ├─ quota（SEC-13 live 配额闸）· shared_state（跨 worker 限流/登录锁）
    └─ models_router ──HTTPS(OpenAI 兼容)──► 阿里云百炼 Model Router
-                                          （model-router.edu-aliyun.com/v1）
+                                          （official: model-router.edu-aliyun.com/v1）
 ```
 > Model Router 集成细节（模型映射、端点、请求/响应、回退策略）见《接口文档》§5。
 
@@ -129,14 +152,17 @@ FastAPI（demo/main.py）
 ---
 
 ## 11. 风险与依赖
-- 依赖赛事发放的 **Model Router Key** 与**公网图床**（live 模式；服务端回源拉图，localhost 不可达）。
-- 相似度阈值 0.82 需历史样本标定，当前为经验初值。
+- 依赖赛事发放的 **Model Router Key**（live 模式）。**图床不再是必需项**——视觉输入默认内联 base64，无需公网图床或对象存储同步（`PUBLIC_IMAGE_BASE` 降为可选增强）。
+- 相似度阈值 0.82 为经验初值，已提供 Youden J 自标定（`/api/calibrate`）。
 - openGauss 容器在 Windows + WSL2 下内存敏感，已备 PostgreSQL 兜底 compose（`docker-compose.pg.yml`）。
+- live 模式真实消耗付费 Key，已加三层配额闸（SEC-13）防公网滥用；超限明确返回 `429`，**不静默降级**。
+- 演示数据集的**平台字段**为按「品类 × 地区」规则重映射的演示渠道标签（非原始数据集自带），文档与界面均如实标注。
 
 ---
 
-## 12. 里程碑（建议）
+## 12. 里程碑
 - **M1** 统一 openGauss 存储 + 容器化部署 ✅
-- **M2** live 模式全链路打通（待 Key + 图床）
-- **M3** 前端看板打磨 + 关键帧红框标注
-- **M4** 复赛录屏脚本 + 平台适配举证包
+- **M2** live 模式全链路打通（文本 / 视觉 / 语音 / 向量 / rerank 均已实跑，逐能力回退）✅
+- **M3** 前端看板打磨 + 关键帧红框标注（真实坐标 / 回退示意如实区分）✅
+- **M4** 平台适配举证包（九平台）+ 复赛录屏 + 交付物 ✅
+- **M5** 多语言界面（zh/en/fr）+ 静态资源版本化 + 文档一致性收口 ✅

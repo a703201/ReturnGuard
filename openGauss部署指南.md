@@ -68,8 +68,9 @@ export UPLOAD_MAX_AGE_HOURS=24
 
 ```bash
 export RG_AUTO_IMPORT_CSV="/path/to/returnguard/demo/seed_real.csv"
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8000
 ```
+> 本地直跑用 `127.0.0.1`：非提权进程绑 `0.0.0.0` 低端口在 Windows 上会报 `winerror 10013`。容器部署由 compose 映射到 `127.0.0.1:65432`。
 
 仓库已附 `demo/seed_real.csv`（20 条样例，覆盖 US/UK/DE/FR/ES/RU/BR 与 5–9 月，便于验证时间序列+预测与地区维度）。
 
@@ -102,7 +103,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ```bash
 # 健康检查（容器映射 127.0.0.1:65432 → 容器 8000；公网经 Cloudflare Tunnel）
 curl http://127.0.0.1:65432/health
-curl http://127.0.0.1:65432/api/config        # 应返回 "version": "1.1.2"
+curl http://127.0.0.1:65432/api/config        # 应返回 "version": "1.1.5"
 
 # 看板应基于 real 源、含自动导入的数据
 curl "http://127.0.0.1:65432/api/insights?source=real&mode=mock" | python -m json.tool | head -20
@@ -128,4 +129,4 @@ curl "http://127.0.0.1:65432/api/cases?source=demo&slim=1" | python -c "import s
 - **Docker 本地 SQLite 绑挂载坑**：若用 `docker-compose.local.yml`（SQLite + 绑挂载）在 Windows 上启动会遇 `PRAGMA journal_mode=WAL` 的 `disk I/O error`，可设 `SQLITE_NO_WAL=1` 改用 DELETE 日志模式；**生产部署请用本指南的 openGauss compose**，无此问题。
 - 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
 - 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
-- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `1.1.2`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
+- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `1.1.5`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
