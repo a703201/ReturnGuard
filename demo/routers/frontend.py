@@ -53,6 +53,11 @@ def index():
     # "<script>" 字符串，nonce 就会打偏 → 全站 JS 被 CSP 阻断而白屏。
     if _NONCE_PLACEHOLDER in html:
         html = html.replace(_NONCE_PLACEHOLDER, f' nonce="{nonce}"')
+    # 静态资源版本化：把 `__ASSET_VER__` 替换为当前应用版本，使入口脚本 URL 随发版变化。
+    # 子模块（i18n.js 等）的相对 import 由 main.VersionedStaticFiles 追加同样的 ?v=。
+    # 为何必须版本化 URL：origin 侧下发 no-cache 不足以覆盖中间 CDN——实测 Cloudflare 会把它
+    # 覆写成 max-age=14400 下发给浏览器，导致「本机正常、公网升级不生效」。
+    html = html.replace("__ASSET_VER__", APP_VERSION)
     csp = (
         "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
         f"style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{nonce}'; "

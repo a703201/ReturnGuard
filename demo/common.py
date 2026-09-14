@@ -351,21 +351,27 @@ _NONCE_PLACEHOLDER = "<!--RG_CSP_NONCE-->"
 
 
 async def no_cache_middleware(request: Request, call_next):
-    """缓存策略（B-前端 P1）：静态资源必须回源校验，页面与接口保持新鲜。
+    """缓存策略（B-前端 P1）：静态资源禁缓存，页面与接口保持新鲜。
 
-    原先对 /static/* 下发 `max-age=60, must-revalidate`，其语义是「60 秒内直接用本地副本、
-    不回源」。前端是无构建的 ESM：app.js 用相对路径 import ./i18n.js，子模块 URL 无法带
-    版本 query，因此升级后 60 秒窗口内会出现「HTML 已更新、JS 仍是旧版」的撕裂状态
-    ——典型症状：新增语言选项可见，但 t() 返回裸 key、切换语言无效（曾实际发生）。
+    演进过程（两次踩坑，都是「升级后前端不生效」）：
+      1. 曾对 /static/* 下发 `public, max-age=60, must-revalidate`——其语义是「60 秒内直接用
+         本地副本、不回源」，而前端是无构建 ESM（app.js 相对路径 import，子模块 URL 带不了
+         版本号），于是出现「HTML 新 / JS 旧」撕裂；改为 `no-cache`（每次回源校验）。
+      2. 改 `no-cache` 后本机正常、**公网仍不正常**：中间 CDN 会把 origin 的 `no-cache`
+         覆写成 `max-age=14400` 再下发给浏览器（实测 Cloudflare）。说明「靠响应头协商」
+         不可靠——只要链路里有一层不尊重头部的代理就会失效。
 
-    改为 `no-cache`：可缓存但**每次必须回源校验**，命中 etag 时只回 304（几百字节），
-    既保留带宽优化，又保证「发布即生效」。未做内容哈希文件名前，这是唯一安全的选择。
+    最终方案：静态资源发 `no-store`（任何层级都无正当理由缓存），并配合
+    main.VersionedStaticFiles 把 APP_VERSION 写进每个模块 URL——发版即换 URL，
+    从机制上不依赖对方是否遵守缓存头。页面(HTML)/接口保持 `no-cache`。
     """
     response = await call_next(request)
     if request.method != "GET":
         return response
-    # 全部 GET 响应统一 no-cache：静态资源靠 etag 走 304，HTML/API 本就要求新鲜。
-    response.headers["Cache-Control"] = "no-cache"
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    else:
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 

@@ -4,6 +4,29 @@
 
 ---
 
+## [1.1.4] — 2026-09-14
+
+> 修复「**本机正常、公网升级不生效**」的根因：中间 CDN 覆写缓存头。改为**静态资源 URL 版本化**，从机制上不依赖链路是否遵守缓存协议。
+
+### 缺陷修复
+- **根因定位**：1.1.3 把 `/static/*` 的 `max-age=60` 改成 `no-cache` 后，`localhost` 已正常，但公网 `rg.a703201sworld.top` 仍显示旧版（法语选项可见但切语言无效、下拉显示裸 key `lang.fr`）。实测抓包对比：
+  | 链路 | `Cache-Control` |
+  |---|---|
+  | origin（本机） | `no-cache` ✅ |
+  | 公网（经 Cloudflare） | **`max-age=14400`** ❌ |
+  Cloudflare 的 **Browser Cache TTL** 把 origin 的 `no-cache` 覆写成 **4 小时强缓存**再下发给浏览器（`cf-cache-status: REVALIDATED` 说明边缘是新的，是**浏览器**被要求 4 小时不回源）。因 HTML 默认不被 CDN 缓存，才出现「HTML 新 / JS 旧」的撕裂。
+- **修复方案：静态资源 URL 版本化**（不依赖任何一层的缓存策略）
+  - 新增 `main.VersionedStaticFiles`：接管 `/static`，对 JS 的相对 import 批量追加 `?v=<APP_VERSION>`，覆盖整条依赖链（`app.js → render.js/api.js/i18n.js → store.js`）。
+  - `index.html` 入口改为 `/static/app.js?v=__ASSET_VER__`，由 `routers/frontend.py` 按 `VERSION` 替换。
+  - `/static/*` 改发 `no-store`（任何层级都无正当理由缓存）；页面 / 接口仍 `no-cache`。
+  - 效果：**发版即换 URL**，浏览器与 CDN 都不可能有旧副本 → 公网升级立即生效；即便某代理无视 `no-store` 也无影响。
+- **新增回归测试**（`demo/tests/test_i18n.py` 12 → 15 例）：`/static/*` 必须 `no-store` 且无 `max-age`、入口脚本带版本号且 `__ASSET_VER__` 已被替换、子模块 import 全部版本化、改写后 JS 仍为合法模块。
+- 测试总数 **135 → 138 passed**。
+
+> 运维建议：Cloudflare 侧可将 **Browser Cache TTL** 由具体时长改为 `Respect Existing Headers`；不改也不影响本修复（URL 已版本化）。
+
+---
+
 ## [1.1.3] — 2026-09-14
 
 > 界面本地化新增法语（fr），语言由 zh/en 扩展为 zh/en/fr；补齐数字与日期格式本地化，并修复多处此前漏抽的硬编码文案。
@@ -25,7 +48,8 @@
 - 测试总数 **123 → 135 passed**。
 
 ### 缺陷修复
-- **前端「升级后不生效」根因**：`no_cache_middleware` 原对 `/static/*` 下发 `max-age=60, must-revalidate`，60 秒窗口内浏览器直接用本地旧副本、不回源。前端是无构建 ESM（`app.js` 相对路径 `import ./i18n.js`，子模块 URL 无法带版本 query），因此升级后出现「HTML 新 / JS 旧」撕裂——症状为新增法语选项可见但 `t('lang.fr')` 返回裸 key、切换语言无效。已改为统一 `no-cache`（可缓存但每次回源校验，命中 etag 回 304），并加回归测试锁定。
+- **前端「升级后不生效」第一步修复**：`no_cache_middleware` 原对 `/static/*` 下发 `max-age=60, must-revalidate`，60 秒窗口内浏览器直接用本地旧副本、不回源，导致「HTML 新 / JS 旧」撕裂。已改为 `no-cache`（每次回源校验）。
+  > ⚠️ **该修复不完整**：本机正常但公网仍失效——中间 CDN 会覆写该头部。最终方案见 **[1.1.4]**（URL 版本化 + `no-store`）。
 - **法语界面顶栏错位**：拉丁语系文案比中文长 **2.5–4.75 倍**（`app.sub` 达 3.63 倍、149 字符），原 `.brand` 无宽度约束，长副标题把 KPI 条挤到下一行。已给 `.hrow1 .brand` 加 `flex:1 1 320px; min-width:0` + `h1` 省略号，`.hrow1 .kpis` 加 `margin-left:auto`；`.bar-top select` 的 `max-width` 由 130px 放宽到 190px（原值会把 `Toutes plateformes` 截断）。
 - **补齐数据录入表单本地化**：标题 / 描述 / 全部字段标签 / 供应商与平台 `optgroup` 分组名 / 判定结果选项等 24 处。**表单 `value` 保持中文枚举不变**（`赢`/`部分退款`/`输`/`待分析` 是入库契约，翻译会破坏聚合与筛选），只本地化显示文案。
 

@@ -254,8 +254,8 @@ def test_csp_nonce_injected():
         assert m, "CSP 应含 script-src 指令"
         script_src = m.group(1)
         assert "'unsafe-inline'" not in script_src, "script-src 不得含 unsafe-inline（XSS 主防线）"
-        # ③ 外置 ES module 加载
-        assert '<script type="module" src="/static/app.js">' in r.text, (
+        # ③ 外置 ES module 加载（URL 允许带 ?v=<版本> 做缓存失效，见 main.VersionedStaticFiles）
+        assert re.search(r'<script type="module" src="/static/app\.js(\?v=[^"]*)?">', r.text), (
             "前端应以外置 ES module 加载，而非内联脚本"
         )
         # ④ nonce 机制仍每请求生成

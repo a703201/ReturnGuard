@@ -1217,6 +1217,8 @@
     </div>
   </div>
 
-<script type="module" src="/static/app.js"></script>
+<!-- 入口带版本号（__ASSET_VER__ 由后端按 VERSION 替换）：发版换 URL，绕过浏览器/CDN 缓存。
+     子模块的相对 import 由后端 VersionedStaticFiles 自动补同样的 ?v= —— 见其文档字符串。 -->
+<script type="module" src="/static/app.js?v=__ASSET_VER__"></script>
 </body>
 </html>

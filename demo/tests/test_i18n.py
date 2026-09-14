@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from common import APP_VERSION
 from constants import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, tts_voice_for
 from fastapi.testclient import TestClient
 from main import app
@@ -103,18 +104,21 @@ def test_unknown_language_falls_back_to_default_voice():
     assert tts_voice_for("xx-not-a-lang") == tts_voice_for(DEFAULT_LANGUAGE)
 
 
-def test_static_assets_must_revalidate():
-    """回归：/static/* 不得带 max-age，否则升级后浏览器会继续执行旧版 JS。
+def test_static_assets_must_not_be_cached():
+    """回归：/static/* 必须 `no-store`，不得带任何 max-age。
 
-    曾经为省带宽下发 `max-age=60, must-revalidate`，导致新增法语选项在 HTML 里可见、
-    但 i18n.js 仍是旧版（无 fr 块），切语言无效且下拉显示裸 key `lang.fr`。
+    两次踩坑都表现为「升级后前端不生效」：
+      1. `max-age=60, must-revalidate` —— 窗口内浏览器不回源，直连本机也能复现；
+      2. 改 `no-cache` 后本机正常、**公网仍不正常** —— 中间 CDN 把 `no-cache` 覆写成
+         `max-age=14400` 下发给浏览器（实测 Cloudflare）。故必须 `no-store`。
     """
     with TestClient(app) as c:
-        r = c.get("/static/i18n.js")
-        assert r.status_code == 200
-        cc = r.headers.get("cache-control", "")
-        assert "no-cache" in cc, f"/static/i18n.js Cache-Control={cc!r}，应为 no-cache"
-        assert "max-age" not in cc, f"/static 不应带 max-age（会导致旧 JS 被继续执行）：{cc!r}"
+        for asset in ("/static/i18n.js", "/static/app.js"):
+            r = c.get(asset)
+            assert r.status_code == 200, f"{asset} 应可访问"
+            cc = r.headers.get("cache-control", "")
+            assert "no-store" in cc, f"{asset} Cache-Control={cc!r}，应为 no-store"
+            assert "max-age" not in cc, f"{asset} 不应带 max-age（旧 JS 会被继续执行）：{cc!r}"
 
 
 def test_index_page_is_not_cached():
@@ -122,6 +126,46 @@ def test_index_page_is_not_cached():
         r = c.get("/")
         assert r.status_code == 200
         assert "no-cache" in r.headers.get("cache-control", "")
+
+
+def test_entry_script_is_version_stamped():
+    """入口脚本 URL 必须带版本号：发版换 URL，才能绕过浏览器与 CDN 的缓存。
+
+    `__ASSET_VER__` 占位符若未被后端替换，页面上会原样出现该串，且版本化失效。
+    """
+    with TestClient(app) as c:
+        html = c.get("/").text
+    assert "__ASSET_VER__" not in html, "index.html 的 __ASSET_VER__ 未被后端替换"
+    assert f"/static/app.js?v={APP_VERSION}" in html, f"入口脚本未带版本号 v={APP_VERSION}"
+
+
+def test_submodule_imports_are_version_stamped():
+    """子模块的相对 import 必须被追加与入口一致的版本号，整条依赖链才会换 URL。
+
+    前端 ESM 用相对路径互相 import，子模块 URL 天然不带版本；若不改写，
+    浏览器会命中缓存的旧 i18n.js（缺 fr 块）→ 切法语无效、显示裸 key。
+    """
+    with TestClient(app) as c:
+        for asset in ("/static/app.js", "/static/render.js", "/static/api.js"):
+            js = c.get(asset).text
+            imports = re.findall(r"""from\s*['"](\./[A-Za-z0-9_.\-]+\.js[^'"]*)['"]""", js)
+            assert imports, f"{asset} 未解析到相对 import（测试前提失效）"
+            for spec in imports:
+                assert spec.endswith(f"?v={APP_VERSION}"), (
+                    f"{asset} 的子模块 import 未版本化：{spec}"
+                )
+
+
+def test_version_stamped_assets_are_still_valid_js():
+    """改写后的 JS 仍是合法模块：import 后缀只加查询串，不能破坏语法。"""
+    with TestClient(app) as c:
+        js = c.get("/static/app.js").text
+    assert f"from './store.js?v={APP_VERSION}'" in js
+    assert "from './store.js'" not in js.replace(f"from './store.js?v={APP_VERSION}'", "")
+    # 书写上仍是单引号 + 相对路径，未被引号/转义破坏
+    assert "'./store.js" in js and '"' not in js.split("import", 1)[1].split("\n")[0].replace(
+        "'", ""
+    )
 
 
 def test_entry_form_enum_values_are_not_translated():

@@ -20,12 +20,14 @@
 from __future__ import annotations
 
 import os
+import re
 from contextlib import asynccontextmanager
 
 import auth  # C组：账户体系 + 多租户隔离
 from common import (
     _CORS_ALLOW_ORIGINS,
     _WAL_CHECKPOINT_INTERVAL,
+    APP_VERSION,
     BASE,
     UPLOAD_DIR,  # 向后兼容：测试仍 `from main import UPLOAD_DIR`
     _cleanup_old_uploads,
@@ -57,6 +59,7 @@ from routers import (
 from routers import (
     import_ as import_router,
 )
+from starlette.responses import Response
 
 # 向后兼容再导出：测试与旧调用方仍 `from main import UPLOAD_DIR, app`。
 # 显式列入 __all__，避免 `ruff --fix` 将仅用于重导出的 import 误判 F401 而删除。
@@ -122,11 +125,51 @@ async def lifespan(app):
 
 
 app = FastAPI(title="ReturnGuard Demo", lifespan=lifespan)
-# 把 static 目录挂成 /static，前端可加载其中的资源
-# 缓存：由 no_cache_middleware 对 /static/* 下发 `no-cache`（每次回源校验、命中 etag 回 304）。
-# 注意不要改回 max-age>0：前端 ESM 用相对路径 import 子模块，无法带版本 query，
-# 一旦允许浏览器在窗口期内直接用本地副本，升级后就会出现「HTML 新 / JS 旧」的撕裂。
-app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
+
+
+class VersionedStaticFiles(StaticFiles):
+    """静态资源「版本化 + 禁止中间层缓存」。
+
+    背景（2026-09-14 公网实测）：前端是无构建的 ESM，`app.js` 用**相对路径** import
+    `./i18n.js` 等子模块，子模块 URL 无法天然带版本号。origin 侧即便下发 `no-cache`，
+    只要中间还有一层 CDN，就可能被改写并长期缓存——实测 Cloudflare 把 origin 的
+    `no-cache` 覆写成 `max-age=14400`（4 小时）下发给浏览器，导致「升级后公网前端不生效」
+    而本机直连正常（典型撕裂：HTML 已更新有法语选项，JS 仍是旧版 → 切语言无效、显示裸 key）。
+
+    对策：把版本号写进 **每一个模块的 URL**，使发版必然产生全新 URL——任何层级的缓存
+    （浏览器 / CDN）都不可能命中旧副本，从根本上不依赖对方是否尊重 Cache-Control。
+      - 入口由 routers/frontend.py 把 index.html 的 `__ASSET_VER__` 替换为 APP_VERSION；
+      - 子模块的相对 import 由本类在响应时批量追加 `?v=<APP_VERSION>`（覆盖整条依赖链）。
+    同时下发 `no-store`，让 CDN 无机会缓存这些文件。
+    """
+
+    # 只匹配静态相对 import：`from './x.js'` / `from "./x.js"`；已带 ?v= 的不重复追加。
+    _IMPORT_RE = re.compile(r"""(from\s*['"])(\./[A-Za-z0-9_.\-]+\.js)(?!\?)(['"])""")
+
+    async def get_response(self, path: str, scope):  # type: ignore[no-untyped-def]
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-store"
+        if not path.endswith(".js") or getattr(resp, "status_code", 200) != 200:
+            return resp
+        src_path = getattr(resp, "path", None)
+        if not src_path:
+            return resp
+        try:
+            src = open(src_path, encoding="utf-8").read()
+        except OSError:
+            return resp
+        stamped = self._IMPORT_RE.sub(rf"\1\2?v={APP_VERSION}\3", src)
+        if stamped == src:
+            return resp
+        return Response(
+            stamped,
+            media_type="text/javascript",
+            headers={"Cache-Control": "no-store"},
+        )
+
+
+# 把 static 目录挂成 /static；版本化逻辑见 VersionedStaticFiles 文档字符串。
+app.mount("/static", VersionedStaticFiles(directory=os.path.join(BASE, "static")), name="static")
 # 上传目录不再公开静态挂载（SEC-8）：图片经签名 + 短期过期的 /api/file/{sig} 提供，
 # 杜绝退货图（PII）被匿名长期拉取。live 模式仍由 PUBLIC_IMAGE_BASE / 对象存储公网回源。
 
