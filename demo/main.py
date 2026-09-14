@@ -123,6 +123,9 @@ async def lifespan(app):
 
 app = FastAPI(title="ReturnGuard Demo", lifespan=lifespan)
 # 把 static 目录挂成 /static，前端可加载其中的资源
+# 缓存：由 no_cache_middleware 对 /static/* 下发 `no-cache`（每次回源校验、命中 etag 回 304）。
+# 注意不要改回 max-age>0：前端 ESM 用相对路径 import 子模块，无法带版本 query，
+# 一旦允许浏览器在窗口期内直接用本地副本，升级后就会出现「HTML 新 / JS 旧」的撕裂。
 app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
 # 上传目录不再公开静态挂载（SEC-8）：图片经签名 + 短期过期的 /api/file/{sig} 提供，
 # 杜绝退货图（PII）被匿名长期拉取。live 模式仍由 PUBLIC_IMAGE_BASE / 对象存储公网回源。

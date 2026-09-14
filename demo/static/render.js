@@ -489,6 +489,7 @@ export function populateFilters(){
   const LANGS = (state.languages && state.languages.length) ? state.languages : [
     {code:'zh',label:t('lang.zh'),voice:'Chelsie'},
     {code:'en',label:t('lang.en'),voice:'Ethan'},
+    {code:'fr',label:t('lang.fr'),voice:'Serena'},
   ];
   const langSel = $('#formLang');
   if(langSel){

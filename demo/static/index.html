@@ -61,8 +61,17 @@
   .topbar{flex:0 0 auto;padding:10px 16px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid #1e293b}
   .hrow1{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
   .hrow2{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-  .bar-top{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
-  .bar-top select,.bar-top button#loadIns{padding:4px 8px;font-size:12px;min-height:30px;min-width:80px;max-width:130px}
+  /* brand 占满剩余宽度、KPI 条不被长副标题挤出：法语等拉丁语系文案比中文长约 30%，
+     不限宽时 app.sub 单行会把 .kpis 顶到下一行（法语界面顶栏错位的根因）。
+     min-width:0 让 flex 子项可收缩，否则内部长文本仍会撑破容器。 */
+  .hrow1 .brand{flex:1 1 320px;min-width:0}
+  .brand h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand .sub{line-height:1.4}
+  .hrow1 .kpis{flex:0 1 auto;margin-left:auto}
+  .bar-top{display:flex;gap:4px;align-items:center;flex-wrap:wrap;min-width:0}
+  /* max-width 提到 190px：法语筛选项（Toutes plateformes / Toutes saisons）比中文长约 2 倍，
+     130px 会把文字截断成省略号。同时给 select 加省略号兜底，避免极端窄屏溢出。 */
+  .bar-top select,.bar-top button#loadIns{padding:4px 8px;font-size:12px;min-height:30px;min-width:80px;max-width:190px;text-overflow:ellipsis}
   .bar-top .pill{font-size:11px;padding:3px 8px}
   .bar-top button#authBtn{padding:4px 10px;font-size:12px;min-height:30px}
   .content{flex:1;min-height:0;overflow:hidden;padding:12px 16px}
@@ -754,9 +763,10 @@
           <span id="insModeTag" class="pill"></span>
           <span id="scopeTag" class="pill" style="background:#334155"></span>
           <span id="insStatus" class="pill" style="background:#334155" data-i18n="app.ready">就绪</span>
-          <select id="langSel" title="切换界面语言 / Switch language" aria-label="语言">
+          <select id="langSel" title="切换界面语言 / Switch language / Changer de langue" aria-label="语言">
             <option value="zh" data-lang-label="lang.zh">中文</option>
             <option value="en" data-lang-label="lang.en">English</option>
+            <option value="fr" data-lang-label="lang.fr">Français</option>
           </select>
           <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:#1e293b;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer" data-i18n="btn.login">登录</button>
         </div>
@@ -1093,25 +1103,25 @@
             <div id="importResult" class="import-result"></div>
           </div>
           <div class="card entry-form">
-            <h3>添加实际退货案件</h3>
-            <p class="desc">手动录入一条真实退货案件，落入「当前数据源」（顶部开关切换）。不强制传图，填字段即可。提交后对应看板实时刷新。</p>
+            <h3 data-i18n="entry.title">添加实际退货案件</h3>
+            <p class="desc" data-i18n="entry.desc">手动录入一条真实退货案件，落入「当前数据源」（顶部开关切换）。不强制传图，填字段即可。提交后对应看板实时刷新。</p>
             <form id="entryForm">
               <div class="row2">
-                <div><label>商品编号 SKU *</label><input name="sku" required placeholder="如 SKU-3C01"></div>
-                <div><label>SKU 名称</label><input name="sku_name" placeholder="如 无线耳机 Pro"></div>
+                <div><label data-i18n="entry.sku">商品编号 SKU *</label><input name="sku" required placeholder="如 SKU-3C01"></div>
+                <div><label data-i18n="entry.skuName">SKU 名称</label><input name="sku_name" placeholder="如 无线耳机 Pro"></div>
               </div>
               <div class="row2">
                 <div><label data-i18n="th.category">品类</label><input name="category" placeholder="如 3C数码"></div>
                 <div><label data-i18n="th.supplier">供应商</label>
                   <select name="supplier" id="formEntrySup">
                     <option value="" data-i18n="opt.unspecified">未指定</option>
-                    <optgroup label="优质供应商">
+                    <optgroup label="优质供应商" data-i18n-label="entry.supGood">
                       <option value="S1">S1 鼎峰精密</option>
                       <option value="S2">S2 云仓优选</option>
                       <option value="S5">S5 联创供货</option>
                       <option value="S7">S7 锐捷制造</option>
                     </optgroup>
-                    <optgroup label="风险供应商（劣供）">
+                    <optgroup label="风险供应商（劣供）" data-i18n-label="entry.supRisk">
                       <option value="S3">S3 鑫源电子(劣)</option>
                       <option value="S4">S4 通达包装弱</option>
                       <option value="S6">S6 海贸乱发(劣)</option>
@@ -1121,40 +1131,40 @@
                 </div>
               </div>
               <div class="row2">
-                <div><label>销售平台</label>
+                <div><label data-i18n="entry.platform">销售平台</label>
                   <select name="platform">
                     <option value="" data-i18n="opt.unspecified">未指定</option>
-                    <optgroup label="主流跨境">
+                    <optgroup label="主流跨境" data-i18n-label="entry.platMain">
                       <option>Amazon</option><option>AliExpress</option><option>Temu</option><option>SHEIN</option><option>eBay</option>
                     </optgroup>
-                    <optgroup label="新兴 / 区域">
+                    <optgroup label="新兴 / 区域" data-i18n-label="entry.platEmerging">
                       <option>Shopee</option><option>Lazada</option><option>Walmart</option><option>TikTok Shop</option>
                     </optgroup>
-                    <optgroup label="数据集来源（真实回流）">
+                    <optgroup label="数据集来源（真实回流）" data-i18n-label="entry.platDataset">
                       <option>UCI-Retail</option><option>TheLook</option>
                     </optgroup>
                   </select>
                 </div>
-                <div><label>订单金额 (¥)</label><input name="amount" type="number" step="0.01" value="0"></div>
+                <div><label data-i18n="entry.amount">订单金额 (¥)</label><input name="amount" type="number" step="0.01" value="0"></div>
               </div>
               <div class="row2">
-                <div><label>案件日期</label><input name="date" type="date"></div>
-                <div><label>判定结果</label>
+                <div><label data-i18n="entry.date">案件日期</label><input name="date" type="date"></div>
+                <div><label data-i18n="entry.outcome">判定结果</label>
                   <select name="outcome">
-                    <option value="">未判定</option>
-                    <option>赢</option><option>部分退款</option><option>输</option><option>待分析</option>
+                    <option value="" data-i18n="entry.outcomeNone">未判定</option>
+                    <option value="赢" data-i18n="entry.win">赢</option><option value="部分退款" data-i18n="entry.partial">部分退款</option><option value="输" data-i18n="entry.lose">输</option><option value="待分析" data-i18n="dyn.pendingShort">待分析</option>
                   </select>
                 </div>
               </div>
               <div class="row2">
-                <div><label>同款相似度 (0~1)</label><input name="similarity" type="number" step="0.001" min="0" max="1" value="0.9"></div>
-                <div><label>是否同一件</label>
-                  <select name="same_item"><option value="true">是</option><option value="false">否（疑似调包）</option></select>
+                <div><label data-i18n="entry.similarity">同款相似度 (0~1)</label><input name="similarity" type="number" step="0.001" min="0" max="1" value="0.9"></div>
+                <div><label data-i18n="entry.sameItem">是否同一件</label>
+                  <select name="same_item"><option value="true" data-i18n="entry.yes">是</option><option value="false" data-i18n="entry.noSwapped">否（疑似调包）</option></select>
                 </div>
               </div>
-              <label>缺陷标签（逗号分隔）</label>
+              <label data-i18n="entry.defectTags">缺陷标签（逗号分隔）</label>
               <input name="defect_tags" placeholder="如 外包装破损,功能故障">
-              <label>与 listing 承诺一致性</label>
+              <label data-i18n="entry.consistency">与 listing 承诺一致性</label>
               <input name="consistency" placeholder="如 存在差异（货不对板）">
               <label data-i18n="f.listing">商品页承诺（可选）</label>
               <textarea name="listing_text" rows="2" placeholder="如：全新未拆封，支持 30 天退换"></textarea>
@@ -1186,23 +1196,23 @@
     <div id="authOverlay" class="overlay">
       <div class="panel" role="dialog" aria-modal="true" aria-labelledby="authDlgTitle" style="width:min(400px,94vw);padding:22px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <h3 id="authDlgTitle" style="margin:0">账户 / 租户</h3>
+          <h3 id="authDlgTitle" style="margin:0" data-i18n="auth.title">账户 / 租户</h3>
           <button id="authClose" type="button" style="background:none;border:none;color:var(--acc);font-size:20px;cursor:pointer">×</button>
         </div>
-        <p id="authHint" style="font-size:12px;color:var(--txt3);margin:0 0 12px">登录后 AI 实算数据按本租户隔离；未登录时仅展示演示布局。</p>
+        <p id="authHint" style="font-size:12px;color:var(--txt3);margin:0 0 12px" data-i18n="auth.hintLogin">登录后 AI 实算数据按本租户隔离；未登录时仅展示演示布局。</p>
         <form id="authForm">
-          <label style="font-size:12px;color:var(--txt3)">用户名（租户标识）</label>
+          <label style="font-size:12px;color:var(--txt3)" data-i18n="auth.userLabel">用户名（租户标识）</label>
           <input id="authUser" required autocomplete="username" placeholder="如 acme" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
-          <label style="font-size:12px;color:var(--txt3)">密码（至少 6 位）</label>
+          <label style="font-size:12px;color:var(--txt3)" data-i18n="auth.passLabel">密码（至少 6 位）</label>
           <input id="authPass" type="password" required autocomplete="current-password" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
           <div id="authTenantWrap" style="display:none">
-            <label style="font-size:12px;color:var(--txt3)">企业/店铺名（选填）</label>
+            <label style="font-size:12px;color:var(--txt3)" data-i18n="auth.tenantLabel">企业/店铺名（选填）</label>
             <input id="authTenant" placeholder="如 Acme 贸易" style="width:100%;box-sizing:border-box;margin:4px 0 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--txt)">
           </div>
-          <button id="authSubmit" type="submit" style="width:100%;background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px;cursor:pointer">登录</button>
+          <button id="authSubmit" type="submit" style="width:100%;background:var(--acc);color:#fff;border:none;border-radius:8px;padding:10px;cursor:pointer" data-i18n="auth.login">登录</button>
           <div id="authMsg" style="margin-top:8px;font-size:12px;color:var(--bad)"></div>
         </form>
-        <button id="authTab" data-mode="login" type="button" style="width:100%;margin-top:10px;background:transparent;border:1px dashed #334155;color:var(--acc);border-radius:8px;padding:8px;cursor:pointer">注册</button>
+        <button id="authTab" data-mode="login" type="button" style="width:100%;margin-top:10px;background:transparent;border:1px dashed #334155;color:var(--acc);border-radius:8px;padding:8px;cursor:pointer" data-i18n="auth.register">注册</button>
       </div>
     </div>
   </div>

@@ -17,7 +17,7 @@
 - **公网体验地址**：https://rg.a703201sworld.top （Cloudflare Tunnel 固定域名）
 - **测试账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主仓库，`https://github.com/a703201/ReturnGuard`）；Gitea 镜像 `git@100.103.184.33:a703201/ReturnGuard.git`；GitCode 镜像 `https://gitcode.com/a703201/ReturnGuard`（已公开，三路同步推送）
-- **当前版本**：1.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
+- **当前版本**：1.1.3（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
   - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
 - **图床**：**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `local`，配了隧道/反代则自动升级为 `self`/`public_base`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭），复赛演示不启用第三方云
@@ -91,7 +91,7 @@ flowchart TB
   BE <--> D[数据层 对象存储+案例库+阈值样本]
 ```
 
-## 复赛冲刺能力（1.1.2）
+## 复赛冲刺能力（1.1.3）
 
 > 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-12 全部清零**——写接口鉴权、签名短链收敛 PII、CSP nonce 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较。当前测试 **107 passed 全绿**（含 `/api/export_pdf` 与 `/api/import_csv` 链路补齐、`test_storage.py` 重写对齐当前存储层），安全面达 A 区间。
 - **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**可插拔图床抽象**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代 / `qiniu` 远端预留）供模型服务端回源——**默认本地自持、退货图不出境**；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
@@ -134,6 +134,16 @@ flowchart TB
 - **ROI 回测 + A/B 台架**：`pipeline._roi_backtest()` 用真实聚合值给出保守/基准/乐观三档可挽回区间与敏感性，`method`/`disclaimer` 强制随结果下发（**模型回测，非 A/B 实测因果**）；`demo/ab_experiment.py` 为可复现的 prompt 变体对照台架（live 实跑 + `--mode mock` 零成本干跑）。详见 **`docs/AB_ROI_实证说明.md`**。
 - **告警清零**：`datetime.utcnow()` 引发的 19 条 SQLAlchemy DeprecationWarning → 0。
 
+### 2026-09-14 新增法语（fr）界面本地化
+- **语言由 zh/en 扩展到 zh/en/fr**：`demo/static/i18n.js` 新增完整 `fr` 字典，三语各 **355 键**，键集合逐一对齐（`scripts/check_i18n.py` 改为以 zh 为基准校验全部语言，并新增「块内重复键」检查与 `data-i18n-label` 识别）。
+- **数字与日期格式本地化**：`locale` 键驱动 `toLocaleString`/`toLocaleTimeString`，法语为 `fr-FR`（千分位窄不换行空格、小数点逗号、日期 DD/MM/YYYY）；修复 `app.js` 中 ROI 面板硬编码的 `zh-CN`。
+- **补齐此前漏抽的硬编码文案**：登录 / 注册弹窗、**数据录入表单**（标题/字段标签/optgroup 分组名/判定结果选项，共 24 处）、录入页删除确认与状态、`html[lang]` 按 `zh-CN`/`en-US`/`fr-FR` 设置。
+  > ⚠️ 录入表单的 `value` 保持中文枚举（`赢`/`部分退款`/`输`/`待分析`）不变——这是入库契约，本地化只改显示文案。
+- **法语排版适配**：拉丁语系文案比中文长 2.5–4.75 倍，已约束 `.brand` 宽度并放宽筛选器 `max-width`（130→190px），修复法语下顶栏错位。
+- **修复「升级后前端不生效」**：`/static/*` 原下发 `max-age=60`，导致升级后 60s 内浏览器继续执行旧 `i18n.js`（症状：法语选项可见但切换无效、显示裸 key `lang.fr`）。改为 `no-cache`（每次回源校验、命中 etag 回 304），并加回归测试。
+- **新增回归测试** `demo/tests/test_i18n.py`（12 例）：语言块齐全、三语键一致、无重复键、`locale` 与语言对应、选择器覆盖全部语言、表单枚举 value 未被翻译、optgroup 用 label 属性、静态资源必须回源校验等。
+- 端到端验证：`/api/analyze?language=fr` 返回法语陈述与 `voice=Serena` 音频；`/api/config` 的 `languages` 含 `{code:fr,label:Français,voice:Serena}`。
+
 ## 快速开始
 ```bash
 cd returnguard/demo
@@ -171,7 +181,7 @@ python verify_api.py
 ## 目录
 - `verify_api.py` — 关键 API 验证脚本
 - `README.md` — 本文件
-- `CHANGELOG.md` — 版本变更记录（当前 1.1.2）
+- `CHANGELOG.md` — 版本变更记录（当前 1.1.3）
 - `openGauss部署指南.md` — openGauss 真实部署 + 真实数据自动导入
 - `demo/` — FastAPI 应用：`main.py`（装配层：app 创建 / 中间件注册 / 路由聚合 / lifespan）、`common.py`（配置 / 依赖 / 限流 / 中间件 / 聚合辅助）、`routers/`（按域拆分：`frontend` / `forensic` / `insights` / `auth` / `calibration` / `import_`）、`pipeline.py`（取证/洞察）、`models_router.py`（真实模型 + 逐能力回退）、`auth.py`（账户/多租户）、`calibration.py`（阈值自标定）、`importer.py`（CSV 回流）、`storage.py`（图床）、`seed_real.csv`（自动导入样例）
 - （初赛完整方案 / 表单文案已归档至 `docs/legacy/`）

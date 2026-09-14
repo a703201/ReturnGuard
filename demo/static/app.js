@@ -721,8 +721,8 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 $('#entryTableWrap').addEventListener('click',async e=>{
   const btn=e.target.closest('.entry-del'); if(!btn) return;
   const id=btn.dataset.id;
-  if(!confirm('确认删除案件 '+id+'？')) return;
-  btn.disabled=true; btn.textContent='删除中…';
+  if(!confirm(t('ent.confirmDel').replace('{id}', id))) return;
+  btn.disabled=true; btn.textContent=t('ent.deleting');
   try{
     const r=await apiFetch('/api/cases/'+encodeURIComponent(id),{method:'DELETE'});
     if(r.ok){
@@ -730,14 +730,14 @@ $('#entryTableWrap').addEventListener('click',async e=>{
     } else {
       if(r.status===401){ openAuthModal(); }
       const d=await r.json().catch(()=>({}));
-      btn.textContent='删除失败';
-      if($('#entryErr')) $('#entryErr').textContent='删除失败：'+(d.detail||r.status);
-      setTimeout(()=>{ btn.textContent='删除'; },2000);
+      btn.textContent=t('ent.delFail');
+      if($('#entryErr')) $('#entryErr').textContent=t('ent.delFail')+'：'+(d.detail||r.status);
+      setTimeout(()=>{ btn.textContent=t('ent.delete'); },2000);
     }
   }catch(err){
-    btn.textContent='删除失败';
-    if($('#entryErr')) $('#entryErr').textContent='删除失败：'+(err&&err.message||'网络错误');
-    setTimeout(()=>{ btn.textContent='删除'; },2000);
+    btn.textContent=t('ent.delFail');
+    if($('#entryErr')) $('#entryErr').textContent=t('ent.delFail')+'：'+((err&&err.message)||t('dyn.netErr'));
+    setTimeout(()=>{ btn.textContent=t('ent.delete'); },2000);
   }
 });
 
@@ -770,15 +770,15 @@ export function updateAuthUI(){
   if(tok){
     fetch('/api/auth/me',{headers:{'Authorization':'Bearer '+tok}}).then(r=>r.ok?r.json():null).then(d=>{
       if(d && d.user){
-        tag.textContent='租户：'+d.user.username; tag.style.display='inline-block';
-        btn.textContent='退出'; btn.classList.add('authed');
+        tag.textContent=t('ent.tenant')+d.user.username; tag.style.display='inline-block';
+        btn.textContent=t('btn.logout'); btn.classList.add('authed');
       } else {
-        localStorage.removeItem('rg_token'); tag.style.display='none'; btn.textContent='登录'; btn.classList.remove('authed');
+        localStorage.removeItem('rg_token'); tag.style.display='none'; btn.textContent=t('btn.login'); btn.classList.remove('authed');
       }
       updateAuthBtnVisibility();
     }).catch(()=>{ updateAuthBtnVisibility(); });
   } else {
-    tag.style.display='none'; btn.textContent='登录'; btn.classList.remove('authed');
+    tag.style.display='none'; btn.textContent=t('btn.login'); btn.classList.remove('authed');
     updateAuthBtnVisibility();
   }
 }
@@ -848,9 +848,12 @@ $('#authForm').addEventListener('submit',doAuth);
 
 $('#authTab').addEventListener('click',()=>{
   const el=$('#authTab'); el.dataset.mode = el.dataset.mode==='register' ? 'login' : 'register';
-  el.textContent = el.dataset.mode==='register' ? '登录' : '注册';
-  $('#authTenantWrap').style.display = el.dataset.mode==='register' ? 'flex' : 'none';
-  $('#authHint').textContent = el.dataset.mode==='register' ? '注册即创建一个独立租户空间，AI 实算数据按租户隔离。' : '登录后查看按本租户隔离的 AI 实算数据；未登录时仅展示演示布局。';
+  const isReg = el.dataset.mode==='register';
+  // 按钮文案随「要切换到的模式」而变：当前在注册态 → 显示「登录」入口；反之显示「注册」入口。
+  el.textContent = isReg ? t('auth.login') : t('auth.register');
+  $('#authSubmit').textContent = isReg ? t('auth.register') : t('auth.login');
+  $('#authTenantWrap').style.display = isReg ? 'flex' : 'none';
+  $('#authHint').textContent = isReg ? t('auth.hintReg') : t('auth.hintLogin');
 });
 
 updateAuthUI();
@@ -872,8 +875,8 @@ document.querySelectorAll('.board .col .card').forEach(c=>{
     var save=q*p*d*g;
     var hoursSave=q*(2-3/60);
     var wageSave=hoursSave*w;
-    document.getElementById('roiSave').textContent='¥'+Math.round(save).toLocaleString('zh-CN');
-    document.getElementById('roiTime').textContent='¥'+Math.round(wageSave).toLocaleString('zh-CN');
+    document.getElementById('roiSave').textContent='¥'+Math.round(save).toLocaleString(t('locale'));
+    document.getElementById('roiTime').textContent='¥'+Math.round(wageSave).toLocaleString(t('locale'));
   }
   ['roiQty','roiPrice','roiDisp','roiGain','roiWage'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.addEventListener('input', calcROI);
@@ -904,7 +907,7 @@ document.querySelectorAll('.board .col .card').forEach(c=>{
       +`</tr>`).join('');
     const b=bt.basis||{}, sens=bt.sensitivity||{};
     document.getElementById('roiBtFoot').innerHTML=
-      `${t('roi.btBasis')}${Number(b.total_cases||0).toLocaleString('zh-CN')} ${t('dyn.unitCases')}`
+      `${t('roi.btBasis')}${Number(b.total_cases||0).toLocaleString(t('locale'))} ${t('dyn.unitCases')}`
       +` · ${t('roi.btDispute')}${b.dispute_cases} ${t('dyn.unitCases')}`
       +` · ${t('roi.btWinRate')}${Math.round((b.win_rate||0)*100)}%`
       +` · ${t('roi.btAvgRefund')}${money(b.avg_refund)}<br>`
@@ -925,8 +928,11 @@ document.querySelectorAll('.board .col .card').forEach(c=>{
     const src=document.getElementById('roiSrc');
     if(src){
       const wr=Math.round(Number(d.win_rate||0)*100);
-      const srcName=d.source==='real'?'AI 实算':'演示布局';
-      src.textContent=`数据来源：当前看板（${srcName}）${total.toLocaleString('zh-CN')} 笔案件 · 真实胜诉率 ${wr}%；客单价与争议占比已按真实数据填入，可手动微调。`;
+      const srcName=d.source==='real'?t('rep.live'):t('rep.mock');
+      src.textContent=t('roi.realSrc')
+        .replace('{n}', total.toLocaleString(t('locale')))
+        .replace('{src}', srcName)
+        .replace('{wr}', String(wr));
     }
     calcROI();
   }

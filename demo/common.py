@@ -351,20 +351,21 @@ _NONCE_PLACEHOLDER = "<!--RG_CSP_NONCE-->"
 
 
 async def no_cache_middleware(request: Request, call_next):
-    """缓存策略（B-前端 P1）：静态资源可缓存，页面与接口保持新鲜。
+    """缓存策略（B-前端 P1）：静态资源必须回源校验，页面与接口保持新鲜。
 
-    原先全站 no-cache 致每次刷新重传约 66KB 的 app.js + 图片；现对 /static/*
-    下发短时效强校验缓存，其余（HTML/API）仍 no-cache，兼顾性能与「代码即见最新」。
+    原先对 /static/* 下发 `max-age=60, must-revalidate`，其语义是「60 秒内直接用本地副本、
+    不回源」。前端是无构建的 ESM：app.js 用相对路径 import ./i18n.js，子模块 URL 无法带
+    版本 query，因此升级后 60 秒窗口内会出现「HTML 已更新、JS 仍是旧版」的撕裂状态
+    ——典型症状：新增语言选项可见，但 t() 返回裸 key、切换语言无效（曾实际发生）。
+
+    改为 `no-cache`：可缓存但**每次必须回源校验**，命中 etag 时只回 304（几百字节），
+    既保留带宽优化，又保证「发布即生效」。未做内容哈希文件名前，这是唯一安全的选择。
     """
     response = await call_next(request)
     if request.method != "GET":
         return response
-    path = request.url.path
-    if path.startswith("/static/"):
-        # 内容寻址由文件名/版本控制；60s 短缓存避免演示期间反复重传
-        response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
-    else:
-        response.headers["Cache-Control"] = "no-cache"
+    # 全部 GET 响应统一 no-cache：静态资源靠 etag 走 304，HTML/API 本就要求新鲜。
+    response.headers["Cache-Control"] = "no-cache"
     return response
 
 
