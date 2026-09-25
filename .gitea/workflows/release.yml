@@ -100,26 +100,35 @@ jobs:
           ( cd dist && sha256sum "returnguard-${VERSION}.tar.gz" > "returnguard-${VERSION}.sha256" )
 
       - name: Create Gitea Release and upload assets
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          VERSION="${{ steps.ver.outputs.version }}"
+          set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
 
-          # 组装 release 请求体（用 jq 安全转义多行 changelog）
-          jq -n \
-            --arg tag "$TAG" \
-            --arg name "ReturnGuard $VERSION" \
-            --arg body "$(cat CHANGELOG_GEN.md)" \
-            --arg sha "$GITHUB_SHA" \
-            '{tag_name:$tag, name:$name, body:$body, target_commitish:$sha}' \
-            > release.json
+          # 组装 release 请求体：用 python 安全转义多行 changelog。
+          # 刻意不依赖 jq —— act_runner 默认作业镜像（node:*-bullseye）不含 jq，
+          # 而前面 setup-python 已保证 python 可用，跨镜像更稳。
+          python - <<'PY'
+          import json, os, pathlib
+          body = pathlib.Path("CHANGELOG_GEN.md").read_text(encoding="utf-8")
+          data = {
+              "tag_name": os.environ["GITHUB_REF_NAME"],
+              "name": "ReturnGuard " + os.environ["VERSION"],
+              "body": body,
+              "target_commitish": os.environ["GITHUB_SHA"],
+          }
+          pathlib.Path("release.json").write_text(json.dumps(data), encoding="utf-8")
+          PY
 
           RELEASE_ID=$(curl -sS -X POST \
             "$GITEA_API/repos/$GITEA_REPO/releases" \
             -H "Authorization: Bearer $GITEA_TOKEN" \
             -H "Content-Type: application/json" \
-            --data @release.json | jq -r .id)
+            --data @release.json \
+            | python -c 'import sys,json; print(json.load(sys.stdin).get("id",""))')
 
-          echo "Created release id=$RELEASE_ID"
+          echo "Created release $TAG -> id=$RELEASE_ID"
 
           # 逐个上传附件（tarball + 校验和）
           for f in "dist/returnguard-${VERSION}.tar.gz" "dist/returnguard-${VERSION}.sha256"; do
