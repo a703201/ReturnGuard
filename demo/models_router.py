@@ -1,30 +1,31 @@
-"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼网关调用，支持 Token Plan 测试网关 / 官方 Model Router 双 profile 一键切换）
+"""ReturnGuard · 模型能力层（live 模式）—— 多 AI 平台统一调用入口。
 
-本文件把「方案文档」里规划的模型能力封装成可调用函数，供 pipeline 在 live 模式下调取。
-切换网关只需改 MODEL_ROUTER_PROFILE（tokenplan / official），详见下方「双 profile」配置块。
-各能力的模型标识随 profile 固化在 _MODEL_ROUTER_PROFILES[...]["models"]，统一由 MODELS[...] 下发。
+本文件把产品需要的 6 类 AI 能力封装成可调用函数，供 pipeline 在 live 模式下调取：
 
-    profile      能力(④文本/⑥TTS)            其余(①向量/②VL/③OCR/⑤rerank)
-    ──────────  ──────────────────────────  ──────────────────────────────────
-    tokenplan    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen/qwen3-vl-plus 等（视觉未开通→回退）
-    official     qwen/qwen3.7-max / qwen/qwen3-tts-instruct-flash   qwen/qwen3-vl-plus 等（官方网关）
-    dashscope    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen3-vl-plus 等（自购·视觉齐全·数据不出境）
+    text（文本生成/归因） · vl（视觉理解/瑕疵识别） · ocr（图内文字提取）
+    embed（图像/文本向量） · rerank（相关性重排） · tts（语音合成）
 
-⚠️ 两个网关「模型命名」不同：Token Plan 文本/TTS 为无 qwen/ 前缀旧名；官方 Model Router
-（model-router.edu-aliyun.com）全部模型必须带 qwen/ 前缀（见 ModelRouter_API.docx）。切换 profile
-时 base_url + key + 模型标识三者一并切换，避免 404/模型不存在。
+**平台无关**：具体调用哪家平台、用哪个模型、端点路径与鉴权方式，全部由
+`demo/providers.py` 的注册表声明；本文件只按「能力」调用，新增平台无需改这里。
+切换平台只需一个环境变量 `MODEL_ROUTER_PROFILE`（兼容别名 `RG_AI_PROVIDER`），
+其值即 providers.PROVIDERS 的 key，例如：
 
-Token Plan 当前开通以「文本推理 / TTS 语音」为主；视觉/向量/rerank 在团队版模型列表未开通，
-调用会报错并由 pipeline 自动回退 mock（保持原模型名占位），保证演示不中断——网关渐进开通即生效。
+    tokenplan / official / dashscope   —— 阿里云百炼系（本项目长期使用，已实跑验证）
+    openai / deepseek / moonshot / zhipu / siliconflow / openrouter / ollama / azure_openai
+    custom                              —— 任意 OpenAI 兼容自建端点（vLLM / one-api / LiteLLM …）
 
-dashscope（阿里云百炼国内站按量付费）是「自购 token」通道：视觉/向量/OCR 模型齐全、数据不出境、
-合规首选。设 MODEL_ROUTER_PROFILE=dashscope + DASHSCOPE_API_KEY 即可让单案视觉真跑通，
-模型标识不带 qwen/ 前缀（与 Token Plan / 官方 Model Router 命名不同）。退回演示仍走 mock 回退。
+⚠️ 平台间「模型标识命名」差异极大（百炼 official 必须带 `qwen/` 前缀、Ollama 用 `模型:标签`
+   形式、SiliconFlow 用 `org/model`），因此 base_url + key + 模型标识三者必须随平台一并切换；
+   注册表已把每个平台的三者固化为一体，避免手工错配导致 404。
+
+**能力缺口如实标注**：某平台不提供某能力（如 DeepSeek 无视觉、OpenAI 无 rerank）时，
+注册表声明为不支持，本模块在调用前直接抛错，由 live_analyze 的逐能力 try/except 回退为
+确定性结果并在 `capabilities` 里标记为 False——绝不伪装成真实调用。
 
 运行前提（live 模式必须）：
-    - demo/.env 或环境变量 MODEL_ROUTER_API_KEY：Token Plan 专属 API Key
-      注意：必须与专属基地址配套使用；用 dashscope.aliyuncs.com 通用地址无法抵扣套餐额度。
-    - 环境变量 PUBLIC_IMAGE_BASE：上传图片可公网访问的基础 URL（视觉能力需要时再配）
+    - 当前平台对应的密钥环境变量（见 providers.py 的 `key_env`；ollama 本地默认不需要）
+    - 无需公网图床：视觉输入默认内联 base64，本机直跑即可
+      （`PUBLIC_IMAGE_BASE` 仅在使用纯 URL 视觉通道时才需要）
 """
 
 import base64
@@ -41,6 +42,7 @@ import time
 import uuid
 from typing import Any
 
+import providers
 import requests
 import requests.exceptions as rex
 from audio_utils import gen_wav
@@ -63,108 +65,71 @@ from prompts import (
 
 logger = logging.getLogger("returnguard.models_router")
 
-# ---- 阿里云百炼网关（双 profile 一键切换，OpenAI 兼容协议）----
-# 密钥 / 基地址优先从 demo/.env 读取（.env 不入 git，见根与 demo 两层 .gitignore），
-# 也支持外部环境变量覆盖（如 docker compose 注入）。
-# 读取 demo/.env（本地敏感配置：API Key、网关地址等）。
-# 测试环境跳过：pytest 在启动期就把自身注入 sys.modules（早于任何业务模块 import），
+# ---- AI 平台解析（多厂商适配，声明全在 providers.py）----
+# 密钥 / 基地址优先从 demo/.env 读取（.env 不入 git），也支持外部环境变量覆盖（compose 注入）。
+# 测试环境跳过 .env 加载：pytest 在启动期就把自身注入 sys.modules（早于任何业务模块 import），
 # 因此用 sys.modules.get("pytest") 判断最可靠；不能用 PYTEST_CURRENT_TEST——它只在测试
-# "执行期"才写入环境，模块"收集期" import 时尚未存在，会导致真实 .env 被误加载、七牛密钥等
-# 泄漏进用例、造成图床后端等非确定性行为。
+# "执行期"才写入环境，模块"收集期" import 时尚未存在，会导致真实 .env 被误加载、
+# 造成图床后端/平台选择等非确定性行为。
 if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
     load_dotenv()
 
-# 双 profile：tokenplan=本地测试（Token Plan 专属网关）/ official=官方网关「阿里云百炼 Model Router」。
-# 切换只需改 MODEL_ROUTER_PROFILE 一个变量，避免 base_url 与 key 错配；各 profile 的
-# base_url 有默认值，仅 official 的 key（MODEL_ROUTER_OFFICIAL_KEY=发放）需单独配置。
+# ⚠️ 关键差异：不同平台的「模型标识命名」不同，必须与 base_url + key 一并切换，否则 404：
+#   - tokenplan ：文本/TTS 用无 `qwen/` 前缀旧命名，视觉系沿用 `qwen/` 前缀
+#   - official  ：全部模型必须带 `qwen/` 前缀
+#   - dashscope ：模型标识不带 `qwen/` 前缀
+#   - 其他平台  ：各有风格（OpenAI 用 `gpt-4o-mini`、Ollama 用 `模型:标签`、SiliconFlow 用 `org/model`）
+# 每组 base_url + key + 模型标识已固化为 providers.PROVIDERS 的一条声明，统一由 MODELS[...] 下发。
 #
-# ⚠️ 关键差异：两个网关的「模型标识命名」不同！
-#   - Token Plan 网关：文本/TTS 用「无 qwen/ 前缀」旧命名（qwen3.7-max / qwen-audio-3.0-tts-plus），
-#     视觉/OCR/向量沿用 qwen/ 前缀。
-#   - 官方 Model Router（model-router.edu-aliyun.com）：全部模型「必须带 qwen/ 前缀」
-#     （如 qwen/qwen3.7-max、qwen/qwen3-tts-instruct-flash、qwen/qwen3-rerank）。
-#   因此 base_url 切换的同时，模型标识也必须随 profile 切换，否则会 404/模型不存在。
-#   下方 models 字典把每个能力的模型标识按 profile 固化，统一由 MODELS[...] 下发，杜绝错配。
-_MODEL_ROUTER_PROFILES = {
-    "tokenplan": {
-        "base_url": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-        "key_env": "MODEL_ROUTER_API_KEY",
-        "models": {
-            "text": "qwen3.7-max",
-            "tts": "qwen-audio-3.0-tts-plus",
-            "vl": "qwen/qwen3-vl-plus",
-            "ocr": "qwen/qwen-vl-ocr",
-            "embed": "qwen/tongyi-embedding-vision-plus",
-            "rerank": "qwen3-rerank",
-        },
-    },
-    "official": {
-        "base_url": "https://model-router.edu-aliyun.com/v1",
-        "key_env": "MODEL_ROUTER_OFFICIAL_KEY",
-        "models": {
-            "text": "qwen/qwen3.7-max",
-            "tts": "qwen/qwen3-tts-instruct-flash",
-            "vl": "qwen/qwen3-vl-plus",
-            "ocr": "qwen/qwen-vl-ocr",
-            "embed": "qwen/tongyi-embedding-vision-plus",
-            "rerank": "qwen/qwen3-rerank",
-        },
-    },
-    # dashscope：阿里云百炼国内站「按量付费」自购通道（视觉模型齐全、数据不出境、合规首选）。
-    # 模型标识不带 qwen/ 前缀（与 Token Plan / 官方 Model Router 的命名不同），base_url 用百炼
-    # 通用兼容端点。自购 key 走这里即可让单案视觉（①向量/②VL/②'红框/③OCR）真跑通，
-    # 代码其余逻辑无需改动——拿到 key 后设 MODEL_ROUTER_PROFILE=dashscope + DASHSCOPE_API_KEY 即可。
-    "dashscope": {
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "key_env": "DASHSCOPE_API_KEY",
-        "models": {
-            "text": "qwen3.7-max",
-            "tts": "qwen-audio-3.0-tts-plus",
-            "vl": "qwen3-vl-plus",
-            "ocr": "qwen-vl-ocr",
-            "embed": "tongyi-embedding-vision-plus",
-            "rerank": "qwen3-rerank",
-        },
-    },
-}
-MODEL_ROUTER_PROFILE = os.environ.get("MODEL_ROUTER_PROFILE", "tokenplan")
-# 各 profile 的值类型异构（base_url/key_env 为 str，models 为 dict[str,str]），
-# 显式标注为 dict[str, Any] 避免 mypy 把子字段误推为 Collection[str]。
-_PROFILE: dict[str, Any] = _MODEL_ROUTER_PROFILES.get(
-    MODEL_ROUTER_PROFILE, _MODEL_ROUTER_PROFILES["tokenplan"]
-)
-# 当前 profile 的模型标识字典（随 profile 切换，杜绝 base_url/base_key/模型名错配）。
+# `_MODEL_ROUTER_PROFILES` 保留为注册表别名：历史代码与契约测试按该名字索引平台声明，
+# 现指向 providers.PROVIDERS（同一批对象），因此新增平台会自动被既有契约测试覆盖。
+_MODEL_ROUTER_PROFILES: dict[str, dict[str, Any]] = providers.PROVIDERS
+
+MODEL_ROUTER_PROFILE = providers.current_provider_name()
+# 当前平台的**已解析**视图：resolved_base_url / api_key / models 均应用了环境变量覆盖。
+# 标注为 dict[str, Any] 避免 mypy 把异构子字段误推为 Collection[str]。
+_PROFILE: dict[str, Any] = providers.get_provider(MODEL_ROUTER_PROFILE)
+# 当前平台的模型标识字典（随平台切换，杜绝 base_url / key / 模型名错配）。
 MODELS: dict[str, str] = _PROFILE["models"]
-# base_url 解析规则（每个 profile 用各自独立的覆盖变量，杜绝 .env 里某个 profile 的 base_url
-# 把其他 profile 的端点错配——此前 tokenplan 的 MODEL_ROUTER_BASE_URL 曾把 official/dashscope
-# 端点污染成 Token Plan 地址，导致"切了 profile 仍打旧网关"）：
-#   - tokenplan ：允许 MODEL_ROUTER_BASE_URL 覆盖；否则取 Token Plan 专属默认
-#   - official  ：固定官方网关端点，可用 MODEL_ROUTER_OFFICIAL_BASE_URL 覆盖（一般不改）
-#   - dashscope ：固定百炼国内站端点，可用 DASHSCOPE_BASE_URL 覆盖
-_PROFILE_BASE_ENV = {
-    "tokenplan": "MODEL_ROUTER_BASE_URL",
-    "official": "MODEL_ROUTER_OFFICIAL_BASE_URL",
-    "dashscope": "DASHSCOPE_BASE_URL",
-}
-_base_env = _PROFILE_BASE_ENV.get(MODEL_ROUTER_PROFILE, "")
-_override = os.environ.get(_base_env, "") if _base_env else ""
-API_BASE = _override.rstrip("/") if _override else _PROFILE["base_url"]
-API_KEY = os.environ.get(_PROFILE["key_env"], "")
+API_BASE = _PROFILE["resolved_base_url"]
+API_KEY = _PROFILE["api_key"]
 PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
-# 默认文本推理模型：随 profile 取对应命名（official=qwen/qwen3.7-max，tokenplan=qwen3.7-max）；
-# 可用 MODEL_ROUTER_TEXT_MODEL 覆盖（演示求快可切 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等，
-# 但 official profile 下覆盖值也必须带 qwen/ 前缀才生效，对比结论见 compare_models.py）。
-TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", MODELS["text"])
-# 官方 Model Router 的全部模型必须带 qwen/ 前缀；若 .env 遗留 tokenplan 风格的无前缀命名
-# （如 qwen3.7-max），在 official profile 下自动补齐前缀，避免 404/模型不存在，保证一键切换可用。
-if MODEL_ROUTER_PROFILE == "official" and not TEXT_MODEL.startswith("qwen/"):
+# 默认文本模型：取当前平台声明的 text 模型；可用 MODEL_ROUTER_TEXT_MODEL（历史变量）或
+# RG_MODEL_TEXT（通用变量）覆盖。演示求快可切更小模型，但 official 下覆盖值也须带 `qwen/` 前缀。
+TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", "").strip() or MODELS.get("text", "")
+# official 平台的全部模型必须带 qwen/ 前缀；若 .env 遗留 tokenplan 风格的无前缀命名
+# （如 qwen3.7-max），在此自动补齐前缀，避免 404/模型不存在，保证一键切换可用。
+if MODEL_ROUTER_PROFILE == "official" and TEXT_MODEL and not TEXT_MODEL.startswith("qwen/"):
     TEXT_MODEL = f"qwen/{TEXT_MODEL}"
 
+
+def _require_capability(capability: str) -> None:
+    """调用前校验当前平台是否具备该能力；不具备即抛错，交由上游逐能力回退并如实标注。
+
+    为什么用抛错而不是「返回空值」：上游 `live_analyze` 的每个能力都是 try/except 包裹，
+    抛错会被捕获并置 `capabilities[cap] = False`（前端显示为「回退」），语义与真实调用失败
+    完全一致；若改成静默返回空值，反而会让上层拿到"看起来成功但内容为空"的结果。
+    """
+    if not providers.supports(_PROFILE, capability):
+        raise RuntimeError(
+            f"当前 AI 平台「{_PROFILE['label']}」不支持{providers.CAPABILITY_LABELS.get(capability, capability)}"
+            f"（未声明模型标识）；请改用支持该能力的平台，或用 RG_MODEL_{capability.upper()} 指定模型"
+        )
+
+
+def platform_info() -> dict[str, Any]:
+    """当前平台的公开信息（供 /api/config 与排障日志使用，不含密钥与基地址）。"""
+    return providers.current_provider_public()
+
+
 logger.info(
-    "模型网关已加载 profile=%s endpoint=%s key_set=%s",
+    "AI 平台已加载 provider=%s label=%s style=%s endpoint=%s key_set=%s caps=%s",
     MODEL_ROUTER_PROFILE,
+    _PROFILE["label"],
+    _PROFILE["api_style"],
     API_BASE,
     bool(API_KEY),
+    [c for c, ok in providers.capability_matrix(_PROFILE).items() if ok],
 )
 
 # ===================== AI 链路韧性 + 可观测（P1-6）=====================
@@ -315,9 +280,14 @@ def _post(url: str, **kw):
     raise RuntimeError("所有重试已耗尽但未捕获到异常（不应发生）")
 
 
-def _headers():
-    """构造请求头：Bearer 鉴权 + JSON 内容类型。"""
-    return {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+def _headers() -> dict[str, str]:
+    """按当前平台的鉴权风格构造请求头（Bearer / api-key / 无鉴权，见 providers.auth_headers）。"""
+    return providers.auth_headers(_PROFILE)
+
+
+def _url(path: str, model: str = "") -> str:
+    """按当前平台的 URL 形状构造请求地址（OpenAI 兼容 / Azure 部署式）。见 providers.build_url。"""
+    return providers.build_url(_PROFILE, path, model)
 
 
 # 视觉输入归一化：把「本地路径 / 公网 URL / data URI」统一成送给视觉网关的值。
@@ -408,11 +378,12 @@ def _image_size(path: str) -> tuple[int, int] | None:
 def embed_image(image_url):
     """调用 tongyi-embedding-vision-plus，把一张商品图转成向量。
     返回：浮点数列表（向量）。用于后续余弦相似度判断是否同一件。
-    注意：当前 Token Plan 网关团队版模型列表未开通图像向量，调用会报错；
-    由 pipeline 的 live 回退机制降级到 mock（确定性哈希），演示不中断。"""
+    注意：并非所有平台都提供图像向量能力（百炼官方兼容模式即不支持视觉向量）；
+    调用前经能力闸校验，不可用时由 live_analyze 回退为 VL 双图判同款或确定性哈希。"""
     src = _img_source(image_url)
+    _require_capability("embed")
     r = _post(
-        f"{API_BASE}/embeddings",
+        _url("embed", MODELS["embed"]),
         headers=_headers(),
         json={"model": MODELS["embed"], "input": {"image": src}},
         timeout=60,
@@ -438,7 +409,7 @@ def vl_chat(image_url, prompt, second_image=None):
     方案功能②用它做「破损/缺件/污渍/使用痕迹」等瑕疵标签识别。
     second_image：可选第二张图（如本店主图），与 image_url 一同发送，
     支持「退回件 vs 主图」双图对比取证（P3-18）。
-    注意：当前网关未开通多模态理解，调用会报错并回退 mock。"""
+    注意：平台未声明视觉能力时会被能力闸拦下，由 live_analyze 回退确定性标签。"""
     src = _img_source(image_url)
     content = [{"type": "text", "text": prompt}]
     content.append({"type": "image_url", "image_url": {"url": src}})
@@ -446,8 +417,9 @@ def vl_chat(image_url, prompt, second_image=None):
         s2 = _img_source(second_image)
         if s2:
             content.append({"type": "image_url", "image_url": {"url": s2}})
+    _require_capability("vl")
     r = _post(
-        f"{API_BASE}/chat/completions",
+        _url("chat", MODELS["vl"]),
         headers=_headers(),
         json={
             "model": MODELS["vl"],
@@ -482,8 +454,9 @@ def vl_detect_boxes(image_url, prompt=DEFECT_BBOX_PROMPT, img_size=None, second_
         s2 = _img_source(second_image)
         if s2:
             content.append({"type": "image_url", "image_url": {"url": s2}})
+    _require_capability("vl")
     r = _post(
-        f"{API_BASE}/chat/completions",
+        _url("chat", MODELS["vl"]),
         headers=_headers(),
         json={
             "model": MODELS["vl"],
@@ -548,8 +521,9 @@ def vl_similarity(returned_url, product_url, prompt=SIMILARITY_PROMPT):
     返回 {similarity, same_item, reason}。调用失败抛异常，由 live_analyze 回退向量/哈希。"""
     r_src = _img_source(returned_url)
     p_src = _img_source(product_url)
+    _require_capability("vl")
     r = _post(
-        f"{API_BASE}/chat/completions",
+        _url("chat", MODELS["vl"]),
         headers=_headers(),
         json={
             "model": MODELS["vl"],
@@ -585,10 +559,11 @@ def vl_similarity(returned_url, product_url, prompt=SIMILARITY_PROMPT):
 def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
     """调用 qwen-vl-ocr，从本店主图/详情图里提取文字承诺（如「全新未拆/30天退换」）。
     方案功能③用它做「退回件实际状态 vs 本店承诺」的货不对板核验。
-    注意：当前网关未开通 OCR 视觉模型，调用会报错并回退 mock。"""
+    注意：平台未提供 OCR/视觉能力时会被能力闸拦下，回退为卖家自填的 listing 文本。"""
     src = _img_source(image_url)
+    _require_capability("ocr")
     r = _post(
-        f"{API_BASE}/chat/completions",
+        _url("chat", MODELS["ocr"]),
         headers=_headers(),
         json={
             "model": MODELS["ocr"],
@@ -612,8 +587,9 @@ def ocr(image_url, prompt=OCR_PROMISE_PROMPT):
 def llm(prompt, model=TEXT_MODEL):
     """调用默认文本模型（MODEL_ROUTER_TEXT_MODEL，默认 qwen3.7-max）做文本生成。
     可选 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等更快模型。返回模型文本。"""
+    _require_capability("text")
     r = _post(
-        f"{API_BASE}/chat/completions",
+        _url("chat", model),
         headers=_headers(),
         json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
         timeout=60,
@@ -659,8 +635,9 @@ def llm_json(prompt, model=TEXT_MODEL):
     """调用大模型并直接返回结构化 JSON（用于洞察聚类/归因）。
     qwen3.6+ 等模型会把思考放进 reasoning_content、content 可能为空，
     此时回退读取 reasoning_content 再抽取。"""
+    _require_capability("text")
     r = _post(
-        f"{API_BASE}/chat/completions",
+        _url("chat", model),
         headers=_headers(),
         json={"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False},
         timeout=120,
@@ -687,8 +664,9 @@ def rerank(query, documents, model=None):
     与本地可解释公式融合（见 live_analyze 的 ⑤）；网关未开通 / 超时 / 熔断时自动回退本地公式。"""
     if model is None:
         model = MODELS["rerank"]
+    _require_capability("rerank")
     r = _post(
-        f"{API_BASE}/rerank",
+        _url("rerank", model),
         headers=_headers(),
         json={"model": model, "query": query, "documents": documents},
         timeout=60,
@@ -713,8 +691,9 @@ def tts(text, voice=None, language=None):
     payload = {"model": MODELS["tts"], "input": text, "voice": voice}
     if language and os.environ.get("TTS_SEND_LANGUAGE_TYPE") == "1":
         payload["language_type"] = language
+    _require_capability("tts")
     r = _post(
-        f"{API_BASE}/audio/speech",
+        _url("tts", MODELS["tts"]),
         headers=_headers(),
         json=payload,
         timeout=60,
@@ -811,8 +790,10 @@ def live_analyze(
     if language not in SUPPORTED_LANGUAGES:
         logger.warning("未知 language=%s，回退默认 %s", language, DEFAULT_LANGUAGE)
         language = DEFAULT_LANGUAGE
-    if not API_KEY:
-        raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
+    if not API_KEY and _PROFILE.get("key_required", True):
+        # ollama 等本地自托管平台不需要密钥（key_required=False），故按平台声明判断，
+        # 而不是一律要求 API_KEY——否则本地推理会被误判为「未配置」而整体回退。
+        raise RuntimeError(f"未配置 {_PROFILE['key_env']}（provider={MODEL_ROUTER_PROFILE}）")
     # 可观测：每次 live 取证生成 trace_id，贯穿日志与返回体，便于演示现场与排障串联。
     trace_id = uuid.uuid4().hex
     logger.info("live_analyze 开始 trace_id=%s profile=%s", trace_id, MODEL_ROUTER_PROFILE)
@@ -969,8 +950,10 @@ def build_insights_live(aggregated: dict) -> dict:
     返回 {root_cause, sku_insights[], recommendations[], sourcing_advice[], report}。
     注意：本函数只负责「推理」，所有数值统计由 pipeline 算好再喂进来，保证可溯源。
     """
-    if not API_KEY:
-        raise RuntimeError(f"未配置 {_PROFILE['key_env']}（profile={MODEL_ROUTER_PROFILE}）")
+    if not API_KEY and _PROFILE.get("key_required", True):
+        # ollama 等本地自托管平台不需要密钥（key_required=False），故按平台声明判断，
+        # 而不是一律要求 API_KEY——否则本地推理会被误判为「未配置」而整体回退。
+        raise RuntimeError(f"未配置 {_PROFILE['key_env']}（provider={MODEL_ROUTER_PROFILE}）")
     _enter_budget(LLM_TOTAL_BUDGET)
     trace_id = uuid.uuid4().hex
     logger.info("build_insights_live 开始 trace_id=%s", trace_id)

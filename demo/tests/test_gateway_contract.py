@@ -75,11 +75,17 @@ def test_extract_json_robustness():
 
 
 def test_model_naming_contract():
-    """模型命名契约：official 等官方档全部模型须带 qwen/ 前缀，杜绝 404/模型不存在。"""
+    """模型命名契约：official 平台的模型必须全部带 qwen/ 前缀，杜绝 404/模型不存在。
+
+    字符集允许 `:` —— Ollama 用 `模型:标签` 形式（如 `qwen2.5:7b`），
+    这是该平台合法的模型标识，不应被判为非法字符。
+    """
     for prof_name, prof in mr._MODEL_ROUTER_PROFILES.items():
         models = prof.get("models", {})
         for cap, mname in models.items():
-            assert re.match(r"^[\w./\-]+$", mname), f"模型名含非法字符：{mname}"
+            if not mname:
+                continue  # custom 平台允许留空（未配置 → 运行期判为不支持）
+            assert re.match(r"^[\w./\-:]+$", mname), f"模型名含非法字符：{mname}"
             if prof_name == "official":
                 assert mname.startswith("qwen/"), (
                     f"{prof_name}.{cap}={mname} 必须以 qwen/ 开头（与官方 Model Router 白名单一致）"

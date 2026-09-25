@@ -1,6 +1,6 @@
 # ReturnGuard 部署与运维指南
 
-> 适用版本：2.0.0（仓库根 `VERSION` 为单一来源）
+> 适用版本：2.1.0（仓库根 `VERSION` 为单一来源）
 > 相关文档：[`openGauss部署指南.md`](../openGauss部署指南.md)（openGauss 细节与真实数据自动导入）、[`API.md`](API.md)、[`SCHEMA.md`](SCHEMA.md)
 
 ---
@@ -107,20 +107,26 @@ python -c "import secrets;print(secrets.token_hex(32))"   # AUTH_SECRET
 python -c "import secrets;print(secrets.token_hex(24))"   # ADMIN_API_KEY
 ```
 
-### 4.3 live 模型链路
+### 4.3 AI 平台（多厂商可选）
 
 | 变量 | 说明 |
 |---|---|
-| `MODEL_ROUTER_PROFILE` | `tokenplan`（默认）/ `official` / `dashscope` |
-| `MODEL_ROUTER_API_KEY` | tokenplan profile 的 Key（**live 必需**） |
-| `MODEL_ROUTER_OFFICIAL_KEY` / `MODEL_ROUTER_OFFICIAL_BASE_URL` | official profile 的 Key / 端点覆盖 |
-| `DASHSCOPE_API_KEY` / `DASHSCOPE_BASE_URL` | dashscope profile |
-| `MODEL_ROUTER_TEXT_MODEL` | 覆盖默认文本模型（注意 official 下需带 `qwen/` 前缀） |
+| `MODEL_ROUTER_PROFILE` | 选择 AI 平台，默认 `tokenplan`；可选值见 `GET /api/providers` 或 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)（兼容别名 `RG_AI_PROVIDER`） |
+| 平台密钥 | 各平台独立变量：`MODEL_ROUTER_API_KEY`(tokenplan) / `MODEL_ROUTER_OFFICIAL_KEY`(official) / `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPU_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` / `AZURE_OPENAI_API_KEY` / `RG_CUSTOM_API_KEY` / `OLLAMA_API_KEY`（本地可空）——**live 必需**（本地端点除外） |
+| 基地址覆盖 | 各平台独立：`MODEL_ROUTER_BASE_URL` / `MODEL_ROUTER_OFFICIAL_BASE_URL` / `DASHSCOPE_BASE_URL` / `OPENAI_BASE_URL` / `OLLAMA_BASE_URL` / `RG_CUSTOM_BASE_URL` … |
+| `RG_MODEL_TEXT` `RG_MODEL_VL` `RG_MODEL_OCR` `RG_MODEL_EMBED` `RG_MODEL_RERANK` `RG_MODEL_TTS` | 逐能力覆盖模型标识（平台改版 / 自建端点用） |
+| `MODEL_ROUTER_TEXT_MODEL` | 仅覆盖文本模型（历史变量，向后兼容） |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI 的 API 版本（默认 `2024-10-21`） |
 | `PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED` | **可选**：仅在希望视觉能力走「公网 URL 回源」时配置；默认内联 base64，无需公网图床 |
 | `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR` | SEC-13 三层 live 配额（默认 300 / 60 / 20，`0` 关闭该层） |
+| `LLM_MAX_RETRIES` / `LLM_BACKOFF_BASE` / `LLM_CB_THRESHOLD` / `LLM_CB_COOLDOWN` | 重试次数 / 退避基数（秒）/ 熔断阈值 / 熔断冷却（秒） |
+| `LLM_HTTP_TIMEOUT` / `LLM_TOTAL_BUDGET` | 单次外部调用超时（默认 60s）/ 单请求 live 链路总预算（默认 120s） |
 
-> 切换 profile 时 **base_url + key + 模型标识三者联动**，只改 `MODEL_ROUTER_PROFILE` 即可，
-> 模型标识的单一来源是 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
+> **切换平台时无需手工对齐三处**：`base_url` + 密钥 + 模型标识已随平台声明固化在
+> `demo/providers.py`，只改 `MODEL_ROUTER_PROFILE` 即可。
+> 平台能力缺口（如 OpenAI 无 rerank、DeepSeek 无视觉）会在运行期如实回退并在响应中标注；
+> 切换前建议先查 `GET /api/providers` 的能力矩阵。
+> 数据出境与合规提示见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md) §8。
 
 ### 4.4 其他
 

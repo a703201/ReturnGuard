@@ -151,6 +151,17 @@ class PlatformsResp(BaseModel):
     platforms: list
 
 
+class ProvidersResp(BaseModel):
+    """GET /api/providers 的响应（AI 平台目录）。
+
+    每项含：平台标识 / 展示名 / 协议风格 / 是否支持（原生协议非 OpenAI 兼容者为 False）/
+    是否实跑验证过 / 密钥环境变量名 / 能力矩阵 / 是否当前平台。
+    刻意不含基地址、模型标识与密钥状态（信息泄露收敛）。
+    """
+
+    providers: list
+
+
 class AuthTokenResp(BaseModel):
     """POST /api/auth/register | /api/auth/login 的响应。"""
 

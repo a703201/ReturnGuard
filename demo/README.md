@@ -18,7 +18,8 @@ demo/
     calibration.py   #   /api/calibrate 阈值自标定（GET 读 / POST 写）
     import_.py       #   /api/import_csv · /api/import_file 真实数据回流
   pipeline.py        # 取证 + 洞察流水线（mock / live 双模式；含 _roi_backtest）
-  models_router.py   # Model Router 实时调用（三 profile；逐能力真实/回退）
+  models_router.py   # AI 能力调用（按能力，不按厂商；含能力闸与逐能力回退）
+  providers.py       # AI 平台注册表（多厂商声明式适配，见 ../docs/AI_PROVIDERS.md）
   auth.py            # 账户/多租户（pbkdf2 60 万轮 + HMAC 签名令牌）
   quota.py           # SEC-13 live 三层配额闸（全局日 / 账号日 / IP 小时）
   shared_state.py    # 限流/登录锁外置 SQLite（多 worker 安全，SEC-12）
@@ -32,8 +33,8 @@ demo/
   cases.json         # 案件种子库（1206 条演示数据）
   uploads/           # 上传图片落盘（经签名短链 /api/file/{sig} 访问，不再公开挂载）
   static/            # 单页前端（无构建 ESM）
-    index.html       #   页面骨架 + i18n 静态接线（data-i18n）
-    app.js           #   入口 / 事件编排
+    index.html       #   页面骨架 + i18n 静态接线（data-i18n）+ 首次开启引导 overlay
+    app.js           #   入口 / 事件编排（含首启引导、登录态、洞察加载）
     render.js        #   看板渲染（动态文案走 t()）
     store.js         #   全局 state
     api.js           #   fetch 封装（自动带令牌）
@@ -58,30 +59,40 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 - 切到「市场洞察」Tab，或点「刷新看板」：聚合历史案件，展示品类热力、根因归因、供应商红黑榜、平台 × 供应商交叉、预测预警、ROI 回测、选品建议。
 - mock 相似度由**图片内容哈希**决定（`imghash.content_seed`），**同一对图结果可复现**。
 - 顶栏可切换界面语言（中文 / English / Français）。
+- **首次打开会弹出使用引导**（5 步：定位 / 数据与登录 / 页面导览 / AI 通路与诚实性 / 边界与隐私），
+  可跳过、可勾选「不再自动显示」；顶栏「使用引导」按钮可随时重开。
 
-## live 模式（接真实 Model Router）
+## live 模式（接真实 AI 平台）
 
-只需一个环境变量即可开跑：
+只需选平台 + 填该平台的密钥：
 
 ```bash
-export MODEL_ROUTER_API_KEY=sk-xxx
+export MODEL_ROUTER_PROFILE=tokenplan        # 平台标识
+export MODEL_ROUTER_API_KEY=sk-xxx           # 该平台的密钥（详见 providers.py 的 key_env）
 ```
 
 > **图片无需公网可达**：视觉输入默认由 `models_router._img_source` 转成 **base64 data URI 内联**发送，本机直跑即可。
-> `PUBLIC_IMAGE_BASE`（或 `RG_SELF_IMAGE_BASE` / `IMAGE_BED`）为**可选增强**——仅当希望走「公网 URL 回源」时才配置对象存储或自托管反代。
+> `PUBLIC_IMAGE_BASE`（或 `RG_SELF_IMAGE_BASE` / `IMAGE_BED`）为**可选增强**——仅当希望走「公网 URL 回源」时才配置对象存储或自托管反向代理。
 
-选定网关 profile（三选一，改 `MODEL_ROUTER_PROFILE` 即可，`base_url` + key + 模型标识三者联动切换）：
+可选平台（改 `MODEL_ROUTER_PROFILE` 即切换；完整矩阵与差异见 [`../docs/AI_PROVIDERS.md`](../docs/AI_PROVIDERS.md)
+或运行时 `GET /api/providers`）：
 
-| profile | 基地址 | 用途 |
-|---|---|---|
-| `tokenplan` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Token Plan 网关（默认） |
-| `official` | `https://model-router.edu-aliyun.com/v1` | 官方 Model Router（模型标识全部带 `qwen/` 前缀） |
-| `dashscope` | 阿里云百炼国内站兼容端点 | 自购按量，视觉/向量/OCR 齐全、数据不出境 |
+| 平台 | 说明 |
+|---|---|
+| `tokenplan`（默认）/ `official` / `dashscope` | 阿里云百炼系，六类能力齐全（本仓已实跑验证） |
+| `openai` / `azure_openai` | OpenAI / Azure（无 rerank 端点） |
+| `deepseek` | 仅文本对话 |
+| `moonshot` / `zhipu` | Kimi / GLM |
+| `siliconflow` / `openrouter` | 硅基流动 / 聚合平台 |
+| `ollama` | 本机或内网推理，**免密钥、数据零出境** |
+| `custom` | 任意 OpenAI 兼容自建端点（vLLM / one-api / LiteLLM…），用 `RG_MODEL_*` 声明各能力模型 |
 
-前端模式选 `live` 即可走真实链路。以 **official** 为准的模型清单：
-`qwen/qwen3-vl-plus`（同款判定 + 瑕疵 + 红框）· `qwen/qwen-vl-ocr`（Listing OCR）· `qwen/qwen3.7-max`（卷宗 / 陈述 / 洞察归因）· `qwen/qwen3-rerank`（优先级）· `qwen/qwen3-tts-instruct-flash`（母语语音）· `qwen/tongyi-embedding-vision-plus`（图像向量，备选）。
+前端模式选 `live` 即可走真实链路。平台未提供的能力会被**能力闸**拦下并如实标记为回退
+（例如 DeepSeek 平台下只有文本是真实的，视觉/OCR/语音/重排均回退确定性结果）。
 
-> ⚠️ 命名差异：tokenplan 下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（均无 `qwen/` 前缀）；official 下**必须带 `qwen/` 前缀**。且官方模型名单中 TTS 仅 `qwen/qwen3-tts-instruct-flash` 一个，`qwen-audio-3.0-tts-plus` 不在名单内。
+> ⚠️ 命名差异：百炼 tokenplan 下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无 `qwen/` 前缀）；
+> official 下**必须带 `qwen/` 前缀**；Ollama 用 `模型:标签`；SiliconFlow / OpenRouter 用 `org/model`。
+> 这些差异已随平台声明固化，切换平台时无需手工对齐。
 > （live 调用逐能力 try/except 回退；全部失败才整体回退 mock，保证服务不中断。）
 > live 受 SEC-13 三层配额闸限制（`LIVE_QUOTA_*`），超限返回 `429` 且不静默降级。
 
@@ -89,7 +100,7 @@ export MODEL_ROUTER_API_KEY=sk-xxx
 
 ```bash
 # 从仓库根运行，coverage 路径与 pyproject 的 omit 规则据此匹配
-python -m pytest -q demo/tests               # 168 passed
+python -m pytest -q demo/tests               # 195 passed
 python scripts/check_i18n.py                 # 三语键完整性（零缺失 / 三语一致 / 无重复键）
 ```
 

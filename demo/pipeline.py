@@ -364,8 +364,11 @@ def _build_category_heatmap(cat: dict) -> list[dict]:
             {
                 "category": k,
                 "cases": v["cases"],
+                "decided": v["decided"],
                 "refund": round(v["refund"], 2),
-                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+                # 胜诉率分母统一用 decided（已判定案件数）：与平台 / 地区 / 交叉矩阵同口径，
+                # 否则「待分析」案件会把品类胜诉率稀释成接近 0，出现"所有品类都远低于大盘"的假象。
+                "win_rate": round(v["won"] / v["decided"], 3) if v["decided"] else 0,
                 "dispute_rate": round(1 - v["sim"] / v["cases"], 3) if v["cases"] else 0,
                 "top_defect": top,
             }
@@ -474,7 +477,11 @@ def _build_region_view(region: dict) -> list[dict]:
 
 
 def _build_season_view(season: dict) -> list[dict]:
-    """季节维度聚合（方向2 维度扩展）：按季节统计纠纷量、退款、胜诉率。"""
+    """季节维度聚合（方向2 维度扩展）：按季节统计纠纷量、退款、胜诉率。
+
+    ⚠️ 胜诉率分母与其它维度统一用 `decided`（已判定案件数）——此前用 cases 会让
+    「待分析」案件把季节胜诉率稀释成接近 0，且与平台/地区/品类口径不一致。
+    """
     order = {"春": 0, "夏": 1, "秋": 2, "冬": 3}
     out: list[dict] = []
     for k, v in season.items():
@@ -482,8 +489,9 @@ def _build_season_view(season: dict) -> list[dict]:
             {
                 "season": k,
                 "cases": v["cases"],
+                "decided": v["decided"],
                 "refund": round(v["refund"], 2),
-                "win_rate": round(v["won"] / v["cases"], 3) if v["cases"] else 0,
+                "win_rate": round(v["won"] / v["decided"], 3) if v["decided"] else 0,
             }
         )
     out.sort(key=lambda x: order.get(x["season"], 9))
@@ -656,7 +664,14 @@ def _aggregate(cases: list[dict]) -> dict:
 
     # 三个维度的累加器：品类 / 供应商 / 平台
     cat: defaultdict[str, Any] = defaultdict(
-        lambda: {"cases": 0, "refund": 0.0, "sim": 0.0, "defects": Counter(), "won": 0}
+        lambda: {
+            "cases": 0,
+            "refund": 0.0,
+            "sim": 0.0,
+            "defects": Counter(),
+            "won": 0,
+            "decided": 0,
+        }
     )
     sup: defaultdict[str, Any] = defaultdict(
         lambda: {
@@ -700,7 +715,9 @@ def _aggregate(cases: list[dict]) -> dict:
     region: defaultdict[str, Any] = defaultdict(
         lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0}
     )
-    season: defaultdict[str, Any] = defaultdict(lambda: {"cases": 0, "refund": 0.0, "won": 0})
+    season: defaultdict[str, Any] = defaultdict(
+        lambda: {"cases": 0, "refund": 0.0, "won": 0, "decided": 0}
+    )
     # 时间序列累加器（B组：时间序列 + 预测预警）：按自然月 'YYYY-MM' 累加案件数与退款
     ts: defaultdict[str, Any] = defaultdict(lambda: {"cases": 0, "refund": 0.0})
     # 退货成本估算累加：物流成本按地区比例粗略估算（退款 + 物流 = 退货总成本）
@@ -740,6 +757,8 @@ def _aggregate(cases: list[dict]) -> dict:
                 cc["defects"][t] += 1
             if c.get("outcome") == "赢":
                 cc["won"] += 1
+            if c.get("outcome") in DECIDED_OUTCOMES:
+                cc["decided"] += 1
 
         # 供应商维度（real=含真实缺陷的案件数，用于缺陷率）：缺失/未知供应商不污染红黑榜
         sup_val = c.get("supplier")
@@ -799,6 +818,8 @@ def _aggregate(cases: list[dict]) -> dict:
             ss["refund"] += amt
             if c.get("outcome") == "赢":
                 ss["won"] += 1
+            if c.get("outcome") in DECIDED_OUTCOMES:
+                ss["decided"] += 1
         # 时间序列维度（B组）：按自然月累加，供趋势线与预测
         cd = c.get("date") or ""
         if len(cd) >= 7 and cd[4] == "-":

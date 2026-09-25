@@ -80,6 +80,127 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 })();
 
 
+// ===================== 首次开启引导（onboarding）=====================
+// 目的：让第一次打开的人 30 秒内明白「这是什么 / 数据从哪来 / 五个页面怎么用 /
+// 哪些结论是真 AI / 边界在哪」，避免把演示种子当成真实业务数据、或把回退结果当成 AI 结论。
+//
+// 行为：
+//   - 首次访问（localStorage 无 rg_onboarded=1）自动展示；
+//   - 「跳过引导」「开始使用」「×」都关闭；勾选「不再自动显示」时写 rg_onboarded=1，
+//     取消勾选则写 0（下次仍自动展示）；
+//   - 顶栏「使用引导」按钮可随时重开，且不改动该标记；
+//   - Esc 关闭；第 3 步的标签按钮可直接跳转对应页面。
+
+const ONBOARD_KEY = 'rg_onboarded';
+const ONB_TOTAL = 5;
+// 后端能力矩阵的展示顺序（键与 providers.CAPABILITIES 一致）
+const ONB_CAPS = ['text', 'vl', 'ocr', 'embed', 'rerank', 'tts'];
+let onbStep = 1;
+
+// 能力 → 本地化名。刻意写成 switch 而不是 `t('cap.'+cap)`：字面量调用才能被
+// scripts/check_i18n.py 静态扫描到，从而保证新增能力时不会漏翻译。
+function capLabel(cap){
+  switch(cap){
+    case 'text': return t('cap.text');
+    case 'vl': return t('cap.vl');
+    case 'ocr': return t('cap.ocr');
+    case 'embed': return t('cap.embed');
+    case 'rerank': return t('cap.rerank');
+    case 'tts': return t('cap.tts');
+    default: return cap;
+  }
+}
+
+function onbEl(id){ return document.getElementById(id); }
+
+export function renderOnbAiInfo(){
+  const box = onbEl('onbAi');
+  if(!box) return;
+  const p = state.cfg && state.cfg.provider;
+  if(!p){ box.textContent = ''; return; }
+  const caps = ONB_CAPS.filter(cap => p.capabilities && p.capabilities[cap]).map(capLabel);
+  // 模板来自本地字典（可信），插值来自后端（不可信）→ 整体经 esc() 转义后再插入
+  box.innerHTML =
+    `<div>${esc(t('onb.ai.provider').replace('{p}', p.label || p.key || ''))}</div>` +
+    `<div>${esc(t('onb.ai.caps').replace('{list}', caps.length ? caps.join(' / ') : '—'))}</div>` +
+    `<div>${esc(t('onb.ai.fallback'))}</div>`;
+}
+
+export function renderOnboardStep(){
+  const ov = onbEl('onboardOverlay');
+  if(!ov) return;
+  ov.querySelectorAll('.onb-step').forEach(s => {
+    s.classList.toggle('active', Number(s.dataset.step) === onbStep);
+  });
+  const dots = onbEl('onbDots');
+  if(dots){
+    dots.innerHTML = Array.from({length: ONB_TOTAL}, (_, i) =>
+      `<i class="${i + 1 === onbStep ? 'on' : ''}"></i>`).join('');
+  }
+  const no = onbEl('onbStepNo');
+  if(no) no.textContent = t('onb.stepOf').replace('{i}', String(onbStep)).replace('{n}', String(ONB_TOTAL));
+  const prev = onbEl('onbPrev');
+  const next = onbEl('onbNext');
+  if(prev) prev.disabled = onbStep === 1;
+  if(next) next.textContent = onbStep === ONB_TOTAL ? t('onb.start') : t('onb.next');
+  // 第 4 步的「当前 AI 平台 / 真实可用能力」需要 /api/config 的 provider 字段
+  if(onbStep === 4) renderOnbAiInfo();
+}
+
+export function openOnboard(){
+  const ov = onbEl('onboardOverlay');
+  if(!ov) return;
+  onbStep = 1;
+  renderOnboardStep();
+  ov.classList.add('show');
+}
+
+export function closeOnboard(){
+  const ov = onbEl('onboardOverlay');
+  if(ov) ov.classList.remove('show');
+}
+
+function finishOnboard(){
+  const chk = onbEl('onbDontShow');
+  try{ localStorage.setItem(ONBOARD_KEY, chk && chk.checked ? '1' : '0'); }catch(_){ /* 隐私模式忽略 */ }
+  closeOnboard();
+}
+
+(function initOnboarding(){
+  const ov = onbEl('onboardOverlay');
+  if(!ov) return;
+  const skip = onbEl('onbSkip'), close = onbEl('onbClose');
+  if(skip) skip.addEventListener('click', finishOnboard);
+  if(close) close.addEventListener('click', finishOnboard);
+  const prev = onbEl('onbPrev');
+  if(prev) prev.addEventListener('click', () => { if(onbStep > 1){ onbStep--; renderOnboardStep(); } });
+  const next = onbEl('onbNext');
+  if(next) next.addEventListener('click', () => {
+    if(onbStep < ONB_TOTAL){ onbStep++; renderOnboardStep(); } else { finishOnboard(); }
+  });
+  // 第 3 步：点标签直接跳到对应页面并结束引导（减少"看完还要自己找"的摩擦）
+  ov.querySelectorAll('.onb-tabs button[data-go]').forEach(b => b.addEventListener('click', () => {
+    switchTab(b.dataset.go);
+    finishOnboard();
+  }));
+  // 点遮罩空白处关闭（与其它弹窗一致）
+  ov.addEventListener('click', e => { if(e.target === ov) finishOnboard(); });
+  // Esc：优先关引导（引导常在登录框之上）
+  document.addEventListener('keydown', e => {
+    if(e.key === 'Escape' && ov.classList.contains('show')){ e.stopPropagation(); finishOnboard(); }
+  });
+  const gb = onbEl('guideBtn');
+  if(gb) gb.addEventListener('click', openOnboard);
+})();
+
+// 首启判定：仅在「未标记过」时自动打开；标记为 '0'（用户取消勾选）时依然展示
+function maybeAutoOpenOnboard(){
+  let seen = null;
+  try{ seen = localStorage.getItem(ONBOARD_KEY); }catch(_){ /* 隐私模式：默认展示一次 */ }
+  if(seen !== '1') openOnboard();
+}
+
+
 // 数据源提示浮动面板关闭（仅会话内，刷新即重现）
 
 (function initSrcBanner(){
@@ -631,6 +752,7 @@ export function switchImportPane(which){
 (async function init(){
   try{
     const cfg=await fetch('/api/config'); const c=await cfg.json();
+    state.cfg=c;  // 首启引导第 4 步要展示「当前 AI 平台 + 真实可用能力」，故整份配置留存
     if(typeof c.same_item_threshold==='number' && isFinite(c.same_item_threshold)) state.threshold=c.same_item_threshold;
     if(c.version) $('#appVer').textContent='V'+String(c.version).replace(/^v/i,'');
     // P1-15：供应商花名册由后端 /api/config 单一来源下发，前端不再内嵌硬编码副本
@@ -650,6 +772,9 @@ export function switchImportPane(which){
     if (langSel) langSel.value = currentLang();
     applyI18n();
   } catch (e) { /* i18n 失败不阻断主流程 */ }
+
+  // 首启引导：首次访问自动展示（语言与配置已就绪，文案不会出现裸 key）
+  maybeAutoOpenOnboard();
 
   // 数据录入页提示：登录后写入租户真实案件库；未登录则提示需登录。
   $('#entryTarget').textContent=t('ent.willWrite')+(state.source==='real'?t('ent.realDb'):t('ent.needLoginToAdd'));
@@ -703,6 +828,8 @@ $('#seasonSel').addEventListener('change',loadInsights);
     loadPlatforms();
     // 单案取证结果的模式徽标与编排链路也重渲染（dossier/语音文本为后端数据，不随语言变）
     if(state.lastAnalyze){ renderBadge(state.lastAnalyze.mode); renderOrchestration(state.lastAnalyze); }
+    // 首启引导若正开着，步骤标题/正文/按钮/页码都要跟着换语言
+    renderOnboardStep();
   });
 })();
 

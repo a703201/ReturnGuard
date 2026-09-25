@@ -198,3 +198,62 @@ def test_optgroup_labels_use_label_attribute():
     # optgroup 上不得出现 data-i18n（会清空子项）
     for m in re.finditer(r"<optgroup[^>]*>", html):
         assert "data-i18n=" not in m.group(0), f"optgroup 误用 data-i18n：{m.group(0)}"
+
+
+# ===================== 首次开启引导（onboarding）=====================
+
+
+def test_onboarding_overlay_structure():
+    """首启引导必须是一个完整的多步流程：5 个步骤 + 进度点 + 关闭/跳过/上一步/下一步。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'id="onboardOverlay"' in html, "index.html 未找到 #onboardOverlay"
+    steps = re.findall(r'<section class="onb-step[^"]*" data-step="(\d+)"', html)
+    assert steps == ["1", "2", "3", "4", "5"], f"引导步骤异常：{steps}"
+    for el_id in (
+        "onbTitle",
+        "onbStepNo",
+        "onbClose",
+        "onbDots",
+        "onbAi",
+        "onbDontShow",
+        "onbSkip",
+        "onbPrev",
+        "onbNext",
+    ):
+        assert f'id="{el_id}"' in html, f"引导缺少 #{el_id}"
+    # 「不再自动显示」默认勾选：首次看完即不再打扰
+    assert re.search(r'id="onbDontShow"[^>]*checked', html), "「不再自动显示」应默认勾选"
+
+
+def test_onboarding_guide_button_can_reopen():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'id="guideBtn"' in html, "顶栏缺少「使用引导」按钮（否则关掉后无法再看）"
+    assert 'data-i18n="btn.guide"' in html
+
+
+def test_onboarding_uses_persisted_flag():
+    """关闭引导要写 localStorage 标记，否则每次刷新都弹（体验灾难）。"""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "rg_onboarded" in js, "未持久化首启标记"
+    assert "maybeAutoOpenOnboard" in js, "缺少首启自动判定"
+    assert "renderOnbAiInfo" in js, "第 4 步的 AI 通路信息未渲染"
+
+
+def test_onboarding_step_tabs_point_to_real_tabs():
+    """第 3 步的跳转按钮必须指向真实存在的 Tab，否则点了没反应。"""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    real = set(re.findall(r'data-tab="(\w+)"', html))
+    jumps = set(re.findall(r'data-go="(\w+)"', html))
+    assert jumps, "未找到引导内的跳转按钮"
+    assert jumps <= real, f"引导跳转指向不存在的 Tab：{sorted(jumps - real)}"
+
+
+def test_onboarding_ai_block_reads_config_provider():
+    """/api/config 下发的 provider 是引导第 4 步的数据源（能力矩阵/展示名）。"""
+    from fastapi.testclient import TestClient
+    from main import app as _app
+
+    with TestClient(_app) as c:
+        d = c.get("/api/config").json()
+    assert "provider" in d, "/api/config 未下发 provider，引导第 4 步会空白"
+    assert d["provider"]["label"] and d["provider"]["capabilities"]

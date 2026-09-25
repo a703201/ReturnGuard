@@ -29,6 +29,7 @@ from db import DEFAULT_SOURCE, VALID_SOURCES
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from platforms import list_platforms
+from schemas import ProvidersResp
 
 router = APIRouter()
 
@@ -113,8 +114,9 @@ def health():
 def api_config():
     """前端常量单一来源（P2-4）：返回同款一致性阈值、应用版本、可用数据源、图床状态等。"""
     from constants import DEFAULT_LANGUAGE, SUPPLIERS, TTS_VOICES
-    from models_router import MODEL_ROUTER_PROFILE
+    from models_router import MODEL_ROUTER_PROFILE, platform_info
 
+    provider = platform_info()
     return {
         # 阈值走标定后的运行期值，而非硬编码常量（P1-阈值过期）：前端显示的判定线与判定逻辑一致。
         "same_item_threshold": get_active_threshold(),
@@ -133,11 +135,28 @@ def api_config():
             for code, meta in TTS_VOICES.items()
         ],
         "default_language": DEFAULT_LANGUAGE,
-        # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=官方 Model Router，
-        # 对外演示时切到 official 即演示用官方网关端点（详见 demo/.env.example）。
-        # 注意：不再回传内部网关地址 model_router_endpoint（P2-信息泄露），前端无需该值。
-        "model_router_profile": MODEL_ROUTER_PROFILE,
+        # AI 平台（多厂商适配）：当前平台标识 + 展示名 + 协议风格 + 能力矩阵 + 模型映射。
+        # 前端据此如实呈现「本平台哪些能力走真实模型、哪些会回退」，以及首启引导里的 AI 通路说明。
+        # ⚠️ 刻意不回传基地址与密钥（P2-信息泄露收敛），仅回传可用于呈现的元信息。
+        "model_router_profile": MODEL_ROUTER_PROFILE,  # 兼容旧前端字段名
+        "provider": provider,
     }
+
+
+@router.get("/api/providers", response_model=ProvidersResp)
+def providers_catalog():
+    """AI 平台目录（多厂商适配的公开说明）。
+
+    返回所有**已声明**的平台及其能力矩阵（文本 / 视觉 / OCR / 向量 / 重排 / 语音）、
+    OpenAI 兼容性、是否在本仓实跑验证过、以及用于切换的密钥环境变量名。
+
+    **不返回**基地址、模型标识与「是否已配置密钥」——避免匿名访客探测服务端内网拓扑
+    与凭据状态；运营所需的当前平台细节由鉴权后的 `/metrics` 与启动日志提供。
+    切换方式：把 `MODEL_ROUTER_PROFILE` 设为返回项里的 `key`（详见 docs/AI_PROVIDERS.md）。
+    """
+    from providers import list_providers
+
+    return {"providers": list_providers()}
 
 
 @router.get("/metrics")

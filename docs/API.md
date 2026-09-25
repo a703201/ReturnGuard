@@ -1,8 +1,8 @@
 # ReturnGuard 接口文档（API.md）
 
 > **服务**：ReturnGuard Demo（FastAPI）
-> **最后更新**：2026-09-25（2.0.0）
-> **关联文档**：`docs/PRD.md`、`docs/SCHEMA.md`、`docs/AB_ROI_实证说明.md`、`docs/CODE_REVIEW.md`、`CHANGELOG.md`、`ModelRouter_API.docx`（模型能力参考）
+> **最后更新**：2026-09-25（2.1.0）
+> **关联文档**：`docs/PRD.md`、`docs/SCHEMA.md`、`docs/ARCHITECTURE.md`（功能实现逻辑）、`docs/DECISION_LOGIC.md`（判定逻辑）、`docs/AI_PROVIDERS.md`（多 AI 平台对接）、`docs/AB_ROI_实证说明.md`、`docs/CODE_REVIEW.md`、`CHANGELOG.md`、`docs/reference/ModelRouter_API.docx`（网关接口参考）
 
 ---
 
@@ -49,6 +49,7 @@
 | 3.13 | GET · POST | `/api/calibrate` | 相似度阈值自标定（读 / 写） | 读公开 / 写管理员 |
 | 3.14 | GET | `/metrics` | 运行指标 | 管理员 |
 | 3.15 | — | `/api/auth/*` | 注册 / 登录 / 当前用户 / 登出 | 见 §3.15 |
+| 3.16 | GET | `/api/providers` | AI 平台目录与能力矩阵（多厂商适配） | 公开 |
 
 ---
 
@@ -74,9 +75,11 @@
 | `suppliers` | object | 供应商花名册（`{S1: "鼎峰精密", …}`），单一来源 `constants.SUPPLIERS` |
 | `languages` | object[] | 语音语种 `[{code, label, voice}]`，单一来源 `constants.TTS_VOICES` |
 | `default_language` | string | 默认语音语种（`zh`） |
-| `model_router_profile` | string | 当前网关 profile（`official` / `tokenplan` / `dashscope`） |
+| `model_router_profile` | string | 当前 AI 平台标识（= `provider.key`，保留字段名向后兼容） |
+| `provider` | object | 当前 AI 平台的**公开**信息：`key` / `label` / `api_style` / `key_env` / `key_configured` / `capabilities`（能力→是否可用）/ `models`（能力→模型标识）。前端据此如实呈现「哪些能力走真实模型」 |
 
-> 安全：不返回内部网关地址（`model_router_endpoint` 已移除，P2 信息泄露收敛）。
+> 安全：不返回内部网关地址（`model_router_endpoint` 已移除，P2 信息泄露收敛）；
+> `provider` 亦不含基地址与密钥。平台全量目录见 §3.16。
 
 ---
 
@@ -201,12 +204,15 @@ curl -H "Authorization: Bearer $TOK" \
 | `sourcing_advice` / `recommendations` | string[] | 选品 / 品控建议（可执行清单） |
 | `report` | string | 洞察报告正文 |
 | `roi_backtest` | object | **ROI 真实回测**（保守 / 基准 / 乐观 + 敏感性），见下 |
+
+> **胜诉率口径（各维度统一，2.1.0 收口）**：`win_rate` 的分母一律为 `decided`（已判定案件数 = 总案件 − 待分析），
+> 与全局 `win_rate` 一致；`category_heatmap` 与 `season_view` 亦输出 `decided` 字段，
+> 前端据 `decided == 0` 显示「待判定」而不是误导性的 0%。判定规则详见 `docs/DECISION_LOGIC.md` §2.1。
 | `mode` | string | `mock` / `live` / `mock(fallback)` |
 | `error` | string | 仅回退时出现 |
 | `reconciled_from` | string | LLM 数值与聚合不一致被纠偏时出现（P2-14 防幻觉） |
 
 **`roi_backtest` 子结构**
-
 | 字段 | 说明 |
 |---|---|
 | `available` | 数据是否足够（不足时前端隐藏面板） |
@@ -321,6 +327,40 @@ curl -X POST http://127.0.0.1:65432/api/auth/login \
 ```
 失败登录按 `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN` 触发滑动窗口封禁（返回 `429`，SEC-12 共享状态，多 worker 一致）。
 
+### 3.16 `GET /api/providers` —— AI 平台目录（多厂商适配）
+返回所有**已声明**的 AI 平台及其能力矩阵，供部署方选择与前端说明。公开可读。
+
+**响应（200, application/json · `ProvidersResp`）**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `providers[]` | object[] | 平台列表，每项见下 |
+
+单个平台项：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `key` | string | 平台标识（即 `MODEL_ROUTER_PROFILE` 的取值） |
+| `label` | string | 展示名 |
+| `api_style` | string | 协议风格：`openai` / `azure` / `native` |
+| `supported` | bool | 是否可被本适配层直接对接（`native` 为 `false`，需经兼容网关接入） |
+| `verified` | bool | 是否在本仓用真实 Key 跑通过 |
+| `key_env` | string | 该平台所需的密钥环境变量名 |
+| `key_required` | bool | 是否必须密钥（本地自托管平台为 `false`） |
+| `capabilities` | object | 六类能力 → 是否可用（`text`/`vl`/`ocr`/`embed`/`rerank`/`tts`） |
+| `doc` | string | 平台文档地址 |
+| `note` | string | 差异与注意事项（如「无 rerank 端点」） |
+| `is_current` | bool | 是否当前生效平台（有且仅有一个为 `true`） |
+
+**示例**
+```bash
+curl -s http://127.0.0.1:65432/api/providers | python -m json.tool | head -30
+```
+
+> 安全：**不返回**基地址、模型标识与「是否已配置密钥」——避免匿名访客探测服务端内网拓扑与凭据状态。
+> 当前平台的模型映射经 `/api/config` 的 `provider` 字段下发（同样不含基地址与密钥）。
+> 切换平台与应用方式见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)。
+
 ---
 
 ## 4. 数据模型
@@ -350,23 +390,29 @@ curl -X POST http://127.0.0.1:65432/api/auth/login \
 
 ---
 
-## 5. ModelRouter 集成（专项）
+## 5. AI 平台集成（多厂商适配）
 
 ### 5.1 概述
-live 模式经**阿里云百炼 Model Router** 调用多模态大模型，协议兼容 OpenAI。所有调用封装在 `demo/models_router.py`，由 `pipeline` 在 live 模式下编排。
+live 模式经**多家可选 AI 平台**调用（默认阿里云百炼，协议兼容 OpenAI）。
+业务代码只按「能力」调用，平台声明集中在 [`demo/providers.py`](../demo/providers.py)，
+调用与回退封装在 `demo/models_router.py`，由 `pipeline` 在 live 模式下编排。
+**完整的平台矩阵、差异适配与接入方式见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)。**
 
 ### 5.2 基础信息
-- **Base URL**：`https://model-router.edu-aliyun.com/v1`
-- **认证**：`Authorization: Bearer <MODEL_ROUTER_API_KEY>`
+- **当前平台**：`MODEL_ROUTER_PROFILE`（兼容别名 `RG_AI_PROVIDER`）决定，默认 `tokenplan`；
+  可选值与能力矩阵见 `GET /api/providers`。
+- **Base URL / 鉴权**：随平台声明联动（`bearer` / `api-key` / 无鉴权），无需手工拼装。
 - **环境变量**：
-  - `MODEL_ROUTER_API_KEY`：网关 API Key（**live 必需**）。
-  - `MODEL_ROUTER_PROFILE`：网关 profile，默认 `tokenplan`；提交 / 演示口径为 `official`。切换时 `base_url` + key + 模型标识**三者联动**，否则 404。
+  - 密钥：各平台各自的变量（如 `MODEL_ROUTER_API_KEY` / `OPENAI_API_KEY` / `DASHSCOPE_API_KEY` / `ZHIPU_API_KEY`…），见 §3.16 的 `key_env`。
   - `PUBLIC_IMAGE_BASE`（**可选**）：仅当希望视觉能力走「公网 URL 回源」时才需要。**默认不必配**——`models_router._img_source` 会把本地上传图**转成 base64 data URI 内联**后发给模型，无需图片公网可达，也无需对象存储同步。
+  - `RG_MODEL_TEXT` / `RG_MODEL_VL` / `RG_MODEL_OCR` / `RG_MODEL_EMBED` / `RG_MODEL_RERANK` / `RG_MODEL_TTS`（**可选**）：逐能力覆盖模型标识，用于平台改版或接入自建端点。
+  - 各平台的基地址覆盖变量（如 `OPENAI_BASE_URL` / `DASHSCOPE_BASE_URL` / `RG_CUSTOM_BASE_URL`）：**每个平台独立**，避免互相污染。
 
 > 重要变更：早期版本要求图片必须公网可达（`PUBLIC_IMAGE_BASE` + 对象存储同步）才能真正跑通 live 视觉；现已改为**内联 base64**，本机直跑即可，`PUBLIC_IMAGE_BASE` 降级为可选增强项。
 
-### 5.3 模型能力映射表
-`official`（官方网关 / 对外口径，全部带 `qwen/` 前缀）与 `tokenplan`（Token Plan 自测网关）命名不同：
+### 5.3 模型能力映射表（以阿里云百炼系为例）
+`official`（官方网关，全部带 `qwen/` 前缀）与 `tokenplan`（Token Plan 网关）命名不同；
+其他平台（OpenAI / DeepSeek / 智谱 / SiliconFlow / OpenRouter / Ollama / Azure …）的模型标识与能力覆盖见 `GET /api/providers`。
 
 | 能力 | `official` | `tokenplan` | 调用端点 |
 |---|---|---|---|
@@ -439,8 +485,9 @@ live 模式经**阿里云百炼 Model Router** 调用多模态大模型，协议
 ### 5.5 live 模式流程与回退
 ```
 live_analyze:
-  校验 MODEL_ROUTER_API_KEY
+  校验当前平台的密钥（key_required=false 的平台如 ollama 跳过）
   → 图片内联为 base64 data URI（无需公网图床）
+  → 每个能力先过「能力闸」：平台未声明该能力 → 直接抛错 → 该能力标记回退
   → ① VL 双图判同款（备选：embeddings + 余弦）
   → ② vl_detect_boxes 瑕疵 + 红框 → ③ ocr 承诺
   → ④ llm 一致性 + 卷宗 + 陈述 → ⑥ tts 语音 → ⑤ rerank 优先级
@@ -449,17 +496,18 @@ live_analyze:
   → capabilities 字典如实标注每步 真实 / 回退
 
 build_insights_live(aggregated):
-  将 pipeline._aggregate 的统计喂给 qwen/qwen3.7-max（JSON 输出）
+  将 pipeline._aggregate 的统计喂给当前平台的文本模型（JSON 输出）
   → {root_cause, sku_insights, recommendations, report}
   → _reconcile_insights 校验 LLM 数值与真实聚合一（P2-14 防幻觉），超阈回退 mock 归因
   → 异常回退 mock 归因（失败结果不写缓存）
 ```
 
 ### 5.6 配置与开通
-- live 模式**必需**：`MODEL_ROUTER_API_KEY`（Docker 见 `docker/.env.example`）。
+- live 模式**必需**：当前平台声明的密钥变量（见 `GET /api/providers` 的 `key_env`；`ollama` 等本地端点不需要）。
 - **可选**：`PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED`——仅在希望走公网回源取图时才配置；默认内联 base64，无需对象存储。
-- 逐能力渐进开通：网关开通哪个模型，对应能力即自动变真，`capabilities` 会如实反映；未开通的能力仅该步回退，其余不受影响。
-- 无 Key 时接口自动以 mock 模式运行，功能演示不中断。
+- **可选**：`RG_MODEL_*` 逐能力覆盖模型标识；各平台基地址覆盖变量互相独立。
+- 逐能力渐进开通：平台开通哪个模型，对应能力即自动变真，`capabilities` 会如实反映；未开通/不支持的 能力仅该步回退，其余不受影响。
+- 无 Key（或密钥缺失）时接口自动以 mock 模式运行，功能不中断。
 - SEC-13 配额：`LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`（置 `0` 关闭该层），超限 `429` 且**不静默降级**。该闸门同时覆盖 `/api/analyze`、`/api/insights?mode=live` 与 `/api/export_pdf?mode=live`（2.0.0 前仅覆盖 `/api/analyze`，洞察与导出可绕过）。
 
 ---

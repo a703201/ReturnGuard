@@ -305,3 +305,51 @@ def test_env_examples_document_all_live_quota_names():
         text = _read(ROOT / rel)
         missing = [n for n in sorted(names) if n not in text]
         assert not missing, f"{rel} 缺少配额变量说明：{missing}"
+
+
+# ===================== 2.1.0 新增守护：判定/实现/平台文档与代码同步 =====================
+
+_REQUIRED_DOCS = ("ARCHITECTURE.md", "DECISION_LOGIC.md", "AI_PROVIDERS.md")
+
+
+def test_required_docs_exist_and_are_linked_from_readme():
+    """新增的判定逻辑 / 实现逻辑 / 平台对接文档必须存在，且 README 能索引到。
+
+    文档不挂到 README = 事实上找不到，等于没写。
+    """
+    readme = _read(ROOT / "README.md")
+    for name in _REQUIRED_DOCS:
+        assert (DOCS / name).exists(), f"缺少文档 docs/{name}"
+        assert f"docs/{name}" in readme, f"README 未索引 docs/{name}"
+
+
+def test_ai_providers_matrix_matches_code():
+    """docs/AI_PROVIDERS.md 的平台矩阵必须与 providers.PROVIDERS 完全一致。
+
+    判定逻辑/平台矩阵是「文档→代码」最容易漂移的地方：新增平台只改代码不改文档，
+    读者会以为该平台不可用（或反之）。
+    """
+    import providers as pv
+
+    doc = _read(DOCS / "AI_PROVIDERS.md")
+    # 只取 §3 支持矩阵表（该节内的平台行形如 `| `key` | 展示名 | ...`），
+    # 其余小节（能力语义 / URL 形状 / 鉴权风格）也有形似的表格，必须切开以免误匹配。
+    start = doc.index("## 3.")
+    end = doc.index("## 4.", start)
+    section = doc[start:end]
+    listed = set(re.findall(r"^\|\s*`([a-z_]+)`\s*\|", section, re.M))
+    code_keys = set(pv.PROVIDERS)
+    assert listed, "AI_PROVIDERS.md 未解析到平台矩阵（测试前提失效）"
+    assert listed == code_keys, (
+        f"平台矩阵与代码不一致：文档多出={sorted(listed - code_keys)} 代码多出={sorted(code_keys - listed)}"
+    )
+
+
+def test_decision_logic_doc_covers_key_thresholds():
+    """判定逻辑文档必须写明关键阈值与口径，避免文档退化成「泛泛而谈」。
+
+    这些都是代码里的硬事实：同款阈值、already-decided 口径、异常预警倍数、ROI 上限。
+    """
+    doc = _read(DOCS / "DECISION_LOGIC.md")
+    for token in ("0.82", "1.8", "0.95", "decided", "只取证，不裁决"):
+        assert token in doc, f"DECISION_LOGIC.md 缺少关键口径：{token}"

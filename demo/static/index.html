@@ -723,6 +723,47 @@
     .judge-guide .jg-note{background:rgba(180,83,9,.05);border-color:rgba(180,83,9,.18);color:#475569}
     .judge-guide .jg-note b{color:#b45309}
   }
+  /* ===================== 首次开启引导（onboarding）=====================
+     首次访问自动弹出、可跳过 / 不再显示；顶栏「使用引导」按钮可随时重开。
+     z-index 高于其它弹窗（60），确保引导期间不会被登录框盖住。
+     颜色全部走主题变量，亮/暗两套主题自动适配。 */
+  #onboardOverlay{z-index:70}
+  .onb-panel{width:min(720px,94vw)!important;padding:0!important;overflow:hidden!important;
+    display:flex;flex-direction:column;max-height:88vh}
+  .onb-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+  .onb-head strong{font-size:15px;color:var(--txt)}
+  .onb-stepno{margin-left:auto;font-size:12px;color:var(--txt3);white-space:nowrap}
+  .onb-close{background:transparent;border:none;color:var(--txt3);font-size:20px;cursor:pointer;padding:0 4px;line-height:1}
+  .onb-close:hover{color:var(--txt)}
+  .onb-body{padding:16px 18px 8px;overflow:auto;flex:1;min-height:180px}
+  .onb-step{display:none}
+  .onb-step.active{display:block;animation:fadeInUp .22s ease both}
+  .onb-step h4{margin:0 0 8px;font-size:16px;color:var(--txt)}
+  .onb-step p{margin:0 0 10px;font-size:13px;line-height:1.75;color:var(--txt2)}
+  .onb-step ul{margin:0;padding-left:18px;font-size:13px;line-height:1.8;color:var(--txt2)}
+  .onb-step li{margin-bottom:3px}
+  .onb-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 6px}
+  .onb-tabs button{background:var(--bg2);border:1px solid var(--border);color:var(--txt);
+    border-radius:999px;padding:5px 13px;font-size:12.5px;cursor:pointer}
+  .onb-tabs button:hover{border-color:var(--acc);color:var(--acc)}
+  .onb-ai{background:var(--bg2);border:1px solid var(--border);border-radius:10px;
+    padding:10px 12px;font-size:12.5px;line-height:1.85;color:var(--txt2);margin-top:6px}
+  .onb-ai b{color:var(--acc)}
+  .onb-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--border);flex-wrap:wrap}
+  .onb-foot label{font-size:12px;color:var(--txt3);display:flex;align-items:center;gap:6px;cursor:pointer}
+  .onb-actions{margin-left:auto;display:flex;gap:8px}
+  .onb-btn{background:var(--acc);color:#04121f;border:none;border-radius:8px;padding:8px 16px;
+    font-size:13px;font-weight:600;cursor:pointer}
+  .onb-btn.ghost{background:transparent;border:1px solid var(--border);color:var(--txt2);font-weight:500}
+  .onb-btn:disabled{opacity:.45;cursor:default}
+  .onb-dots{display:flex;gap:6px;justify-content:center;padding:0 18px 12px}
+  .onb-dots i{width:7px;height:7px;border-radius:50%;background:var(--border);transition:background .2s}
+  .onb-dots i.on{background:var(--acc)}
+  /* 移动端：面板铺满、按钮换行 */
+  @media (max-width:640px){
+    .onb-panel{width:100%!important;max-height:92vh}
+    .onb-actions{margin-left:0;width:100%;justify-content:flex-end}
+  }
 </style>
 </head>
 <body>
@@ -768,6 +809,7 @@
             <option value="en" data-lang-label="lang.en">English</option>
             <option value="fr" data-lang-label="lang.fr">Français</option>
           </select>
+          <button id="guideBtn" type="button" style="background:transparent;border:1px solid var(--border);color:var(--txt2);border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer" data-i18n="btn.guide">使用引导</button>
           <button id="authBtn" type="button" style="background:transparent;border:1px solid var(--acc);color:#1e293b;border-radius:8px;padding:5px 12px;font-size:12px;cursor:pointer" data-i18n="btn.login">登录</button>
         </div>
         <nav class="tabs" role="tablist" aria-label="主导航">
@@ -1213,6 +1255,77 @@
           <div id="authMsg" style="margin-top:8px;font-size:12px;color:var(--bad)"></div>
         </form>
         <button id="authTab" data-mode="login" type="button" style="width:100%;margin-top:10px;background:transparent;border:1px dashed #334155;color:var(--acc);border-radius:8px;padding:8px;cursor:pointer" data-i18n="auth.register">注册</button>
+      </div>
+    </div>
+
+    <!-- ===================== 首次开启引导（onboarding）=====================
+         首次访问自动展示；「跳过」「开始使用」都关闭，「不再自动显示」会写 localStorage
+         （rg_onboarded=1）。顶栏「使用引导」按钮可随时重开。
+         五步流程：① 这是什么 ② 数据与登录 ③ 页面导览 ④ AI 通路与诚实性 ⑤ 边界与隐私。
+         所有文案走 data-i18n（zh/en/fr 三语），动态的 AI 通路信息由 app.js 填充。 -->
+    <div id="onboardOverlay" class="overlay">
+      <div class="panel onb-panel" role="dialog" aria-modal="true" aria-labelledby="onbTitle">
+        <div class="onb-head">
+          <strong id="onbTitle" data-i18n="onb.title">🚀 欢迎使用 ReturnGuard 退货情报站</strong>
+          <span id="onbStepNo" class="onb-stepno"></span>
+          <button id="onbClose" class="onb-close" type="button" aria-label="关闭引导" title="关闭">×</button>
+        </div>
+        <div class="onb-body">
+          <section class="onb-step active" data-step="1">
+            <h4 data-i18n="onb.s1.h">退货情报站：既少赔，又看懂钱漏在哪</h4>
+            <p data-i18n="onb.s1.p">上传「退回件图 + 本店主图」，一键产出同款一致性、瑕疵标签、货不对板判定、举证卷宗与母语语音；再把所有案件聚合成选品避坑与品控洞察。</p>
+            <ul>
+              <li data-i18n="onb.s1.b1">双闭环：单案取证是数据管道，群体洞察看板才是产品核心</li>
+              <li data-i18n="onb.s1.b2">只取证不裁决：只给客观证据，不替平台下结论</li>
+              <li data-i18n="onb.s1.b3">数据来源：公开退货数据集的演示种子 + 你自己导入的真实数据</li>
+            </ul>
+          </section>
+          <section class="onb-step" data-step="2">
+            <h4 data-i18n="onb.s2.h">演示布局 vs AI 实算，怎么切换</h4>
+            <p data-i18n="onb.s2.p">未登录时是「演示布局」：读取共享演示种子库，不消耗任何 AI 额度，适合先看效果。</p>
+            <ul>
+              <li data-i18n="onb.s2.b1">点右上角「登录」，用 demo / demo123 即可进入 AI 实算看板（数据按租户隔离）</li>
+              <li data-i18n="onb.s2.b2">「数据录入」支持导入 xlsx / csv 或手动录入，写入实际数据源，不会污染演示种子</li>
+            </ul>
+          </section>
+          <section class="onb-step" data-step="3">
+            <h4 data-i18n="onb.s3.h">页面导览（点下面的标签可直接跳转）</h4>
+            <p data-i18n="onb.s3.p">左半屏是给老板看的洞察看板，右半屏是运营用的取证工具；顶栏的品类 / 平台筛选对整块看板生效。</p>
+            <div class="onb-tabs">
+              <button type="button" data-go="dash" data-i18n="tab.dash">市场洞察</button>
+              <button type="button" data-go="plat" data-i18n="tab.plat">平台举证包</button>
+              <button type="button" data-go="supplier" data-i18n="tab.supplier">供应商透视</button>
+              <button type="button" data-go="forensic" data-i18n="tab.forensic">单案取证</button>
+              <button type="button" data-go="entry" data-i18n="tab.entry">数据录入</button>
+            </div>
+          </section>
+          <section class="onb-step" data-step="4">
+            <h4 data-i18n="onb.s4.h">哪些结论来自真实 AI，哪些是回退</h4>
+            <p data-i18n="onb.s4.p">本服务按「能力」而非按厂商写代码：文本 / 视觉 / OCR / 向量 / 重排 / 语音六类能力可分别接通不同 AI 平台。</p>
+            <div class="onb-ai" id="onbAi"></div>
+            <ul>
+              <li data-i18n="onb.s4.b1">结果区逐能力如实标注：真实模型 / 确定性回退，绝不把回退说成 AI 结论</li>
+              <li data-i18n="onb.s4.b2">live 模式受配额闸保护，超额会直接提示，而不是偷偷降级</li>
+            </ul>
+          </section>
+          <section class="onb-step" data-step="5">
+            <h4 data-i18n="onb.s5.h">三条边界，先说清楚</h4>
+            <ul>
+              <li data-i18n="onb.s5.b1">退货图默认不出境：视觉输入内联 base64，本机直跑不依赖任何第三方图床</li>
+              <li data-i18n="onb.s5.b2">ROI 是「基于真实聚合值的模型回测」，不是 A/B 实测因果，引用请连同方法说明</li>
+              <li data-i18n="onb.s5.b3">供应商代号 S1–S8 及其名称为演示合成维度，不代表真实工商主体</li>
+            </ul>
+          </section>
+          <div class="onb-dots" id="onbDots"></div>
+        </div>
+        <div class="onb-foot">
+          <label><input type="checkbox" id="onbDontShow" checked> <span data-i18n="onb.dontShow">不再自动显示</span></label>
+          <div class="onb-actions">
+            <button id="onbSkip" class="onb-btn ghost" type="button" data-i18n="onb.skip">跳过引导</button>
+            <button id="onbPrev" class="onb-btn ghost" type="button" data-i18n="onb.prev">上一步</button>
+            <button id="onbNext" class="onb-btn" type="button" data-i18n="onb.next">下一步</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

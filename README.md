@@ -12,14 +12,15 @@
 
 ## 一分钟速览
 
-- **当前版本**：2.0.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
+- **当前版本**：2.1.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
 - **本机访问**：`http://127.0.0.1:65432`（容器）/ `http://127.0.0.1:8000`（直接 `uvicorn`）
 - **内置演示账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主）；Gitea / GitCode 为镜像
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
   - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
 - **图床**：**本地自持**（`local` 签名短链 / `self` 自托管反代 / `public_base` 自建反代，默认 `local`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭）
-- **模型网关 profile**：`tokenplan`（默认）/ `official`（官方 Model Router）/ `dashscope`（自购按量），改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动
+- **AI 平台（多厂商可选）**：`tokenplan`（默认）/ `official` / `dashscope` / `openai` / `deepseek` / `moonshot` / `zhipu` / `siliconflow` / `openrouter` / `ollama`（本机）/ `azure_openai` / `custom`（任意 OpenAI 兼容自建端点）；
+  改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + 密钥 + 模型标识随平台声明联动，能力缺口如实标注回退。详见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
 ## 系统架构一览
@@ -38,7 +39,16 @@ ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一
 
 ## 核心能力 → 模型映射
 
-> ⚠️ **不同网关的模型命名不同**：官方 Model Router（`model-router.edu-aliyun.com`）要求**全部模型带 `qwen/` 前缀**；Token Plan 网关的文本/TTS 用无前缀旧名。切换 profile 时 base_url + key + 模型标识三者一并切换，否则 404。代码单一来源：`demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
+> **平台无关设计**：业务代码只按「能力」调用（文本 / 视觉 / OCR / 图像向量 / 重排 / 语音），
+> 平台、端点、鉴权与模型标识全部声明在 [`demo/providers.py`](demo/providers.py)，
+> 调用时由 `demo/models_router.py` 通过能力闸校验。**新增平台不改调用代码。**
+> 完整平台矩阵与差异适配见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)（也可运行时查 `GET /api/providers`）。
+
+> ⚠️ **不同平台的模型命名不同**：官方 Model Router 要求**全部模型带 `qwen/` 前缀**；
+> Token Plan 用无前缀旧名；Ollama 用 `模型:标签`；SiliconFlow / OpenRouter 用 `org/model`。
+> 切换平台时 base_url + 密钥 + 模型标识随声明一并切换，否则 404。
+
+下表以阿里云百炼系为例（其余平台见 `GET /api/providers`）：
 
 | 能力 | `official` | `tokenplan` |
 |---|---|---|
@@ -110,7 +120,55 @@ flowchart TB
 - 数字与日期按语言格式化（`fr-FR` 为窄不换行空格千分位 + 逗号小数点）。
 - **边界声明**：后端返回的**数据值**（洞察正文、缺陷标签、供应商名）保持原始语言；表单 `value` 是入库枚举（`赢`/`部分退款`/`输`/`待分析`），不随翻译改变。
 
-## 2.0.0 · 工程化收口（本次变更）
+## 2.1.0 · 判定逻辑成文 · 多 AI 平台适配 · 首启引导（本次变更）
+
+**文档：把「怎么判定」和「怎么实现」写清楚**
+
+- 新增 [`docs/DECISION_LOGIC.md`](docs/DECISION_LOGIC.md) —— **退货判定逻辑说明**：
+  逐条给出「输入 → 规则/阈值 → 输出 → 边界与回退」，覆盖同款一致性、瑕疵标签、货不对板、
+  优先级、缺陷红框、胜诉率口径、代理争议率、供应商质量分与红黑榜、根因归因、SKU 异常预警、
+  时序预测、ROI 回测口径、LLM 数字对账、写入收敛与入参边界，并附「想改某条判定该动哪里」索引。
+- 新增 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) —— **功能实现逻辑**：
+  分层与依赖方向、两条主链路（单案取证 / 群体洞察）执行顺序、三层缓存与失效条件、
+  AI 调用与韧性（重试/退避/熔断/总预算/能力闸）、隔离与安全收口、前端实现要点、
+  可观测性与质量门禁。
+
+**多 AI 平台接口适配**
+
+- 新增 [`demo/providers.py`](demo/providers.py)：**平台注册表**（声明式）——14 个平台可选，
+  每个平台声明 `base_url` / 鉴权风格 / 密钥变量 / 模型映射 / 能力矩阵；
+  `models_router` 只按能力调用，新增平台**不改调用代码**。
+- 新增能力闸 `_require_capability()`：平台未声明该能力时直接抛错 → 由既有逐能力 try/except
+  如实标记为「回退」，**不伪装成真实调用**。
+- 支持 URL 形状差异：OpenAI 兼容风格与 **Azure 部署风格**（`/openai/deployments/<部署名>/…?api-version=`）。
+- 支持逐能力模型覆盖（`RG_MODEL_*`）与各平台独立基地址覆盖，平台改版无需改代码。
+- 新增 `GET /api/providers`（公开目录，**不含**基地址/密钥/密钥状态）；
+  `/api/config` 新增 `provider` 字段（当前平台展示名、协议风格、能力矩阵、模型映射），
+  供前端如实呈现「哪些能力走真实模型」。
+- 明确声明**不做**原生协议（Anthropic / Gemini）的半成品适配：建议经 one-api / LiteLLM
+  等兼容网关后走 `custom`，把协议转换交给专业网关。
+- 新增 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)：支持矩阵、请求/响应形状、鉴权差异、
+  能力语义差异（尤其「图像向量 ≠ 文本嵌入」）、切换与覆盖优先级、缺口回退语义、新增平台清单、密钥与合规。
+- 口径修正：**六类能力只声明平台真正具备的**（如 OpenAI 无 rerank、文本嵌入模型不能用于图像向量），
+  避免「配了必然失败」的假支持。
+
+**首次开启引导页**
+
+- 新增首启引导 overlay（`#onboardOverlay`）：首次访问自动展示，5 步流程
+  ① 这是什么 ② 数据与登录 ③ 页面导览 ④ AI 通路与诚实性 ⑤ 边界与隐私。
+- 交互：上一步 / 下一步（末步为「开始使用」）/ 跳过 / × / Esc / 点遮罩关闭，进度点 + 页码；
+  第 3 步各 Tab 一键跳转；「不再自动显示」默认勾选并持久化（`localStorage.rg_onboarded`）；
+  顶栏「使用引导」按钮可随时重开。
+- 第 4 步从 `/api/config` 动态渲染**当前 AI 平台与可走真实模型的能力**，把平台能力缺口摊开讲。
+- 全部文案三语（zh / en / fr），切语言时同步重渲染。
+
+**口径与一致性修复**
+
+- **胜诉率分母统一**：`category_heatmap` 与 `season_view` 此前用「案件数」作分母，
+  与平台 / 地区 / 交叉矩阵用「已判定数」不一致，会把品类与季节胜诉率稀释成接近 0。
+  现五个维度统一为 `decided`，并输出 `decided` 字段供前端区分「0%」与「尚无已判定案件」。
+
+## 2.0.0 · 工程化收口
 
 > 项目定位由「一次性活动作品」转为**常规工程**，并在此基础上补齐边界与异常处理。
 
@@ -196,8 +254,12 @@ docker compose -f docker/docker-compose.yml up -d --build app
 
 ### live 模型链路
 
-- `MODEL_ROUTER_PROFILE`：`tokenplan`（默认）/ `official` / `dashscope`。
-- `MODEL_ROUTER_API_KEY`（tokenplan）/ `MODEL_ROUTER_OFFICIAL_KEY`（official）/ `DASHSCOPE_API_KEY`（dashscope）：**live 必需**。
+- `MODEL_ROUTER_PROFILE`（兼容别名 `RG_AI_PROVIDER`）：选择 AI 平台，默认 `tokenplan`；
+  可选值见 `GET /api/providers` 或 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)。
+- 密钥：各平台独立变量（`MODEL_ROUTER_API_KEY` / `MODEL_ROUTER_OFFICIAL_KEY` / `DASHSCOPE_API_KEY` /
+  `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `ZHIPU_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` /
+  `MOONSHOT_API_KEY` / `AZURE_OPENAI_API_KEY` / `RG_CUSTOM_API_KEY` / `OLLAMA_API_KEY`(可空)）——**live 必需**。
+- `RG_MODEL_TEXT` / `RG_MODEL_VL` / `RG_MODEL_OCR` / `RG_MODEL_EMBED` / `RG_MODEL_RERANK` / `RG_MODEL_TTS`：**可选**，逐能力覆盖模型标识。
 - `PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED`：**可选**。视觉输入默认**内联 base64**，本机直跑即可，无需公网图床。
 - `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`：SEC-13 三层配额（默认 300 / 60 / 20，`0` 关闭该层）。
 - `WAL_CHECKPOINT_INTERVAL_SEC`：SQLite WAL 巡检间隔（秒，`<=0` 关闭）。
@@ -226,7 +288,7 @@ mypy demo --config-file pyproject.toml            # 类型检查（增量门禁�
 ```
 
 CI（`.github/workflows/ci.yml`）在 Python 3.11 / 3.12 上跑 ruff / mypy / pytest（`--cov-fail-under=75`），
-并附加 bandit 源码安全审计与 pip-audit 依赖 CVE 扫描。当前 **168 passed 全绿**。
+并附加 bandit 源码安全审计与 pip-audit 依赖 CVE 扫描。当前 **195 passed 全绿**。
 
 ## 目录
 
@@ -243,6 +305,9 @@ returnguard/
 │   ├── API.md                  # 接口契约
 │   ├── SCHEMA.md               # 表结构
 │   ├── PRD.md                  # 产品需求
+│   ├── ARCHITECTURE.md         # 功能实现逻辑（链路 / 缓存 / 韧性 / 前端）
+│   ├── DECISION_LOGIC.md       # 退货判定逻辑（阈值 / 规则 / 边界）
+│   ├── AI_PROVIDERS.md         # 多 AI 平台适配与接口兼容
 │   ├── DEPLOYMENT.md           # 部署与运维
 │   ├── AB_ROI_实证说明.md       # ROI 回测 / A-B 台架的口径与边界
 │   ├── CODE_REVIEW.md          # 工程审查记录
@@ -252,7 +317,8 @@ returnguard/
 │   ├── common.py               # 配置 / 依赖 / 限流 / 中间件 / 聚合辅助
 │   ├── routers/                # frontend · forensic · insights · auth · calibration · import_
 │   ├── pipeline.py             # 取证 + 洞察 + ROI 回测
-│   ├── models_router.py        # 真实模型调用 + 逐能力回退
+│   ├── models_router.py        # AI 能力调用（按能力，不按厂商）+ 逐能力回退
+│   ├── providers.py            # AI 平台注册表（多厂商声明式适配）
 │   ├── db.py / auth.py         # 仓储层 / 账户体系
 │   ├── cache.py / shared_state.py / quota.py / storage.py
 │   ├── schemas.py / constants.py / prompts.py / platforms.py / suppliers.py
@@ -264,7 +330,12 @@ returnguard/
 
 ## 已知边界与后续方向
 
-- **live 需自备网关 Key**：无 Key 时接口自动以 mock 运行，功能不中断，但结果不是真实模型输出（响应中已如实标注）。
+- **live 需自备平台密钥**：无密钥时接口自动以 mock 运行，功能不中断，但结果不是真实模型输出（响应中已如实标注）。
+- **平台能力不齐**：多数平台只覆盖部分能力（如 OpenAI 无 rerank、DeepSeek 无视觉），
+  未覆盖的能力会如实回退；切换前请先看 `GET /api/providers` 的能力矩阵。
+  **原生协议平台（Anthropic / Gemini）不经本适配层直接对接**，建议经兼容网关后走 `custom`。
+- **数据出境**：选用国际平台意味着图片与文本会离开本地（内联 base64 只解决「可达性」，不改变数据边界）。
+  合规要求高时选百炼国内站、`ollama` 或内网 `custom`。
 - **A/B 与 ROI 不是因果实测**：`roi_backtest` 是基于真实聚合值的**模型回测**；真 A/B 需要线上流量分组，属运营阶段工作。引用时须连同 `method` / `disclaimer` 一并呈现。
 - **多实例共享状态**：限流 / 配额落 `rg_state.db`，多主机部署需改为方言无关 upsert 或 Redis 后端（`shared_state.py` 当前仅支持 SQLite）。
 - **演示数据集**：平台字段为按「品类 × 地区」规则重映射的演示渠道标签，文档与界面均如实标注，代码中不伪造均衡分布。

@@ -14,6 +14,7 @@ export const state = {
   languages: null,       // 母语语音可选语言（语言→展示名/音色，运行时从 /api/config 下发）
   defaultLanguage: 'zh', // 默认陈述语言（后端 constants.DEFAULT_LANGUAGE 下发）
   lastAnalyze: null,     // 最近一次单案取证结果，供切换语言后重渲染徽标/编排链路
+  cfg: null,             // 最近一次 /api/config 原始响应（首启引导展示 AI 平台/能力用）
 };
 
 // source 为派生属性：登录即 real，未登录即 demo。注销旧 localStorage rg_source 避免残留。

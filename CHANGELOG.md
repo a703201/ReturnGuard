@@ -4,6 +4,79 @@
 
 ---
 
+## [2.1.0] — 2026-09-25
+
+> 三件事：把**退货判定逻辑**与**功能实现逻辑**写成可查的文档；把 AI 调用从「阿里云百炼专用」
+> 升级为**多厂商平台适配**；新增**首次开启引导页**。另修正一处胜诉率口径不一致。
+
+### 新增（Features）
+
+- **`docs/DECISION_LOGIC.md` —— 退货判定逻辑说明**：逐条给出「输入 → 规则/阈值 → 输出 → 边界与回退」。
+  覆盖：同款一致性（含三级回退与阈值标定）、瑕疵标签、货不对板/一致性结论、卷宗与母语陈述、
+  优先级 5:5 融合、缺陷红框真伪标记、`outcome` 与胜诉率口径、代理争议率、品类热力、
+  供应商质量分与红黑榜分级、根因归因桶、SKU 异常预警阈值、时序 OLS 预测与趋势判定、
+  ROI 回测口径与双重约束、LLM 数字对账容差、持久层写入收敛、接口入参边界、结果可信度标注；
+  末尾附「想改某条判定该动哪里」的代码索引。
+- **`docs/ARCHITECTURE.md` —— 功能实现逻辑说明**：分层与模块职责、依赖方向约束、
+  两条主链路（单案取证 / 群体洞察）的逐步执行顺序、三层缓存与失效条件、
+  AI 调用的韧性机制表（重试 / 退避 / 熔断 / 总预算 / 能力闸 / 指标）、
+  隔离与安全收口、前端实现要点（状态派生 / 静态资源版本化 / i18n / 首启引导）、可观测性与质量门禁、
+  已知取舍与后续方向。
+- **`demo/providers.py` —— 多 AI 平台注册表（声明式）**：14 个平台可选
+  （百炼三 profile + OpenAI / DeepSeek / Moonshot / 智谱 / SiliconFlow / OpenRouter / Ollama /
+  Azure OpenAI / custom + 两个原生协议平台的显式「不支持」声明）。
+  每个平台声明 `base_url`、基地址覆盖变量、`key_env`、鉴权风格、模型映射、能力矩阵、是否实跑验证；
+  `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES` 改为指向该注册表（单一来源）。
+- **能力闸 `models_router._require_capability()`**：调用前校验平台是否具备该能力，
+  不具备直接抛错 → 由既有逐能力 try/except 标记 `capabilities[cap] = False`（前端显示「回退」），
+  **不伪装成功**。
+- **URL 形状适配 `providers.build_url()`**：支持 OpenAI 兼容风格与 **Azure 部署风格**
+  （`/openai/deployments/<部署名>/{chat/completions,embeddings,audio/speech}?api-version=…`）；
+  未知路径与原生协议平台直接抛错（宁可启动即失败，也不打错端点）。
+- **鉴权风格适配 `providers.auth_headers()`**：`bearer` / `api-key`（Azure）/ 无鉴权（本地端点）。
+- **逐能力模型覆盖**：`RG_MODEL_TEXT` / `RG_MODEL_VL` / `RG_MODEL_OCR` / `RG_MODEL_EMBED` /
+  `RG_MODEL_RERANK` / `RG_MODEL_TTS`；平台改版或接入自建端点无需改代码。
+- **`GET /api/providers`（新增端点）**：返回平台目录与能力矩阵、OpenAI 兼容性、是否实跑验证、
+  密钥变量名、当前平台标记。**不返回**基地址 / 模型标识 / 密钥配置状态（信息泄露收敛）。
+- **`/api/config` 新增 `provider` 字段**：当前平台展示名、协议风格、能力矩阵、模型映射，
+  供前端与新引导页如实呈现「哪些能力走真实模型」。
+- **`docs/AI_PROVIDERS.md` —— 多平台接口对接与兼容说明**：支持矩阵、六类能力的请求/响应形状、
+  鉴权差异、URL 形状差异、**能力语义差异**（重点澄清「图像向量 ≠ 文本嵌入」）、
+  自建/私有化接入、切换与覆盖优先级、缺口回退语义、可观测入口、新增平台改动清单、密钥与合规注意。
+- **首次开启引导页（onboarding）**：`index.html` 新增 5 步引导 overlay + 顶栏「使用引导」按钮；
+  `app.js` 新增 `openOnboard / closeOnboard / renderOnboardStep / renderOnbAiInfo / maybeAutoOpenOnboard`。
+  流程：① 这是什么 ② 数据与登录 ③ 页面导览（可一键跳 Tab）④ AI 通路与诚实性（动态读取当前平台能力矩阵）
+  ⑤ 边界与隐私。交互含上一步/下一步（末步「开始使用」）/跳过/×/Esc/点遮罩关闭、进度点与页码；
+  「不再自动显示」默认勾选并写 `localStorage.rg_onboarded`；顶栏按钮可随时重开且不改动该标记。
+  文案三语（zh/en/fr），切语言时同步重渲染。
+
+### 修复（Fixes）
+
+- **胜诉率分母口径不一致**：`category_heatmap` 与 `season_view` 此前用「案件数」作分母，
+  而平台 / 地区 / 交叉矩阵用「已判定案件数」，导致「待分析」案件把品类与季节胜诉率
+  稀释成接近 0（出现「所有品类都远低于大盘」的假象）。现五个维度统一用 `decided`，
+  并输出 `decided` 字段，前端据此区分「真实 0%」与「尚无已判定案件」。
+- **平台能力声明「假支持」**：为 OpenAI / Ollama / SiliconFlow / 智谱声明的 `embed` 实为
+  **文本**嵌入模型，而本服务该能力的语义是**图像向量**（请求体为百炼扩展形状
+  `{"input": {"image": …}}`）——配了必然失败。现仅在真正支持图像向量输入的平台声明
+  （百炼系 + `custom`），其余如实标为不支持；`CAPABILITY_LABELS.embed` 改为「图像向量」以消歧义。
+- **`live_analyze` 的密钥校验**：原先一律要求 `API_KEY` 非空，会让 `ollama` 这类
+  `key_required=false` 的本地平台被误判为「未配置」而整体回退；现按平台声明判断。
+
+### 测试
+
+- 新增 `demo/tests/test_providers.py`（19 例）：注册表完整性（字段 / 能力键 / `unsupported` 一致性）、
+  默认平台与未知回退、official 的 `qwen/` 前缀契约、多厂商覆盖度、能力矩阵正确性
+  （DeepSeek 仅文本 / OpenAI 无 rerank / 原生协议平台全不支持 / Ollama 无需密钥）、
+  **图像向量只在其真正支持处声明**、能力闸抛错语义、`custom` 未配置即不可用、
+  URL 形状（OpenAI / Azure / 未知路径 / 原生协议）、鉴权三种风格、基地址覆盖、
+  `/api/config` 与 `/api/providers` 的**信息泄露收敛**、与 `models_router` 的单一来源衔接。
+- `demo/tests/test_i18n.py` 15 → 20 例：新增首启引导的结构完整性（5 步 + 全部控件 + 默认勾选）、
+  顶栏重开按钮、`rg_onboarded` 持久化、第 3 步跳转目标必须真实存在、第 4 步读 `/api/config` 的 provider。
+- 测试总数 **168 → 195 passed 全绿**（文档一致性守护 18 → 21 例）。
+
+---
+
 ## [2.0.0] — 2026-09-25
 
 > **项目定位变更（MAJOR）**：由「一次性活动作品」转为**常规工程**。
