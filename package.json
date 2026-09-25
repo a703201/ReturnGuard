@@ -1,6 +1,6 @@
 {
   "name": "returnguard",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "private": true,
   "description": "ReturnGuard 退货情报站 — 前端静态资源构建链路（P2-6）",
   "type": "module",

@@ -1,7 +1,7 @@
 # ReturnGuard 接口文档（API.md）
 
 > **服务**：ReturnGuard Demo（FastAPI）
-> **最后更新**：2026-09-25（2.1.0）
+> **最后更新**：2026-09-25（2.1.1）
 > **关联文档**：`docs/PRD.md`、`docs/SCHEMA.md`、`docs/ARCHITECTURE.md`（功能实现逻辑）、`docs/DECISION_LOGIC.md`（判定逻辑）、`docs/AI_PROVIDERS.md`（多 AI 平台对接）、`docs/AB_ROI_实证说明.md`、`docs/CODE_REVIEW.md`、`CHANGELOG.md`、`docs/reference/ModelRouter_API.docx`（网关接口参考）
 
 ---

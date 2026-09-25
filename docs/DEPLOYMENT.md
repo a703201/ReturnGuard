@@ -1,6 +1,6 @@
 # ReturnGuard 部署与运维指南
 
-> 适用版本：2.1.0（仓库根 `VERSION` 为单一来源）
+> 适用版本：2.1.1（仓库根 `VERSION` 为单一来源）
 > 相关文档：[`openGauss部署指南.md`](../openGauss部署指南.md)（openGauss 细节与真实数据自动导入）、[`API.md`](API.md)、[`SCHEMA.md`](SCHEMA.md)
 
 ---
@@ -35,7 +35,7 @@ docker compose -f docker/docker-compose.yml up -d --build app
 
 # 3) 判活
 curl -s http://127.0.0.1:65432/health
-curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "2.0.0"
+curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "2.1.1"
 ```
 
 一键脚本等价封装：
@@ -49,6 +49,34 @@ python stop_rg.py --down      # 移除容器与网络（named volume 保留，�
 
 > ⚠️ 本机旧版 `docker compose` 插件不可用时，改用独立 `docker-compose -f docker/docker-compose.yml ...`。
 > **服务名是 `db` / `app`**，重建要写 `--build app`。
+
+### 2.1 离线构建（网络受限 / 不稳定时**强烈建议**）
+
+**症状**：构建在 `pip wheel` 阶段失败，报
+`THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE`（本质是 wheel 下载损坏）
+或 `TimeoutError: The read operation timed out`。原因是容器内直连 PyPI / 镜像下载慢且易中断。
+
+**对策**：在本机把依赖 wheel 一次性下好，随构建上下文带进镜像，构建期**完全不联网**。
+
+```bash
+python scripts/fetch_wheels.py            # 默认 linux/amd64 + CPython 3.11（对齐 Docker 镜像）
+# ARM 服务器：python scripts/fetch_wheels.py --arch arm64
+
+docker compose -f docker/docker-compose.yml build app     # 命中离线缓存，数秒完成
+docker compose -f docker/docker-compose.yml up -d
+```
+
+- 缓存位于 `docker/wheels/*.whl`（约 20MB），**已在 `.gitignore` 中忽略**，只保留 `.gitkeep` 占位；
+  Dockerfile 会先 `COPY docker/wheels/`，若目录内含 `*.whl` 就走 `--no-index` 离线解析，否则回退联网。
+- 构建日志出现 `[build] 使用离线 wheel 缓存：N 个 wheel` 即表示命中。
+- ⚠️ 已知坑：`uvloop` 带环境标记 `sys_platform != "win32"`，在 Windows 上 `pip download` 会**静默跳过**，
+  但 Linux 容器必需 → 离线解析会报 `No matching distribution found for uvloop`。
+  `scripts/fetch_wheels.py` 已内置这一步补齐（见脚本 docstring），
+  **不要手工只用一条 `pip download -r requirements.txt` 生成缓存**。
+- 依赖版本变更后需重新生成缓存（建议加 `--clean`）。
+
+**备选**：若不想用离线缓存，可只把构建期 pip 源换成国内镜像（在 `docker/.env` 设 `PIP_INDEX_URL`）——
+能提速但仍受容器网络质量影响，不如离线缓存稳。
 
 ## 3. 兜底部署（PostgreSQL）
 
@@ -137,6 +165,9 @@ python -c "import secrets;print(secrets.token_hex(24))"   # ADMIN_API_KEY
 | `WAL_CHECKPOINT_INTERVAL_SEC` | SQLite WAL 巡检间隔（秒，`<=0` 关闭） |
 | `RG_COMPOSE_FILE` | `start_rg.py` / `stop_rg.py` 使用的 compose 文件路径覆盖 |
 | `RG_LOCAL_URL` | `start_rg.py` 判活与打开页面使用的本地地址 |
+| `PIP_INDEX_URL` | **构建期**（非运行期）pip 源，默认 `https://pypi.org/simple`；国内建议设为镜像（如 `https://pypi.tuna.tsinghua.edu.cn/simple`）以提速。仅在**未提供离线 wheel 缓存**时生效，见 §2.1 |
+
+> `PIP_INDEX_URL` 由 `docker-compose.yml` 的 `build.args` 传入，作用范围只在构建阶段，不会进入运行期镜像环境。
 
 ---
 

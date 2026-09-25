@@ -1,6 +1,6 @@
 # 多 AI 平台接口适配与兼容说明（AI_PROVIDERS）
 
-> 适用版本：2.1.0（仓库根 `VERSION` 为单一来源）
+> 适用版本：2.1.1（仓库根 `VERSION` 为单一来源）
 > 代码单一来源：[`demo/providers.py`](../demo/providers.py)（平台声明）、[`demo/models_router.py`](../demo/models_router.py)（能力调用）
 > 关联文档：[`DECISION_LOGIC.md`](DECISION_LOGIC.md)、[`ARCHITECTURE.md`](ARCHITECTURE.md)、[`API.md`](API.md)
 

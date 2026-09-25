@@ -12,7 +12,7 @@
 
 ## 一分钟速览
 
-- **当前版本**：2.1.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
+- **当前版本**：2.1.1（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
 - **本机访问**：`http://127.0.0.1:65432`（容器）/ `http://127.0.0.1:8000`（直接 `uvicorn`）
 - **内置演示账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主）；Gitea / GitCode 为镜像
@@ -212,9 +212,14 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 ```bash
 cd returnguard
 cp docker/.env.example docker/.env      # 填 GS_PASSWORD 等
+python scripts/fetch_wheels.py          # 可选但强烈建议：预下载依赖 wheel（构建期离线，不怕弱网）
 docker compose -f docker/docker-compose.yml up -d --build app
 # 应用映射到 http://127.0.0.1:65432（容器内 app 监听 8000；对外仅绑宿主机回环）
 ```
+
+> 构建期若报 `DO NOT MATCH THE HASHES` 或 `read timed out`，说明容器内下载依赖失败/损坏：
+> 先跑 `python scripts/fetch_wheels.py` 走离线构建（数秒完成），详见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §2.1。
+> 也可只把构建期 pip 源换成镜像：在 `docker/.env` 设 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`。
 
 > 需要发布到公网时，由部署方自行在其前面加反向代理 / CDN 并配置 HTTPS；
 > 反代场景下务必设 `AUTH_TRUSTED_PROXIES=<反代回环 IP>`，使限流与防爆破按真实客户端 IP 生效。
@@ -324,8 +329,9 @@ returnguard/
 │   ├── schemas.py / constants.py / prompts.py / platforms.py / suppliers.py
 │   ├── static/                 # index.html + ESM 前端（app/render/store/api/i18n）
 │   └── tests/                  # 测试套件
-├── scripts/                    # check_i18n.py · minify.mjs · 端到端脚本
+├── scripts/                    # check_i18n.py · fetch_wheels.py（离线依赖预下载）· minify.mjs · 端到端脚本
 └── docker/                     # Dockerfile · compose · entrypoint · systemd
+                                #   wheels/（离线 wheel 缓存，不入库，见 DEPLOYMENT.md §2.1）
 ```
 
 ## 已知边界与后续方向

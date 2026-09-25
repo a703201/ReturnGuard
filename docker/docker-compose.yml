@@ -54,6 +54,10 @@ services:
     build:
       context: ..            # 仓库根（含 demo/ 源码与 docker/ 部署配置）
       dockerfile: docker/Dockerfile
+      # 构建期 pip 源（默认官方 PyPI，行为不变）。国内网络直连常下载中断，
+      # 在 docker/.env 设 PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple 即可提速。
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     image: returnguard-app:latest
     container_name: rg_app
     depends_on:

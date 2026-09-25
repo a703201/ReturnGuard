@@ -4,6 +4,51 @@
 
 ---
 
+## [2.1.1] — 2026-09-25
+
+> 修订版：修复**网络受限环境下镜像构建失败**的问题（不改变任何产品行为）。
+
+### 修复（Fixes）
+
+- **构建期依赖下载不再必需联网**：新增**离线 wheel 缓存**机制。
+  - `docker/Dockerfile` 的 builder 阶段先 `COPY docker/wheels/`；若目录内含 `*.whl`，
+    则用 `pip wheel --no-index --find-links=/tmp/offline-wheels` **完全离线**解析依赖，
+    否则回退为原来的联网解析（行为与历史一致）。构建日志会打印
+    `[build] 使用离线 wheel 缓存：N 个 wheel` 便于确认。
+  - 新增 `scripts/fetch_wheels.py`：在本机按目标平台（默认 linux/amd64 + CPython 3.11）预下载全部依赖。
+  - `.gitignore` 忽略 `docker/wheels/*.whl`（约 20MB 且与平台相关，不入库），
+    仅保留 `docker/wheels/.gitkeep` 占位以保证 Dockerfile 的 `COPY` 不因目录缺失失败。
+- **构建期 pip 源可配置**：`Dockerfile` 新增 `ARG PIP_INDEX_URL`（默认官方 PyPI，行为不变），
+  `docker-compose.yml` 通过 `build.args` 透传 `${PIP_INDEX_URL:-https://pypi.org/simple}`，
+  并在 `docker/.env.example` 说明。国内网络可设为镜像源提速。
+  同时把 pip 默认超时提到 120s、重试提到 10 次，降低弱网下的偶发失败率。
+- `docs/DEPLOYMENT.md` 新增 **§2.1 离线构建**：症状（`DO NOT MATCH THE HASHES` / `TimeoutError`）、
+  对策（`scripts/fetch_wheels.py` + 构建命中判断）、以及 `PIP_INDEX_URL` 的适用范围说明。
+
+### 背景（实测）
+
+在某网络环境下，容器内直连 PyPI 或国内镜像下载仅 **100–200 kB/s** 且频繁 `read timed out`：
+第一次构建以 `THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE` 失败
+（本质是 wheel 下载损坏），改用国内镜像后仍在 `pydantic-core` 下载中途超时。
+改为「本机预下载 + 容器内离线安装」后，**构建 2.9s 完成**（29 个 wheel / 24.4MB，全程不联网），
+随后 `docker-compose up -d` 重建 `rg_app` 并 healthy。
+
+### 已知坑（已内置处理）
+
+- `uvloop` 带环境标记 `sys_platform != "win32"`，在 Windows 上执行 `pip download -r requirements.txt`
+  会被**静默跳过**，而 Linux 容器必需 → 离线解析报 `No matching distribution found for uvloop`。
+  `scripts/fetch_wheels.py` 在常规下载后**再显式单独下载**这类「目标平台专属」包。
+  **不要手工只用一条 pip 命令生成该缓存。**
+
+### 部署验证
+
+- `rg_app` 重建后 `Up (healthy)`，`/api/config` 返回 `version: 2.1.1`；
+  `/api/providers` 14 个平台、`is_current` 唯一、无基址/密钥泄露；
+  `/api/insights?mode=mock` 1206 条 / 胜诉率 0.346，品类与季节维度均带 `decided`；
+  首页与静态资源（`app.js` / `i18n.js` …）全部 200；容器日志无 `ERROR` / `Traceback`。
+
+---
+
 ## [2.1.0] — 2026-09-25
 
 > 三件事：把**退货判定逻辑**与**功能实现逻辑**写成可查的文档；把 AI 调用从「阿里云百炼专用」

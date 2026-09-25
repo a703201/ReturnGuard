@@ -1,6 +1,6 @@
 # ReturnGuard 功能实现逻辑（ARCHITECTURE）
 
-> 适用版本：2.1.0（仓库根 `VERSION` 为单一来源）
+> 适用版本：2.1.1（仓库根 `VERSION` 为单一来源）
 > 关联文档：[`DECISION_LOGIC.md`](DECISION_LOGIC.md)（判定规则与阈值）、[`AI_PROVIDERS.md`](AI_PROVIDERS.md)（多 AI 平台对接）、[`API.md`](API.md)（接口契约）、[`SCHEMA.md`](SCHEMA.md)（表结构）、[`DEPLOYMENT.md`](DEPLOYMENT.md)（部署运维）
 
 本文回答：**这些功能在代码里是怎么串起来的**——模块边界、两条主链路的执行顺序、

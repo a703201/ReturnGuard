@@ -50,6 +50,15 @@ package-lock.json
 .DS_Store
 
 # ============================================================
+# 离线 wheel 缓存（供 Docker 构建离线解析依赖，见 docs/DEPLOYMENT.md「离线构建」）
+# 体积约 20MB 且与平台/CPU 相关，**不进 git**；仅保留 .gitkeep 占位保证目录存在。
+# 重新生成：
+#   pip download -r demo/requirements.txt -d docker/wheels --only-binary=:all: \
+#     --platform manylinux2014_x86_64 --python-version 311 --implementation cp --abi cp311
+# ============================================================
+docker/wheels/*.whl
+
+# ============================================================
 # 真实数据集原始文件（约 540MB，绝不入库）
 # 仅作为 convert_datasets.py 的输入源，本地保留即可；
 # 转换产物 demo/cases.json（真实数据种子，735KB）已入库，demo 直接跑它。

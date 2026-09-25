@@ -107,7 +107,7 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 ```bash
 # 健康检查（容器映射 127.0.0.1:65432 → 容器 8000；如需公网访问，自行前置反向代理 / CDN）
 curl http://127.0.0.1:65432/health
-curl http://127.0.0.1:65432/api/config        # 应返回 "version": "2.0.0"
+curl http://127.0.0.1:65432/api/config        # 应返回 "version": "2.1.1"
 
 # 看板应基于 real 源、含自动导入的数据
 curl "http://127.0.0.1:65432/api/insights?source=real&mode=mock" | python -m json.tool | head -20
@@ -133,4 +133,4 @@ curl "http://127.0.0.1:65432/api/cases?source=demo&slim=1" | python -c "import s
 - **Docker 绑挂载与 WAL**：历史上曾用 SQLite + 宿主目录绑挂载的编排（`docker-compose.local.yml`），在 Windows/macOS 挂载点上会触发 `PRAGMA journal_mode=WAL` 的 `disk I/O error`（该编排已于 2.0.0 移除）。如需在绑定挂载场景临时回退，可用 `SQLITE_NO_WAL=1` 改走 DELETE 日志模式；**部署请统一用 `docker-compose.yml`（openGauss）或 `docker-compose.pg.yml`（PostgreSQL 兜底）**。
 - 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
 - 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
-- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `2.0.0`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
+- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `2.1.1`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
