@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 真实数据回流（CSV 批量导入到 real 库）+ 平台连接器位（B组：真实数据回流）
 
 把卖家真实退货数据批量导入 real 源，让洞察看板从「合成种子」切换到「真实业务数据」。

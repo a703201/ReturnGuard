@@ -1,3 +1,5 @@
+// Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+// SPDX-License-Identifier: Apache-2.0
 // store.js — 单一状态源（最近洞察 / 分页 / 阈值）
 // 所有模块共享同一份 state，消除此前全局命名污染与多份状态不一致的隐患。
 //

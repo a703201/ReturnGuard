@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard 业务路由包（P1-9 拆分）。
 
 各子模块各自持有一个 APIRouter，由 main.py 统一 include_router 聚合：

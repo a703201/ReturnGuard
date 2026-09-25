@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """账户体系 + 多租户隔离测试（C组）。
 
 运行需隔离数据库（与现有测试同约定）：

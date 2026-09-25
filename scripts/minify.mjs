@@ -1,3 +1,5 @@
+// Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+// SPDX-License-Identifier: Apache-2.0
 // scripts/minify.mjs — 前端构建链路（P2-6 / N4）
 //
 // 现状：demo/static 下的 ES Module（app.js / render.js / store.js / api.js / i18n.js）

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 同款阈值自标定（B组：阈值自标定）
 
 用历史「真同款 / 真调包」样本自动标定 SAME_ITEM_THRESHOLD（PRD §11 明确「待标定」），

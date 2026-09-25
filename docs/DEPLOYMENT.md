@@ -1,6 +1,6 @@
 # ReturnGuard 部署与运维指南
 
-> 适用版本：2.1.1（仓库根 `VERSION` 为单一来源）
+> 适用版本：2.1.2（仓库根 `VERSION` 为单一来源）
 > 相关文档：[`openGauss部署指南.md`](../openGauss部署指南.md)（openGauss 细节与真实数据自动导入）、[`API.md`](API.md)、[`SCHEMA.md`](SCHEMA.md)
 
 ---
@@ -35,7 +35,7 @@ docker compose -f docker/docker-compose.yml up -d --build app
 
 # 3) 判活
 curl -s http://127.0.0.1:65432/health
-curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "2.1.1"
+curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "2.1.2"
 ```
 
 一键脚本等价封装：

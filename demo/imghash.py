@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """图片内容确定性哈希（pipeline / models_router 共用的单一实现）
 
 为什么单独成模块：

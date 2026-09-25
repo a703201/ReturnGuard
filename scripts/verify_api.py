@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """
 Model Router API 关键能力验证脚本（仅依赖标准库）
 验证三项：

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 多维合成退货数据集生成器
 生成贴近真实结构的跨境退货/纠纷案件（确定性、可复现），用于驱动「退货情报站」洞察层。
 字段：case_id, sku, sku_name, category, supplier, platform, language, region,

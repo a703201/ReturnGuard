@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """live 逐能力回退单测：网关渐进开通即生效；无 Key 整体回退 mock。
 
 验证 A组「把假能力变真」的代码前提：每个模型独立可用/回退，不再因单点失败整体回退 mock。

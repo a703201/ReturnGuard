@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 真实数据回流演示种子脚本
 
 把一批「真实跨境退货纠纷」注入 real 数据源（cases_real.db），用于演示

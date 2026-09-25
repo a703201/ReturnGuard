@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """前端装配路由：页面 / 签名文件 / 配置 / 指标 / 平台举证包。
 
 从原 main.py 的 `/`、`/api/file/{sig}`、`/api/img/{key}`、`/health`、`/api/config`、

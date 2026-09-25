@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 结构化日志与请求追踪（A26）
 
 - JsonFormatter：把每条日志记录输出为单行 JSON（ts/level/logger/msg/request_id + 业务 extra），

@@ -4,6 +4,53 @@
 
 ---
 
+## [2.1.2] — 2026-09-25
+
+> 版权与许可收口：选用 **Apache License 2.0** 并落地「任何复制/二次分发都必须标注出处与作者」的机制。
+> 不改变任何运行行为与接口。
+
+### 新增（Features）
+
+- **`LICENSE`**：Apache License 2.0 全文（取自 apache.org 官方文本，未做任何改动）。
+- **`NOTICE`**：署名与第三方声明——
+  - 版权人「Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>」与项目主页；
+  - 逐条列出 Apache-2.0 §4(a)~(d) 要求的**署名落地方式**（保留 LICENSE / 附带本 NOTICE /
+    修改文件加提示 / 保留全部署名声明）；
+  - **第三方声明与例外**：派生演示数据集（UCI Online Retail · Kaggle Amazon Returns ·
+    Kaggle TheLook，并强调 `platform` 是本项目规则重映射的渠道标签而非原始字段）、
+    `docs/reference/ModelRouter_API.docx`（第三方厂商文档，不受本项目许可覆盖）、
+    运行期/开发依赖、平台政策与商标（归各平台所有，§6 不授予商标权）、PDF 使用的 CID 字体；
+- **源码 SPDX 署名头**：为全部项目自有源文件加两行头
+  （`Copyright …` + `SPDX-License-Identifier: Apache-2.0`），共 **75 个文件**：
+  `demo/*.py`、`demo/routers/*.py`、`demo/tests/*.py`、`demo/static/*.js`、`demo/schema.sql`、
+  `scripts/*.py`、`scripts/*.mjs`、仓库根 `*.py`。这样**只复制单个文件也会带走出处**。
+  插入位置已处理 shebang（脚本首行 `#!` 保持第一行）并验证模块 docstring 仍为第一条语句。
+- `package.json`：新增 `license: "Apache-2.0"` 与 `author`；`pyproject.toml` 顶部注明许可指向。
+- `README.md`：新增「**许可与署名**」章节——可做/必须做条款对照表（§4(a)(b)(c)(d) / §6 / §7）、
+  署名落地的三层机制、最小合规示例、第三方例外提示，并说明「若要求衍生作品必须开源应改用 GPL/AGPL」。
+
+### 为什么选 Apache-2.0（对齐需求）
+
+| 需求 | Apache-2.0 如何满足 |
+|---|---|
+| 允许他人自由查看与参考源码 | 宽松许可：可自由使用、修改、分发（含商用），也允许闭源衍生 |
+| 复制/二次分发必须标注原始出处与作者 | §4(c) 必须保留全部版权与署名声明；**§4(d) 若存在 NOTICE，衍生作品必须附带其中的署名声明**——这是宽松许可里最强的署名机制；配合每文件 SPDX 头覆盖「只复制一个文件」的场景 |
+| 作者权益保护 | §3 显式授予专利许可（降低下游法律顾虑）；§6 不授予商标权（防止被冒充关联）；§7 免责 |
+
+> 取舍：Apache-2.0 **不能**强制衍生作品也开源（那是 GPL-3.0 / AGPL-3.0 的领域），
+> 且任何许可证都无法约束「只阅读学习后独立重写」。当前选择与「可被自由参考 + 强制署名」的定位一致。
+
+### 测试
+
+- `demo/tests/test_docs_consistency.py` 新增 2 例：
+  - **许可齐备**：`LICENSE` 含 Apache-2.0 正文与 §4 Redistribution 条款、`NOTICE` 含版权人与 SPDX 标识、
+    `package.json.license == "Apache-2.0"`、README 索引到 LICENSE/NOTICE；
+  - **署名头覆盖**：上述 8 类自有源文件必须带 `SPDX-License-Identifier: Apache-2.0`
+    （新增文件漏加会被 CI 直接拦下）。
+- 测试总数 **195 → 197 passed**。
+
+---
+
 ## [2.1.1] — 2026-09-25
 
 > 修订版：修复**网络受限环境下镜像构建失败**的问题（不改变任何产品行为）。

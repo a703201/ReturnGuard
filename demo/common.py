@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard 共享配置 / 依赖 / 中间件（从原 main.py 拆出，P1-9）。
 
 本模块承载原先散落在 main.py 顶部与中段的所有模块级状态：

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 平台适配举证包文档生成器
 
 从 platforms.EVIDENCE_SPECS 单一来源生成两份「交付物 A」：

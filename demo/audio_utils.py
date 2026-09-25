@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 音频占位工具（P2-4 去重）
 
 生成正弦占位 WAV 的 base64 字符串，作为 mock / TTS 回退时的可播放音频。

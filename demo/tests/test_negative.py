@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """负向 / 一致性测试（P3-3）：非法输入拦截、鉴权、幂等、确定性、XSS 防御纵深。
 
 运行：DATABASE_URL=sqlite:///./_ci_cases.db REAL_DATABASE_URL=sqlite:///./_ci_cases_real.db python -m pytest tests/test_negative.py -q

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """多语言本地化回归测试（zh / en / fr）。
 
 守住四类容易静默漂移的问题：

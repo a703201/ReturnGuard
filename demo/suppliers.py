@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 供应商维度分配（单一来源）
 
 把「退货缺陷 → 供应商」的分配规则收敛到一处，供**数据集构建**（`convert_datasets` /

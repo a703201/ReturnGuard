@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """安全单测：上传文件名穿越清洗、文件类型/大小校验（对应 CODE_REVIEW P1-1/3）。
 
 另含安全复审三项回归（SEC-1 写接口鉴权 / SEC-2 AUTH_SECRET 加载 / SEC-3 代理客户端 IP）。

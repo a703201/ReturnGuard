@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """A/B 对照实验：同一批洞察任务在「提示词变体 A / B」下的可量化差异。
 
 为什么需要它

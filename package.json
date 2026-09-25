@@ -1,8 +1,10 @@
 {
   "name": "returnguard",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "private": true,
   "description": "ReturnGuard 退货情报站 — 前端静态资源构建链路（P2-6）",
+  "license": "Apache-2.0",
+  "author": "何宇翔 (He Yuxiang) <https://github.com/a703201>",
   "type": "module",
   "scripts": {
     "minify": "node scripts/minify.mjs",

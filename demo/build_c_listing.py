@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """Rebuild GROUP C as a coherent '同款 + 图文承诺' demo:
 - product_image = a realistic LISTING image (T-shirt photo + overlaid 承诺文字)
 - returned_image = the same clean T-shirt photo

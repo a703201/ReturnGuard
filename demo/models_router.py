@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 模型能力层（live 模式）—— 多 AI 平台统一调用入口。
 
 本文件把产品需要的 6 类 AI 能力封装成可调用函数，供 pipeline 在 live 模式下调取：

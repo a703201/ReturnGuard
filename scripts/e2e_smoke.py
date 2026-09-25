@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard 端到端冒烟：逐项验证「声明的功能」是否真能跑通。
 
 用法：python scripts/e2e_smoke.py [base_url]

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard 一键启动脚本：拉起本地容器并等待服务就绪。
 
 用法：

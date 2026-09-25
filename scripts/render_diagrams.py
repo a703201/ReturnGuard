@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """Render ReturnGuard diagrams (flow + architecture) to PNG and a combined PDF."""
 
 import os

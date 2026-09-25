@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard 洞察报告 PDF 生成（服务端 reportlab，CJK 字体，直接下载而非浏览器打印）。
 
 设计要点：

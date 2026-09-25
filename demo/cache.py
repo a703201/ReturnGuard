@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 进程内缓存层（cache.py）
 
 独立模块，专门承载「洞察聚合缓存」这一跨模块共享状态，彻底解耦 db ⇄ pipeline 的循环依赖：

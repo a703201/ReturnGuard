@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 接口契约（Pydantic 请求/响应模型）
 
 给 FastAPI 端点挂上 response_model，收益：

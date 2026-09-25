@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 业务常量（单一来源，避免重复定义与阈值漂移）
 
 双模式（mock/live）与统一存储（openGauss，离线回退 SQLite）共用本文件中的阈值与词表，

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """P1-10：网关真实契约测试（离线录制式）。
 
 不依赖外网：用 monkeypatch 替换 models_router._post，返回「符合百炼/ModelRouter 真实 schema」的

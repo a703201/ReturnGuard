@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 # -*- coding: utf-8 -*-
 """ReturnGuard 单案取证（阶段A）端到端功能验证。
 

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """录制用：本地直连 dashscope live，跑 A/B/C 三组单案取证。
 - GROUP A（同款+瑕疵）：重试直到缺陷标签非「无明显瑕疵」为止（最多 MAX_A 次），
   保证录屏拿到"同款+真实瑕疵红框"的干净一拍。

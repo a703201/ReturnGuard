@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 取证 + 洞察流水线（pipeline.py）
 
 本文件是整个产品的「业务逻辑层」，分两大阶段，对应方案文档的 6 大功能：

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """多 AI 平台适配（providers）回归测试。
 
 守住四类容易静默退化的问题：

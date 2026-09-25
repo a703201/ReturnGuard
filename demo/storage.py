@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 上传图存储（可插拔后端：默认本地自持，远端图床接口预留）
 
 上传的退货图默认**落本机磁盘**，不经第三方对象存储；同时保留一套**可插拔的后端注册表**，

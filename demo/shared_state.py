@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 跨 worker 共享状态（SEC-12 收口）
 
 问题：原限流计数 `_rate_window`、登录失败计数 `_login_fails`、登录封禁 `_login_lock_until`

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """图床 storage 单测：local / self（自托管隧道）/ public_base（自建反代）。"""
 
 import importlib

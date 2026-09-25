@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """单案取证 + 案件库路由：/api/analyze、/api/cases（GET/POST/DELETE）。
 
 从原 main.py 搬出（P1-9）。行为与原实现逐行一致。

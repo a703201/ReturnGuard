@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """pipeline 层单测：mock 确定性、结果结构、聚合洞察字段、上传单案去污染（P1-1）。"""
 
 import os

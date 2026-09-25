@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """多模型归因对比：同一份聚合数据，让多个文本推理模型分别做洞察归因。
 
 对比 JSON 有效性 / 内容质量 / 耗时，辅助选定默认模型（当前默认 qwen3.7-max）。

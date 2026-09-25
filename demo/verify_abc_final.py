@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """A/B/C 全量复测（P3-18 双图对比缺陷识别后），直连 live_analyze，输出统一结果集。"""
 
 import json

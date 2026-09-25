@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 真实数据集 → 案件 JSON/CSV 转换器（真实数据回流）
 
 把 Dataset/ 下的三个公开电商退货数据集归一化为 ReturnGuard 案件 schema：

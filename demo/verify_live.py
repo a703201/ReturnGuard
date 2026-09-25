@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · live 全链路冒烟测试（带 Key 才跑，无 Key 自动 SKIP）
 
 验证 stage A 单案取证在 live 模式下的真实可用性：

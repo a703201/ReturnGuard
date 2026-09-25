@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 上传数据集文件解析（网页端「文件导入」用）
 
 把卖家上传的真实数据集文件（.xlsx / .csv）解析为 ReturnGuard 案件 dict 列表，

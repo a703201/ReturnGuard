@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ROI 回测（pipeline._roi_backtest）回归测试。
 
 诚实性要求：回测是**基于真实聚合值的模型估算**，不是 A/B 实测因果。

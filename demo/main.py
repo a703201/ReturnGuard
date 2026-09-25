@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard Demo 后端（FastAPI 装配入口）。
 
 本文件现在只负责「装配」，不再承载业务逻辑：

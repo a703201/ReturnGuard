@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """边界与健壮性加固回归测试（2.0.0 功能完善项）。
 
 覆盖此轮新增的两类改动：

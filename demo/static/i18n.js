@@ -1,3 +1,5 @@
+// Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+// SPDX-License-Identifier: Apache-2.0
 // i18n.js — 前端国际化（跨境场景：顶栏 / KPI / 卡片标题与正文 / 表头 / 表单 / 结果区 / ROI）
 // 抽表范围：**可见静态文案**（Tab、KPI、卡片标题 + desc、表头、筛选项、表单标签、按钮、结果区标签、ROI）。
 // 边界：动态数据（KPI 数值、表格内容、洞察报告正文、后端返回的 LLM 文本）由后端/渲染负责，不在此翻译。

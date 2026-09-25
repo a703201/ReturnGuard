@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """共享测试夹具。
 
 【关键】本文件顶部会在**导入任何项目模块之前**把三个数据库重定向到临时目录。

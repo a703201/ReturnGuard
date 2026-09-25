@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """GROUP A 复测：双图对比缺陷识别（P3-18 修复后）。
 直接 import models_router.live_analyze，验证「同款+瑕疵」能否被 live 视觉链路真实检出。
 """

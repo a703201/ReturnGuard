@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """预下载依赖 wheel 到 docker/wheels/，供 Docker 构建**离线**解析依赖。
 
 为什么需要它

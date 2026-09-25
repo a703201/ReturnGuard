@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """可复现性 + 结果缓存（P1-3 / P1-7）。
 
 审查要点：

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """文档一致性守护测试。
 
 背景：本项目文档较多（README / API / SCHEMA / PRD / CODE_REVIEW），且用户明确要求

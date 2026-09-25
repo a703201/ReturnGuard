@@ -1,3 +1,5 @@
+// Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+// SPDX-License-Identifier: Apache-2.0
 import { state } from './store.js';
 import { apiFetch, authToken } from './api.js';
 import { $, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier, esc, exportReport, pct, populateFilters, realColor, renderAnnot, renderBadge, renderBarh, renderDonut, renderForecast, renderMatrix, renderOrchestration, renderSourcingLoop, renderSuppliers, renderTrendLine, setStep, trendLabel, winRateCell, wrColor } from './render.js';

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """i18n 键完整性校验（可进 CI）。
 
 校验四件事，任一不满足即退出码 1：

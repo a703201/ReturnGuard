@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 账户体系 + 多租户隔离（C组：多租户 + 账户体系）
 
 设计原则（零新依赖，stdlib 实现，开发/部署同构）：

@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """账户体系 + 多租户隔离路由：/api/auth/{register,login,me,logout}。
 
 从原 main.py 搬出（P1-9）。行为与原实现逐行一致。

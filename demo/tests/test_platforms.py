@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """平台适配举证包单测：规则引擎 + /api/platforms + analyze 关联 + insights 维度筛选。"""
 
 from fastapi.testclient import TestClient

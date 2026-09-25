@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 平台适配举证包（交付物 A 的数据源）
 
 本模块是「平台适配举证包」的唯一事实来源：把 Amazon / AliExpress / Temu / SHEIN /

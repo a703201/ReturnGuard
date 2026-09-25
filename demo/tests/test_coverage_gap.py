@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """审查报告 P1 收口：补两条此前零覆盖的关键链路用例。
 
 - PDF 导出（/api/export_pdf）：路演演示项，崩了无人知，需断言落盘为合法 PDF。

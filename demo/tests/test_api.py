@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """API 层单测：用 FastAPI TestClient 打健康路径（不依赖外部模型 Key）。"""
 
 import uuid

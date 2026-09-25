@@ -12,7 +12,7 @@
 
 ## 一分钟速览
 
-- **当前版本**：2.1.1（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
+- **当前版本**：2.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
 - **本机访问**：`http://127.0.0.1:65432`（容器）/ `http://127.0.0.1:8000`（直接 `uvicorn`）
 - **内置演示账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主）；Gitea / GitCode 为镜像
@@ -300,6 +300,8 @@ CI（`.github/workflows/ci.yml`）在 Python 3.11 / 3.12 上跑 ruff / mypy / py
 ```
 returnguard/
 ├── VERSION                     # 版本单一来源
+├── LICENSE                     # Apache License 2.0 全文
+├── NOTICE                      # 署名与第三方声明（衍生作品须附带，见 §许可与署名）
 ├── CHANGELOG.md                # 版本变更记录
 ├── README.md                   # 本文件
 ├── openGauss部署指南.md         # openGauss 部署 + 真实数据自动导入
@@ -333,6 +335,38 @@ returnguard/
 └── docker/                     # Dockerfile · compose · entrypoint · systemd
                                 #   wheels/（离线 wheel 缓存，不入库，见 DEPLOYMENT.md §2.1）
 ```
+
+## 许可与署名（License & Attribution）
+
+本项目以 **Apache License 2.0** 授权：全文见 [`LICENSE`](LICENSE)，署名要求见 [`NOTICE`](NOTICE)。
+
+**你可以**：自由查看、学习、参考、复制、修改本项目，并用于个人或商业用途，也可以闭源分发衍生作品。
+
+**你必须**（Apache-2.0 §4，也是本项目的核心诉求——**任何复制/二次分发都必须标注原始出处与作者**）：
+
+| 条款 | 要求 |
+|---|---|
+| §4(a) | 任何复制或分发都必须**附上 LICENSE 全文** |
+| §4(b) | **修改过的文件**必须带显著提示，说明「此文件已被修改」 |
+| §4(c) | 必须**保留**源码中全部版权、专利、商标与署名声明（含各文件头的 SPDX 头） |
+| §4(d) | 必须**随衍生作品附带 [`NOTICE`](NOTICE)** 中的署名声明（可放在 NOTICE 文件、源码、文档或「关于」页） |
+| §6 | 不授予商标使用权：不得以本项目名义背书或暗示关联 |
+| §7 | 免责声明：软件按「原样」提供，无任何担保 |
+
+**署名落地方式**（本项目已就位，便于「只复制一个文件」也带出处）：
+
+1. `LICENSE`（许可证全文）+ `NOTICE`（作者与第三方声明）位于仓库根；
+2. 每个自有源码文件头部带两行 SPDX 头：
+   `Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>` / `SPDX-License-Identifier: Apache-2.0`；
+3. 最小合规示例 → 在你的衍生作品里保留 `LICENSE` + `NOTICE`，并注明「基于 ReturnGuard（https://github.com/a703201/ReturnGuard）修改」。
+
+> ⚠️ **第三方内容不受本项目许可覆盖**（详见 `NOTICE`）：
+> `demo/cases.json` 等演示数据派生自 UCI Online Retail / Kaggle Amazon Returns / Kaggle TheLook 等公开数据集；
+> `docs/reference/ModelRouter_API.docx` 为第三方厂商接口文档；运行期依赖各自遵循其自身许可。
+> 复用这些内容时请同时保留其原始署名。
+
+> 如果你希望**衍生作品也必须开源**（禁止他人闭源再分发），Apache-2.0 做不到——那需要 GPL-3.0 / AGPL-3.0 这类
+> copyleft 许可；当前选择 Apache-2.0 是为了「宽松可用 + 强制署名」，与项目「可被自由参考」的定位一致。
 
 ## 已知边界与后续方向
 

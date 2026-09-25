@@ -1,0 +1,74 @@
+ReturnGuard 退货情报站
+ReturnGuard — Cross-border Returns Intelligence (evidence capture + group insight)
+
+Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+Project home: https://github.com/a703201/ReturnGuard
+
+Licensed under the Apache License, Version 2.0 — see the LICENSE file for the full text.
+
+
+Attribution notices required by the License (署名要求)
+----------------------------------------------------
+The Apache License 2.0 (§4) already requires everyone who copies, modifies or redistributes
+this work to keep the copyright / attribution notices. To make attribution unambiguous in
+practice:
+
+  - Keep this NOTICE file (or reproduce the attribution notices above in a readable place:
+    a NOTICE file, the source form, the documentation, or an "about" screen of a derivative
+    work — §4(d));
+  - Keep the LICENSE file with any copy or redistribution (§4(a));
+  - Mark files you changed with a prominent notice (§4(b));
+  - Retain all copyright, patent, trademark and attribution notices (§4(c)).
+
+If you reuse this project in a product, article, course or dataset, please also state that
+it is derived from the ReturnGuard project and link to the project home above. This is a
+polite request for good academic/commercial practice; the binding obligations are those in
+LICENSE.
+
+Each project-owned source file additionally carries a two-line SPDX header:
+    Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+    SPDX-License-Identifier: Apache-2.0
+so that copying a single file still carries the attribution notice.
+
+
+Third-party notices and exceptions (第三方声明与例外)
+---------------------------------------------------
+The items below are NOT part of this project's licensed work: they remain the property of
+their respective owners and are governed by their own terms. Nothing in this repository
+grants you rights to them.
+
+1) Derived demo dataset — demo/cases.json, demo/seed_real.csv, demo/real_returns_sample.csv
+   Derived from the following publicly available datasets:
+     - UCI Machine Learning Repository — "Online Retail"            (CC BY 4.0)
+     - Kaggle — "Amazon Returns Dataset / Product Returns"
+     - Kaggle — "TheLook e-commerce"
+   The original dataset files (~540MB) are NOT redistributed here; only the derived,
+   normalized case records are committed so the demo runs out of the box.
+   Note on semantics: the `platform` values in these derived files are channel labels
+   produced by this project's own "category × region" remapping rules
+   (see demo/convert_datasets.py → DATASET_PLATFORM_RULES). They are NOT platform fields
+   taken from the original datasets. When reusing these derived files, credit the original
+   dataset providers as well as this project, and keep this semantic note accurate.
+
+2) docs/reference/ModelRouter_API.docx
+   A third-party vendor API reference document, included verbatim for engineering reference
+   only. It is not authored by this project, is not covered by this project's license, and
+   must not be redistributed as if it were. Remove it if you do not have the right to keep it.
+
+3) Runtime / development dependencies
+   FastAPI, Uvicorn, SQLAlchemy, pydantic, requests, python-dotenv, python-multipart,
+   psycopg2-binary, reportlab, openpyxl, terser and their transitive dependencies are
+   copyrighted by their respective authors and distributed under their own licenses.
+   See demo/requirements.txt, demo/requirements-dev.txt and package.json.
+
+4) Documented third-party policies and figures
+   Platform return/dispute rules summarized in demo/platforms.py and the generated
+   documentation are compiled from the platforms' publicly published policies; they are
+   factual summaries for reference and do not imply endorsement by, or affiliation with,
+   any platform (Amazon, AliExpress, Temu, SHEIN, eBay, Shopee, Lazada, Walmart,
+   TikTok Shop). All trademarks belong to their respective owners; Apache-2.0 §6 grants
+   no trademark rights.
+
+5) PDF export font
+   The PDF report uses the CID font "STSong-Light" provided by reportlab. No third-party
+   font file is bundled with this repository.

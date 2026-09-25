@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """端到端验证 live_analyze：用两张本地图（退回件 / 本店主图）走真实视觉链路。
 
 证明单案取证「视觉实跑」已收口：①'同款(VL) / ②瑕疵(VL) / ②'红框(VL) / ③OCR 应全部 caps=True，

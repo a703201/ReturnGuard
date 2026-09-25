@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · AI 平台（Provider）注册表 —— 多厂商接口适配的单一来源。
 
 为什么需要这一层

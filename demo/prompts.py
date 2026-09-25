@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 提示词集中管理（live 模式）
 
 把 models_router 里散落的内联 prompt 统一抽到这里，按「方案功能编号 + 编排层级」组织，

@@ -1,6 +1,6 @@
 # ReturnGuard 退货判定逻辑说明（DECISION_LOGIC）
 
-> 适用版本：2.1.1（仓库根 `VERSION` 为单一来源）
+> 适用版本：2.1.2（仓库根 `VERSION` 为单一来源）
 > 关联文档：[`ARCHITECTURE.md`](ARCHITECTURE.md)（功能实现逻辑）、[`AI_PROVIDERS.md`](AI_PROVIDERS.md)（多平台对接）、[`API.md`](API.md)（接口契约）、[`AB_ROI_实证说明.md`](AB_ROI_实证说明.md)（口径边界）
 
 本文回答一个问题：**「退货信息被判定成什么」这件事，具体是按哪条规则算出来的。**

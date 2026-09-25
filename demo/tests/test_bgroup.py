@@ -1,3 +1,5 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """B组新增能力单测：阈值自标定 / CSV 导入 / 时间序列预测 / 选品避坑闭环。
 
 纯函数优先走单元断言；涉及 DB 的 importer 用 monkeypatch 收集落库行，避免污染测试库。

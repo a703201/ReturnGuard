@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 """ReturnGuard · 视觉模型可用性探针（tokenplan profile，限流解除后跑）
 
 对单案取证依赖的三个视觉能力逐一发起真实调用：

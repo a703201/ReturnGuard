@@ -1,3 +1,5 @@
+-- Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+-- SPDX-License-Identifier: Apache-2.0
 -- ReturnGuard 案件表 DDL
 -- 与 demo/db.py 中 SQLAlchemy `Case` 模型对齐（28 列：id + 27 业务字段）。
 --
