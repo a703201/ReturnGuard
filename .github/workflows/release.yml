@@ -1,0 +1,98 @@
+# =============================================================================
+# ReturnGuard · GitHub Release 工作流
+# 触发：推送形如 v* 的 Git tag（如 v2.1.2）
+# 行为：检出 → 配环境(Python+Node) → 构建(压缩前端) → 测试 → 从 tag 取版本号
+#       → 生成更新日志 → 打包 tarball+sha256 → 作为附件发布到 GitHub Release
+# 与 .gitea/workflows/release.yml、.gitcode-ci.yml 保持行为一致。
+# =============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 创建 Release 需要写仓库内容（含 releases）的权限
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout（含全部 tag，供生成更新日志）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r demo/requirements.txt -r demo/requirements-dev.txt
+          npm install
+
+      - name: Build（压缩前端静态资源）
+        run: node scripts/minify.mjs
+
+      - name: Test
+        run: pytest demo/tests -p no:cacheprovider -q
+
+      - name: Determine version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          {
+            echo "# ReturnGuard ${TAG#v}"
+            echo
+            echo "Release \`${TAG}\` — $(date +%F)"
+            echo
+            if [ -n "$PREV" ]; then
+              echo "## Changes since \`${PREV}\`"
+              echo
+              git log "${PREV}..${TAG}" --pretty=format:"- %s (%h)"
+            else
+              echo "## Changes"
+              echo
+              git log --pretty=format:"- %s (%h)"
+            fi
+          } > CHANGELOG_GEN.md
+
+      - name: Package release artifact
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          echo "$VERSION" > VERSION          # 让分发包的 VERSION 与 tag 一致
+          mkdir -p dist
+          tar -czf "dist/returnguard-${VERSION}.tar.gz" \
+            --exclude='.git' \
+            --exclude='docker/wheels/*.whl' --exclude='*.whl' \
+            --exclude='node_modules' --exclude='__pycache__' \
+            --exclude='*.db' --exclude='Dataset' --exclude='.env' \
+            demo docker scripts LICENSE NOTICE README.md CHANGELOG.md \
+            VERSION package.json pyproject.toml docs "openGauss部署指南.md"
+          ( cd dist && sha256sum "returnguard-${VERSION}.tar.gz" > "returnguard-${VERSION}.sha256" )
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ReturnGuard ${{ steps.ver.outputs.version }}
+          body_path: CHANGELOG_GEN.md
+          files: |
+            dist/returnguard-${{ steps.ver.outputs.version }}.tar.gz
+            dist/returnguard-${{ steps.ver.outputs.version }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

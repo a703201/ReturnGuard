@@ -1,0 +1,131 @@
+# =============================================================================
+# ReturnGuard · Gitea Release 工作流
+# 触发：推送形如 v* 的 Git tag（如 v2.1.2）
+# 行为：与 GitHub 版完全一致 —— 检出 → 配环境 → 构建 → 测试 → 取版本号
+#       → 生成更新日志 → 打包 → 调 Gitea API 创建 Release 并上传附件。
+#
+# 说明：
+# 1. Gitea Actions 与 GitHub Actions 语法兼容；本文件直接复用 actions/* 动作。
+#    若你的 Gitea 实例处于内网、Runner 无法访问 github.com 拉取动作：
+#    - 在实例设置里把 [actions].DEFAULT_ACTIONS_URL 设为 self，并把动作镜像到本实例；或
+#    - 把 uses 改为绝对地址，如 uses: https://your-gitea.com/owner/checkout@v4
+# 2. Runner 标签需匹配 runs-on（此处 ubuntu-latest）；不匹配时改为你 Runner 的实际标签
+#    （如 self-hosted / linux）。
+# 3. 发布使用内置作业令牌 secrets.GITEA_TOKEN（需 permissions: contents: write，
+#    在 Gitea 中 contents 同时覆盖 releases）。若实例要求 PAT，可换成自建 secret。
+#    鉴权头：本例用 `Authorization: Bearer $GITEA_TOKEN`；个别旧实例只认
+#    `Authorization: token $GITEA_TOKEN`，如遇 401 改之即可。
+# =============================================================================
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+      GITEA_API: ${{ github.server_url }}/api/v1
+      GITEA_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout（含全部 tag）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r demo/requirements.txt -r demo/requirements-dev.txt
+          npm install
+
+      - name: Build（压缩前端静态资源）
+        run: node scripts/minify.mjs
+
+      - name: Test
+        run: pytest demo/tests -p no:cacheprovider -q
+
+      - name: Determine version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          {
+            echo "# ReturnGuard ${TAG#v}"
+            echo
+            echo "Release \`${TAG}\` — $(date +%F)"
+            echo
+            if [ -n "$PREV" ]; then
+              echo "## Changes since \`${PREV}\`"
+              echo
+              git log "${PREV}..${TAG}" --pretty=format:"- %s (%h)"
+            else
+              echo "## Changes"
+              echo
+              git log --pretty=format:"- %s (%h)"
+            fi
+          } > CHANGELOG_GEN.md
+
+      - name: Package release artifact
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          echo "$VERSION" > VERSION
+          mkdir -p dist
+          tar -czf "dist/returnguard-${VERSION}.tar.gz" \
+            --exclude='.git' \
+            --exclude='docker/wheels/*.whl' --exclude='*.whl' \
+            --exclude='node_modules' --exclude='__pycache__' \
+            --exclude='*.db' --exclude='Dataset' --exclude='.env' \
+            demo docker scripts LICENSE NOTICE README.md CHANGELOG.md \
+            VERSION package.json pyproject.toml docs "openGauss部署指南.md"
+          ( cd dist && sha256sum "returnguard-${VERSION}.tar.gz" > "returnguard-${VERSION}.sha256" )
+
+      - name: Create Gitea Release and upload assets
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          TAG="${GITHUB_REF_NAME}"
+
+          # 组装 release 请求体（用 jq 安全转义多行 changelog）
+          jq -n \
+            --arg tag "$TAG" \
+            --arg name "ReturnGuard $VERSION" \
+            --arg body "$(cat CHANGELOG_GEN.md)" \
+            --arg sha "$GITHUB_SHA" \
+            '{tag_name:$tag, name:$name, body:$body, target_commitish:$sha}' \
+            > release.json
+
+          RELEASE_ID=$(curl -sS -X POST \
+            "$GITEA_API/repos/$GITEA_REPO/releases" \
+            -H "Authorization: Bearer $GITEA_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @release.json | jq -r .id)
+
+          echo "Created release id=$RELEASE_ID"
+
+          # 逐个上传附件（tarball + 校验和）
+          for f in "dist/returnguard-${VERSION}.tar.gz" "dist/returnguard-${VERSION}.sha256"; do
+            curl -sS -X POST \
+              "$GITEA_API/repos/$GITEA_REPO/releases/$RELEASE_ID/assets?name=$(basename "$f")" \
+              -H "Authorization: Bearer $GITEA_TOKEN" \
+              -F "attachment=@$f"
+            echo " -> uploaded $(basename "$f")"
+          done
