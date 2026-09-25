@@ -1,13 +1,14 @@
-# ReturnGuard 复赛 Demo（最小可运行版）
+# ReturnGuard Demo（最小可运行版）
 
-单笔退货**取证** → 多案聚合**洞察**的双闭环最小实现。前端单页（zh/en/fr 三语）+ FastAPI 后端，`mock` 模式零依赖即可演示，`live` 模式接真实阿里云百炼 Model Router。
+单笔退货**取证** → 多案聚合**洞察**的双闭环最小实现。前端单页（zh/en/fr 三语）+ FastAPI 后端，`mock` 模式零依赖即可运行，`live` 模式接真实阿里云百炼 Model Router。
 
 ## 目录
+
 ```
 demo/
   main.py            # FastAPI 装配层：app 创建 / 中间件注册 / 路由聚合 / lifespan
                      #   + VersionedStaticFiles（静态资源 URL 版本化 + no-store）
-  common.py          # 配置 / 依赖 / 限流 / 中间件 / 聚合辅助
+  common.py          # 配置 / 依赖 / 限流 / 中间件 / 聚合辅助（含 SEC-13 配额收口）
   routers/           # 按域拆分（P1-9，替代原 1180 行「上帝文件」）
     frontend.py      #   / 首页 · /health · /api/config · /metrics · /api/platforms
                      #   /api/file/{sig} 签名短链 · /api/img/{key} 自托管取图
@@ -22,7 +23,7 @@ demo/
   quota.py           # SEC-13 live 三层配额闸（全局日 / 账号日 / IP 小时）
   shared_state.py    # 限流/登录锁外置 SQLite（多 worker 安全，SEC-12）
   storage.py         # 可插拔图床（local/self/public_base/qiniu）+ 签名短链（SEC-8）
-  platforms.py       # 九平台举证规则引擎（交付物 A 数据源）
+  platforms.py       # 九平台举证规则引擎（平台适配举证包数据源）
   imghash.py         # 图片内容哈希单一口径（mock 与 live 回退共用）
   prompts.py         # 提示词版本 PROMPT_VERSION + 变体注册表（A/B 用）
   ab_experiment.py   # prompt 变体 A/B 台架（可复现对照）
@@ -38,52 +39,63 @@ demo/
     api.js           #   fetch 封装（自动带令牌）
     i18n.js          #   zh / en / fr 字典 + t() / setLang() / applyI18n()
     dist/            #   可选压缩产物（SERVE_MINIFIED=1 启用）
-  tests/             # 150 passed
+  tests/             # 测试套件
 ```
 
 ## 快速开始（mock 模式，无需 Key）
+
 ```bash
 cd demo
 pip install -r requirements.txt
 uvicorn main:app --host 127.0.0.1 --port 8000
 # 浏览器打开 http://127.0.0.1:8000
 ```
-> 容器部署见仓库根 README「快速开始 · 方式二」（映射到 `127.0.0.1:65432`）。
+
+> 容器部署见仓库根 `README.md`「快速开始 · 方式二」与 [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md)（映射到 `127.0.0.1:65432`）。
+> 默认连 openGauss；无 openGauss 时显式回退 SQLite：`DATABASE_URL=sqlite:///./cases.db`。
+
 - 切到「单案取证」Tab，上传「退回商品图」+「本店主图」→ 点「开始举证」：输出相似度、瑕疵标签、一致性、举证报告、母语语音、优先级，并展示**多模型协同编排链路**（逐能力真实 / 回退）。
 - 切到「市场洞察」Tab，或点「刷新看板」：聚合历史案件，展示品类热力、根因归因、供应商红黑榜、平台 × 供应商交叉、预测预警、ROI 回测、选品建议。
-- mock 相似度由**图片内容哈希**决定（`imghash.content_seed`），**同一对图结果可复现**，便于演示与录屏。
+- mock 相似度由**图片内容哈希**决定（`imghash.content_seed`），**同一对图结果可复现**。
 - 顶栏可切换界面语言（中文 / English / Français）。
 
 ## live 模式（接真实 Model Router）
+
 只需一个环境变量即可开跑：
+
 ```bash
 export MODEL_ROUTER_API_KEY=sk-xxx
 ```
+
 > **图片无需公网可达**：视觉输入默认由 `models_router._img_source` 转成 **base64 data URI 内联**发送，本机直跑即可。
-> `PUBLIC_IMAGE_BASE`（或 `RG_SELF_IMAGE_BASE` / `IMAGE_BED`）为**可选增强**——仅当希望走「公网 URL 回源」时才配置对象存储或自托管隧道。
+> `PUBLIC_IMAGE_BASE`（或 `RG_SELF_IMAGE_BASE` / `IMAGE_BED`）为**可选增强**——仅当希望走「公网 URL 回源」时才配置对象存储或自托管反代。
 
 选定网关 profile（三选一，改 `MODEL_ROUTER_PROFILE` 即可，`base_url` + key + 模型标识三者联动切换）：
 
 | profile | 基地址 | 用途 |
 |---|---|---|
-| `official` | `https://model-router.edu-aliyun.com/v1` | **赛事指定 Model Router**，提交口径 |
-| `tokenplan` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Token Plan 自测网关 |
+| `tokenplan` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | Token Plan 网关（默认） |
+| `official` | `https://model-router.edu-aliyun.com/v1` | 官方 Model Router（模型标识全部带 `qwen/` 前缀） |
 | `dashscope` | 阿里云百炼国内站兼容端点 | 自购按量，视觉/向量/OCR 齐全、数据不出境 |
 
-前端模式选 `live` 即可走真实链路。以 **official（赛事指定）** 为准的模型清单：
+前端模式选 `live` 即可走真实链路。以 **official** 为准的模型清单：
 `qwen/qwen3-vl-plus`（同款判定 + 瑕疵 + 红框）· `qwen/qwen-vl-ocr`（Listing OCR）· `qwen/qwen3.7-max`（卷宗 / 陈述 / 洞察归因）· `qwen/qwen3-rerank`（优先级）· `qwen/qwen3-tts-instruct-flash`（母语语音）· `qwen/tongyi-embedding-vision-plus`（图像向量，备选）。
 
 > ⚠️ 命名差异：tokenplan 下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（均无 `qwen/` 前缀）；official 下**必须带 `qwen/` 前缀**。且官方模型名单中 TTS 仅 `qwen/qwen3-tts-instruct-flash` 一个，`qwen-audio-3.0-tts-plus` 不在名单内。
-> （live 调用逐能力 try/except 回退；全部失败才整体回退 mock，保证演示不中断。）
-> 公网演示另有 SEC-13 三层配额闸（`LIVE_QUOTA_*`），超限返回 `429` 且不静默降级。
+> （live 调用逐能力 try/except 回退；全部失败才整体回退 mock，保证服务不中断。）
+> live 受 SEC-13 三层配额闸限制（`LIVE_QUOTA_*`），超限返回 `429` 且不静默降级。
 
 ## 测试与校验
+
 ```bash
-pytest tests -p no:cacheprovider -q          # 150 passed
-python ../scripts/check_i18n.py              # 三语键完整性（零缺失 / 三语一致 / 无重复键）
+# 从仓库根运行，coverage 路径与 pyproject 的 omit 规则据此匹配
+python -m pytest -q demo/tests               # 168 passed
+python scripts/check_i18n.py                 # 三语键完整性（零缺失 / 三语一致 / 无重复键）
 ```
 
-## 复赛交付映射
-- **可运行 Demo**：本服务即最小 Demo，已容器化部署为公开体验地址 `https://rg.a703201sworld.top`（`demo` / `demo123`）。
-- **代码仓库**：`https://github.com/a703201/ReturnGuard`（主）；Gitea / GitCode 镜像。
-- **演示视频**：录屏覆盖「单案举证 + 群体洞察」双闭环即可。
+## 入参边界（2.0.0 补齐）
+
+- 写接口一律须登录会话；`/api/analyze` 的 `amount` 必须有限且 `0~1e9`，`sku` / `category` / `supplier` / `listing_text` 有长度上限。
+- `/api/cases` 分页 `page ≥ 1`、`page_size ≤ 200`；手动录入字段长度与数值范围由 pydantic 校验（越界 422）。
+- 导入链路（CSV / xlsx）在持久层统一收敛：超长字符串按列长截断、`NaN` / `±Inf` 归零，单行脏数据不会让整批失败。
+- `/api/export_pdf` 按 IP 限流（`EXPORT_PDF_RATE_LIMIT`）；`/api/insights?mode=live` 与导出同样受 SEC-13 配额约束。

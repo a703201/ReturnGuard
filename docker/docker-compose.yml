@@ -95,7 +95,7 @@ services:
       # 公网演示默认关闭开放注册；如需开放再配 REGISTRATION_INVITE_CODE 走邀请制。
       REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
       REGISTRATION_INVITE_CODE: ${REGISTRATION_INVITE_CODE:-}
-      # 经 Cloudflare Tunnel 部署时直连 IP 恒为 127.0.0.1，须设为 127.0.0.1 才能还原真实
+      # 经反向代理 / CDN 部署时直连 IP 恒为 127.0.0.1，须设为 127.0.0.1 才能还原真实
       # 访客 IP，否则限流 / 防爆破会坍缩成全局单桶。
       AUTH_TRUSTED_PROXIES: ${AUTH_TRUSTED_PROXIES:-127.0.0.1}
       LOGIN_MAX_FAILS: ${LOGIN_MAX_FAILS:-5}
@@ -120,7 +120,7 @@ services:
       # 避免容器重建导致计数清零、配额闸被绕过。（SQLite 绝对路径需 4 个斜杠）
       STATE_DB_URL: ${STATE_DB_URL:-sqlite:////app/demo/state/rg_state.db}
     ports:
-      # 本地测试：对外仅暴露给 cloudflared 隧道（rg-tunnel.yml 指向 localhost:65432）
+      # 本地测试：仅绑定宿主机回环，避免把应用直接暴露到局域网
       - "127.0.0.1:65432:8000"
     # 安全加固（B-部署·防污染）：禁止容器提权，避免漏洞被利用做特权升级；
     # 不挂载宿主机源码/数据目录（无 bind-mount），镜像与宿主机相互隔离，运行期写仅落 volumes。

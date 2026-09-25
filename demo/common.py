@@ -44,6 +44,7 @@ from logging_setup import configure_logging, new_request_id, request_id
 # 导入业务逻辑层（pipeline 负责取证+洞察，models_router 负责真实模型调用）
 from pipeline import _empty_aggregate, _season_of, analyze_case, build_insights
 from platforms import get_platform_spec, is_valid_platform
+from quota import check_live_quota  # SEC-13：live 配额闸（分析 + 洞察 + PDF 导出共用）
 from schemas import AnalyzeResult, ManualCase
 from storage import backend_name, is_public_ready  # 图床（P3-17）
 from storage import upload as bed_upload
@@ -242,10 +243,10 @@ def _ip_in_set(ip: str, nets: list[str]) -> bool:
 def get_client_ip(request: Request) -> str:
     """代理感知客户端 IP：仅当直连客户端属于可信代理时才采纳转发头。
 
-    - Cloudflare Tunnel 等反向代理优先采用其下发的 CF-Connecting-IP（最权威的真实客户端 IP）；
+    - 反向代理 / CDN优先采用其下发的 CF-Connecting-IP（最权威的真实客户端 IP）；
     - 其次 X-Forwarded-For 首段 / X-Real-IP。
     未配置 AUTH_TRUSTED_PROXIES 时一律使用直连 IP，避免伪造转发头绕过限流（SEC-3）。
-    部署在 Cloudflare Tunnel 后，直连 IP 恒为 127.0.0.1，须把 AUTH_TRUSTED_PROXIES 设为
+    部署在反向代理 / CDN 之后，直连 IP 恒为 127.0.0.1，须把 AUTH_TRUSTED_PROXIES 设为
     127.0.0.1 才能正确还原真实访客 IP（否则按 IP 限流/防爆破会坍缩成全局单桶）。"""
     direct = request.client.host if request.client else "unknown"
     if _AUTH_TRUSTED_PROXIES and _ip_in_set(direct, _AUTH_TRUSTED_PROXIES):
@@ -491,6 +492,17 @@ def _get_insights(
             raise HTTPException(status_code=400, detail="platform 不在支持列表")
     if season and season not in ("春", "夏", "秋", "冬"):
         raise HTTPException(status_code=400, detail="season 仅支持 春/夏/秋/冬")
+    # SEC-13 配额闸覆盖洞察链路：`/api/insights?mode=live` 与 `/api/export_pdf?mode=live`
+    # 同样会调用付费 LLM（build_insights → build_insights_live），此前只给 /api/analyze
+    # 上了闸门，等于留了一条「换个端点绕开配额」的旁路——攻击者只需不断切换
+    # category/platform 过滤条件（每次都产生新的缓存键）即可持续消耗 Key 额度。
+    # 语义与 /api/analyze 一致：超限返回 429 + 明确原因，**不静默降级为 mock**。
+    if mode == "live":
+        allowed, reason = check_live_quota(
+            _resolve_tenant(request) or "anonymous", get_client_ip(request)
+        )
+        if not allowed:
+            raise HTTPException(status_code=429, detail=reason)
     # A23：过滤下推 SQL——category/platform/region 直接在查询层 WHERE 命中，
     # 不再全量 load_cases 后在 Python 逐条过滤；season 仍需 date→季节映射，留 Python 二次过滤。
     cases = load_filtered_cases(

@@ -4,6 +4,90 @@
 
 ---
 
+## [2.0.0] — 2026-09-25
+
+> **项目定位变更（MAJOR）**：由「一次性活动作品」转为**常规工程**。
+> 清除全仓历史项目语境、移除已停用的公网体验地址与配套隧道配置；在此基础上完成一轮
+> 全面的边界 / 异常处理补齐。**清理后项目可正常构建与运行**（测试全绿）。
+
+### 移除（Breaking）
+
+- **历史项目语境清零**：清除全仓活动名称、参与信息、评审语境、团队名与专用名词，
+  覆盖 `README` / `CHANGELOG` / `docs/*` / 代码注释 / `.env*` / 前端 i18n（含 fr/en
+  译文中的对应措辞）/ `docker/*`，并同步改写受影响的文案与交叉引用。
+- **公网体验地址退役**（该地址已停用）：移除对外域名与隧道代理相关链接、配置与脚本引用——
+  - 删除 `deploy/`（公网演示拉取脚本 + 隧道配置文件）；
+  - 删除 `docker/returnguard-tunnel.service`；
+  - `docker/docker-compose.yml` 中「暴露给隧道」的注释改为「仅绑定宿主机回环」。
+- **历史归档移除**：删除 `docs/legacy/`（方案稿 / 表单文案 / 创意方向等 9 份）。
+  其中的**网关接口参考**属可复用工程资料，迁出为 `docs/reference/ModelRouter_API.docx`。
+- **弃用编排移除**：删除 `docker/docker-compose.local.yml`（SQLite 绑挂载版，历史
+  遗留的 `disk I/O error` 来源）。
+- **运行时残留清理**：删除 `.rg_tunnel.pid`、`demo/_tunnel.log`、`demo/_uvicorn*.log`
+  与活动期图表产物 `assets/ReturnGuard_图表.pdf`；`.gitignore` / `.dockerignore`
+  同步去除对应条目与「历史交付物目录」排除项。
+- **启动脚本重写**：`start_rg.py` 由「容器 + 隧道」改为**纯容器生命周期脚本**，新增
+  `--build`（重建镜像）；`stop_rg.py` 去掉隧道终止逻辑，新增 `--down`（compose down，
+  保留数据卷）。两者路径全部由脚本自身位置推导，隧道相关环境变量（`CLOUDFLARED_*` /
+  `RG_TUNNEL_CONFIG`）不再使用。
+
+### 修复（Fixes）
+
+- **数据源隔离的真实缺口（P0）**：`db.py` 中 `REAL_DATABASE_URL` 的默认值此前**等于
+  demo 连接串**，即「未显式配置时 real 源会写进 demo 库」——「写入 real 绝不污染 demo
+  看板」的承诺只在 compose（显式注入）下成立，本机直跑或自定义 `DATABASE_URL` 的场景
+  会静默退化。现改为由 demo 串**派生独立库**（`_derive_real_url`：`returnguard` →
+  `returnguard_real`，`cases.db` → `cases_real.db`），无法派生时打 `CRITICAL` 提示显式配置。
+- **live 配额旁路（SEC-13）**：`/api/insights?mode=live` 与 `/api/export_pdf?mode=live`
+  同样调用付费 LLM，却不受配额闸约束——不断切换过滤条件（每次产生新缓存键）即可持续
+  消耗额度。现统一在 `common._get_insights` 内收口，语义与 `/api/analyze` 一致
+  （超限 `429` + 明确文案，不静默降级）。
+- **openGauss 口令硬编码**：`DEFAULT_OG` 不再把示例口令写死在源码，改为与部署侧同源
+  （`GS_PASSWORD` / `GS_HOST` / `GS_PORT` / `GS_USERNAME`，缺失时才回退本地开发示例值）。
+- **超长字段致 500**：openGauss 对 `VARCHAR(n)` 严格校验，超长字段此前直接 `DataError`
+  → 接口 500（历史上仅靠种子数据手工规避 `sku_name`）。新增仓储层 `_clamp_values`
+  统一收敛（按列长截断 + 日志留痕），一次覆盖手动录入 / 取证沉淀 / CSV·xlsx 导入三条链路。
+- **非有限数值污染聚合**：`NaN` / `±Inf` 会被 `float()` 接受并入库，进而把金额与均值
+  传染成 `NaN`。现持久层归零，接口层对 `/api/analyze` 的 `amount` 直接 400。
+- **文档漂移**：`docs/API.md` 记录的 `LIVE_QUOTA_*` 变量名与 `quota.py` 实际读取的
+  不一致（`..._DAILY` / `..._ACCOUNT_DAILY` / `..._HOURLY` vs `..._DAY` / `..._TENANT_DAY`
+  / `..._IP_HOUR`），照文档配置等于没配；`auth.py` 模块 docstring 的 KDF 轮数停留在
+  10 万（实际 60 万）；`/api/cases` 文档仍描述已移除的 `ANALYZE_API_KEY`。
+
+### 新增与加固（Features / Hardening）
+
+- **入参边界**：`/api/cases` 分页 `ge=1 / le=200`；`schemas.ManualCase` 全字段长度与
+  数值范围约束（越界 422 并指明字段）；`/api/analyze` 的 `sku` / `category` / `supplier`
+  / `listing_text` 长度上限与 `amount` 有限性校验（越界 400）；`/api/import_csv` 的表单
+  直贴文本新增体积上限（此前只校验上传文件大小）；`/api/calibrate` 样本量上限 5000。
+- **`/api/export_pdf` 限流**：报告生成为 CPU 重的同步任务且 demo 源允许匿名读，新增
+  按 IP 限流（`EXPORT_PDF_RATE_LIMIT`，默认 20 次/分钟，`0` 关闭）。
+- **`AnalyzeResult.persisted`**：显式声明落库标记（原先靠 `extra="allow"` 隐式通过），
+  前端据此提示「本次取证未落库」。
+- **`docker/docker-compose.pg.yml` 加固**：端口仅绑回环（此前 DB `5432:5432` 与
+  APP `8000:8000` 等价暴露到 `0.0.0.0`）、口令强制必填、新增 `realdb-init` 创建独立
+  real 库以保持物理隔离、补 `AUTH_SECRET` / `ADMIN_API_KEY` / `STATE_DB_URL` 等透传、
+  挂载持久化卷。
+- **文档一致性守护扩展**（`demo/tests/test_docs_consistency.py` 12 → 18 例）：
+  - 全仓不得残留历史项目语境（词表命中即失败并给出行号）；
+  - 不得出现已退役的公网地址 / 隧道关键字；
+  - 历史归档目录与公网演示脚本必须已移除；
+  - `package.json` 版本必须等于 `VERSION`（曾长期停在 1.1.2）；
+  - `docs/API.md` 的 `LIVE_QUOTA_*` 变量名与 `quota.py` 双向一致；
+  - `.env.example` 必须覆盖全部配额变量。
+- **边界回归测试** `demo/tests/test_hardening.py`（12 例）：配额闸覆盖面（live 洞察 /
+  mock 不受影响 / PDF 限流）、分页与字段边界、CSV 文本体积、标定样本量、`_clamp_values`
+  收敛、real 连接串派生与双源隔离。
+- **新增 `docs/DEPLOYMENT.md`**：容器化部署、环境变量清单、真实数据自动导入、故障排查。
+- **README 重写**：去除历史项目语境与体验地址，补齐能力矩阵、环境变量清单、质量门禁与
+  目录结构；`package.json` 版本对齐 `VERSION`。
+
+### 测试
+
+- 测试总数 **150 → 168 passed 全绿**；文档一致性守护 12 → **18 例**，边界回归 **12 例**。
+
+---
+
 ## [1.1.5] — 2026-09-14
 
 > 全项目文档与代码实现一致性收口：修正 3 处**事实性错误**，补齐 API 文档缺失的 8 个端点，并新增**文档漂移守护测试**防止再次失准。
@@ -41,7 +125,7 @@
 > 修复「**本机正常、公网升级不生效**」的根因：中间 CDN 覆写缓存头。改为**静态资源 URL 版本化**，从机制上不依赖链路是否遵守缓存协议。
 
 ### 缺陷修复
-- **根因定位**：1.1.3 把 `/static/*` 的 `max-age=60` 改成 `no-cache` 后，`localhost` 已正常，但公网 `rg.a703201sworld.top` 仍显示旧版（法语选项可见但切语言无效、下拉显示裸 key `lang.fr`）。实测抓包对比：
+- **根因定位**：1.1.3 把 `/static/*` 的 `max-age=60` 改成 `no-cache` 后，`localhost` 已正常，但经 CDN 的公网入口仍显示旧版（法语选项可见但切语言无效、下拉显示裸 key `lang.fr`）。实测抓包对比：
   | 链路 | `Cache-Control` |
   |---|---|
   | origin（本机） | `no-cache` ✅ |
@@ -89,7 +173,7 @@
 
 ## [1.1.2] — 2026-08-27
 
-> Live 合规清单 + 平台规则出处核验 + 复赛交付物总览；**演示数据集真实化（1206 条）+ 平台扩展至 9 个**；并根治「official profile 模型标识错配」导致无法一键切官方 Model Router 的缺陷。
+> Live 合规清单 + 平台规则出处核验 + 交付物总览；**演示数据集真实化（1206 条）+ 平台扩展至 9 个**；并根治「official profile 模型标识错配」导致无法一键切官方 Model Router 的缺陷。
 
 ### 数据集与维度扩展（重大变更）
 - **真实数据集替换**：demo 演示库由固定种子合成案件替换为 **1206 条真实退货案件**（`demo/cases.json`），胜诉率 **34.6%**；原合成集留存为 `demo/cases_synthetic_backup.json`。
@@ -101,8 +185,9 @@
 - **模型标识 profile 化**：`_MODEL_ROUTER_PROFILES` 新增 `models` 字典，文本/VL/OCR/向量/rerank/TTS 标识随 profile 固化并由 `MODELS[...]` 统一下发，杜绝 base_url 与模型名错配。
 - **修复 official 错配**：旧代码在 official profile 下仍向官方端点发无前缀模型名（`qwen3.7-max` / `qwen-audio-3.0-tts-plus` / `qwen3-rerank`），官方会 404。现 official 用 `qwen/qwen3.7-max` / `qwen/qwen3-tts-instruct-flash` / `qwen/qwen3-rerank`。
 - **文本模型前缀补齐**：official 下若 `.env` 遗留 tokenplan 风格无前缀命名，自动补 `qwen/` 前缀，保证「改一个 `MODEL_ROUTER_PROFILE` 即一键切官方」。
-- 新增交付物：`docs/LIVE_COMPLIANCE.md`（逐项核对表 + 一键切换步骤 + 评委风险）、`docs/PLATFORM_SOURCES.md`（Amazon/AliExpress/Temu/SHEIN 四个核心平台官方政策 URL 核验 + 准确性判定；其余 5 个平台待核验）、`docs/复赛交付物总览.md`（提交清单 + 阶段成果 + 体验指引 + GitCode 镜像说明）。
-- README 顶部新增「一分钟速览」（体验地址 / 测试账号 / 版本 / live 合规指针）。
+- 新增交付物：`docs/LIVE_COMPLIANCE.md`（逐项核对表 + 一键切换步骤 + 风险点）、`docs/PLATFORM_SOURCES.md`（Amazon/AliExpress/Temu/SHEIN 四个核心平台官方政策 URL 核验 + 准确性判定；其余 5 个平台待核验）、交付物总览（提交清单 + 阶段成果 + 体验指引 + GitCode 镜像说明）。
+  > ⚠️ **后续更正（2.0.0）**：上述交付物随历史材料一并移出仓库；其中的**网关接口参考**保留为 `docs/reference/ModelRouter_API.docx`，其余不再随仓库分发。
+- README 顶部新增「一分钟速览」（访问方式 / 测试账号 / 版本 / live 合规指针）。
 
 ### 修复（Fixes）
 - **P0 安全三洞**：大厂标准审查发现的 3 项 P0 安全问题已修复并回归验证。
@@ -111,38 +196,36 @@
 - **CI 转绿**：流水线恢复全绿；当前测试 **88 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 两条此前零覆盖关键链路的补齐用例）。
 
 ### 文档（Docs）
-- **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「本地自持（远端接口预留）」；公网体验地址更正为「已上线」（https://rg.a703201sworld.top ，`demo`/`demo123`）。
-- **开发与部署统一 openGauss**：`db.py` 默认连接改为 openGauss（本地 `localhost:5432/returnguard`，需先 `docker compose -f docker/docker-compose.yml up -d db`），移除「开发期回退 SQLite」表述；01_技术文档架构图、README/PRD/SCHEMA/答辩Q&A/部署指南同步更新；GitCode 镜像地址补全为 https://gitcode.com/a703201/ReturnGuard；`docker-compose.local.yml`（SQLite 版）标记弃用。
+- **全仓文档一致性整改**：版本号统一为 1.1.2；案件总数统一为 1206、胜诉率统一为 34.6%、平台数统一为 9；图床状态更正为「本地自持（远端接口预留）」。
+- **开发与部署统一 openGauss**：`db.py` 默认连接改为 openGauss（本地 `localhost:5432/returnguard`，需先 `docker compose -f docker/docker-compose.yml up -d db`），移除「开发期回退 SQLite」表述；架构图、README/PRD/SCHEMA/常见问题/部署指南同步更新；GitCode 镜像地址补全为 https://gitcode.com/a703201/ReturnGuard；`docker-compose.local.yml`（SQLite 版）标记弃用（**2.0.0 已删除**）。
 - `docs/CODE_REVIEW.md` 新增第十一节「大厂标准审查结论摘要」（综合 5.8/10 六维评分 + 已闭环项 + 待跟进项）。
-- 初赛过程材料归档至本仓库 `docs/legacy/`（9 份初赛文档于 2026-08-29 由工作区根目录统一归档，原散落的 `docs_legacy/` 亦并入；根目录仅保留仓库与 `复赛交付物/`）。
+- 过程性草稿与方向探讨材料曾归档至 `docs/legacy/`（**2.0.0 已整体移除**，仅保留可复用的网关接口参考 `docs/reference/ModelRouter_API.docx`）。
 
 ### 2026-08-29 部署加固与稳定性修复（同版本 1.1.2 内的补丁集合）
 
-> 审查报告 26 项路线图全部收口后，针对「公网复赛演示」做的部署层收口。版本号维持 1.1.2（`VERSION` 与 `/api/config` 一致），不另行发版。
+> 审查报告 26 项路线图全部收口后，针对「公网演示」做的部署层收口。版本号维持 1.1.2（`VERSION` 与 `/api/config` 一致），不另行发版。
 
 - **前端 ESM 拆分收口（#24 / 8cbf308）**：前端拆为 `store.js`(单一状态源) + `api.js` + `render.js` + `app.js`(入口编排)；修复拆分时遗留、会导致整文件 JS 语法损坏的游离字符；并修复 `$` 函数未从 `render.js` 导出导致 `init` 抛 `ReferenceError`、页面点击无反应的 bug。
 - **零覆盖测试补齐（#11）**：新增 `demo/tests/test_coverage_gap.py`，覆盖 `GET /api/export_pdf` 与 `POST /api/import_csv` 两条此前 0 覆盖链路；测试 **86 → 88 passed**。
-- **openGauss 部署切换（610fb0e）**：公网主力由 SQLite 版（`docker-compose.local.yml`）切到 openGauss 版（`docker-compose.yml`），**demo / real / auth 三库全部落在 openGauss**（`db:5432/returnguard`），用户库不再落容器内 SQLite、跨重启不丢；app 端口对齐隧道 `127.0.0.1:65432:8000`。
+- **openGauss 部署切换（610fb0e）**：部署主力由 SQLite 版（`docker-compose.local.yml`）切到 openGauss 版（`docker-compose.yml`），**demo / real / auth 三库全部落在 openGauss**（`db:5432/returnguard`），用户库不再落容器内 SQLite、跨重启不丢；app 端口统一为 `127.0.0.1:65432:8000`（仅绑宿主机回环）。
 - **sku_name 长度溢出修复（610fb0e）**：`db.py` 中 `sku_name` 由 `String(128)` 扩至 `String(256)`——cases.json 中有商品名长达 145 字符，openGauss 严格长度校验在批量插入种子时抛 `DataError: value too long for type character varying(128)`；重建镜像 + 清 `ogdata` 卷重播种子，openGauss 现承载 **1206 条** demo 案件。
 - **Docker 本地 WAL 崩溃修复（e614140）**：Docker 把主机 `demo/` 绑挂载进容器时，SQLite 在 `PRAGMA journal_mode=WAL` 因 `-shm`/mmap 在 Windows 挂载点不支持而抛 `disk I/O error`、启动即崩；新增 `SQLITE_NO_WAL` 环境变量开关（默认关），本地部署设 `1` 时改用 DELETE 日志模式，宿主机原生 fs / openGauss 不受影响。
 - **版本号 Vunknown 修复（c4b12ed）**：Dockerfile 原 `COPY demo/ .` 把源码拍平到 `/app`，使 `main.py` 按 `__file__/../VERSION` 计算版本时路径断裂、返回 `unknown`；改为 `COPY demo/ ./demo/` 保持与本地一致的目录结构，entrypoint 启动前 `cd demo`，并为 `_read_app_version()` 增加 `../VERSION → ./VERSION` fallback。现 `/api/config.version` 正确返回 `1.1.2`。
 
-### 2026-09-08 复赛材料合规与全仓文档口径统一（同版本 1.1.2 内的补丁集合）
+### 2026-09-08 对外材料合规与全仓文档口径统一（同版本 1.1.2 内的补丁集合）
 
-> 针对「复赛提交材料」做的合规整改与文档收口。**仅改文档与提交材料，不改运行时逻辑**，版本号维持 1.1.2。
+> 针对「对外发布材料」做的合规整改与文档收口。**仅改文档与提交材料，不改运行时逻辑**，版本号维持 1.1.2。
+> ⚠️ 本节涉及的对外提交材料（模板填写版 / 各分册 / 检查报告等）已于 **2.0.0** 随项目转为常规工程一并移出仓库，
+> 以下仅作为变更历史保留。
 
-- **提交模板合规（P0）**：`复赛交付物/ReturnGuard_复赛作品_官方模板填写版.docx` 按官方模板逐项核对，修正 3 类问题：
-  - **团队名错填**：原填「ReturnGuard（跨境退件法医）」把产品名当团队名，更正为 **Lumio**。
-  - **章节号错位**：模板实为五部分，原文多处引用「第七部分」，统一改为「第五部分」（采用**单次正则整体替换**，避免链式替换把「第五部分」二次改写）。
-  - **模型标识不合规（P0）**：原按 `tokenplan` 命名书写，赛事要求 Model Router（`official`）口径。已全部补 `qwen/` 前缀。
-- **TTS 模型更正（P0）**：原提交材料写的 `qwen-audio-3.0-tts-plus` **不在 `ModelRouter_API.docx` 的 126 个官方模型名单内**；官方 TTS 仅 `qwen/qwen3-tts-instruct-flash` 一个，已统一更正。6 个模型全部对照官方名单核验通过（详见 `复赛交付物/模板合规检查报告.md`）。
-- **产品命名统一**：全仓统一为「**ReturnGuard 退货情报站**」。旧称「退件法医 / 跨境退货举证官」仅存于 `docs/legacy/` 历史材料，新文档一律不再使用（此前审查报告第 14 项「产品名三套并存」至此收口）。
+- **模型标识合规（P0）**：对外材料原按 `tokenplan` 命名书写，统一改为 Model Router（`official`）口径，全部补 `qwen/` 前缀。
+- **TTS 模型更正（P0）**：原材料写的 `qwen-audio-3.0-tts-plus` **不在 `ModelRouter_API.docx` 的 126 个官方模型名单内**；官方 TTS 仅 `qwen/qwen3-tts-instruct-flash` 一个，已统一更正并对照官方名单核验。
+- **产品命名统一**：全仓统一为「**ReturnGuard 退货情报站**」。旧称「退件法医 / 跨境退货举证官」不再使用（此前审查报告第 14 项「产品名三套并存」至此收口）。
 - **全仓模型命名整改**：
   - `README.md` 模型映射表改为 **official / tokenplan 双列**对照，并修正误写的 `qwen/qwen3-max` → `qwen/qwen3.7-max`；删除不存在的 `qwen/deepseek-r1`（洞察层复用文本模型，`deepseek-v4-pro` 等仅存在于 `compare_models.py` 对比实验）。
   - `demo/README.md` 补全三 profile 对照表与命名差异警告。
-  - `docs/PRD.md`、`docs/API.md`、`复赛交付物/01_技术文档.md`、`03_测试账号与部署说明.md`、`04_分阶段成果说明.md`、`00_交付物清单.md`、`答辩Q&A话术.md` 同步改为 official 口径。
-- **陈旧表述清理**：`评审一页纸.md` 的「双 SQLite 物理隔离」更正为 openGauss 独立库（`returnguard` / `returnguard_real`）；演示路径章节的 4 分钟 V2 镜序标注作废、指向 V3（3:00）。
-- **新增**：`复赛交付物/模板合规检查报告.md`（逐项合规结论 + P0/P1 清单）、`_fix_template_docx.py`（模板修正脚本，备份 `_备份_20260908.docx`）、`_docx_read.py`（纯标准库 docx 读取器，python-docx 环境异常时的兜底）。
+  - `docs/PRD.md`、`docs/API.md` 同步改为 official 口径。
+- **陈旧表述清理**：对外一页纸材料中的「双 SQLite 物理隔离」更正为 openGauss 独立库（`returnguard` / `returnguard_real`）；演示录屏脚本的旧镜序标注作废、指向新版。
 
 ### 2026-09-10 大厂标准审查 P1 / P2 全量收口（同版本 1.1.2 内的补丁集合）
 
@@ -157,7 +240,7 @@
 - **P2-14 幻觉数值校验**：`pipeline._reconcile_insights` 新增 LLM 输出与真实聚合数值一致性校验——win_rate / total_cases / 各维胜诉率与聚合偏差超阈值即回退 mock 聚合并标注 `reconciled_from='aggregate'`，不再仅靠 prompt 约束防幻觉。
 - **P2-6 前端骨架屏 + 构建链路**：`index.html` 加 shimmer 骨架屏样式，首屏数据抵达前显示占位（渲染覆盖后自然消失）；新增 `package.json` + `scripts/minify.mjs` 轻量 terser 压缩构建链路（建议项，**不接入 CI** 以免破坏演示）。
 - **P2-7 前端 i18n**：新增 `demo/static/i18n.js`（zh/en 字典 + `t()` / `setLang()` / `applyI18n()`），顶栏新增语言切换并持久化偏好；可见标签抽取 `data-i18n` 接线（默认 zh 与现界面一致，en 为对照译本）。
-- **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在评委指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
+- **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在新手指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
 
 ### 2026-09-10 第二轮多维度复查收口（图床 / rerank / 供应商 / ROI / i18n / 构建）
 
@@ -175,7 +258,7 @@
 > 第二轮审查报告（`ReturnGuard_大厂标准多维审查_20260910.md`）遗留四项全量收口。版本号维持 1.1.2。测试 **112 → 123 passed 全绿**，ruff / mypy（31 files）/ pytest 四道门禁本地全通过。
 
 - **#1 母语多语 TTS**：TTS 音色不再硬编码 `Chelsie`。`constants.py` 新增语言→音色映射与 `DEFAULT_LANGUAGE`（单一来源）；`models_router.tts()` 按 `language` 选音色；`live_analyze()` 新增 `language` 入参（LLM 用目标语言生成陈述、TTS 用对应音色）；`prompts.voice_statement()` 提供多语陈述模板（mock 与 live 文本回退共用同一口径，未知语言回退中文）；`/api/analyze` 接收 `language`、`/api/config` 下发 `languages` 清单；前端取证表单新增语言选择器，结果区展示「语言 · 音色」。新增 4 条回归用例。
-- **#2 正文级 i18n**：`data-i18n` 由 30 处扩展到 **116 处**（卡片 desc / 表头 / ROI 面板 / 评委指引 / 取证与录入表单标签）；**动态渲染层首次接入**——`render.js` / `app.js` 中 185 处硬编码中文改为 `t()` 调用（看板正文、供应商下钻、平台举证包、报告导出、状态提示、分页、导入结果）；`i18n.js` 字典 zh/en 各 **316 键**（原 119），键完整性由脚本逐项对账（无缺失、无冗余）；切换语言后会重渲染动态区块（此前动态区仍是旧语言）。后端返回的**数据值**（洞察正文、缺陷标签、供应商名）仍为其原始语言，已在 `docs/` 与注释中声明边界。
+- **#2 正文级 i18n**：`data-i18n` 由 30 处扩展到 **116 处**（卡片 desc / 表头 / ROI 面板 / 新手指引 / 取证与录入表单标签）；**动态渲染层首次接入**——`render.js` / `app.js` 中 185 处硬编码中文改为 `t()` 调用（看板正文、供应商下钻、平台举证包、报告导出、状态提示、分页、导入结果）；`i18n.js` 字典 zh/en 各 **316 键**（原 119），键完整性由脚本逐项对账（无缺失、无冗余）；切换语言后会重渲染动态区块（此前动态区仍是旧语言）。后端返回的**数据值**（洞察正文、缺陷标签、供应商名）仍为其原始语言，已在 `docs/` 与注释中声明边界。
 - **#3 A/B 对照 + ROI 回测实证**：
   - **ROI 回测**：`pipeline._roi_backtest()` 基于**真实聚合值**（案件量/退款/争议占比/胜诉率/物流成本）输出**保守 / 基准 / 乐观**三档可挽回区间 + 单因子敏感性（案件量、争议占比 ±20%），胜诉率提升受「上限 − 当前」双重约束不会溢出；`method` 与 `disclaimer` **随结果强制下发**并声明「模型回测，非 A/B 实测因果」；接入 `/api/insights` 与前端 ROI 面板（与上方全假设 what-if 并列展示）。新增 7 条回归用例（含诚实性字段断言）。
   - **A/B 台架**：新增 `demo/ab_experiment.py`，同一批案件、同一模型、同一聚合输入下对比 prompt 变体 A/B，量化 JSON 可用率、幻觉对账 mismatch、耗时、字段填充率；`--mode mock` 可零成本干跑验证台架。⚠️ 修复台架自身缺陷：连跑 A/B 时变体 B 会**命中变体 A 的洞察缓存**（实测 0.01s 返回、mismatch 与 A 完全相同），已在每次运行前清空 `_ins_cache`。
@@ -190,10 +273,10 @@
 ### 安全加固（Security · SEC-1 ~ SEC-12）
 - **SEC-1 写接口鉴权全开**：新增 `_require_session`（写接口须登录会话）+ `_require_admin`（`/api/calibrate`、`/metrics` 须 `ADMIN_API_KEY` 或登录）；`/api/analyze`、`POST/DELETE /api/cases`、`/api/import_csv` 收口。匿名写接口 → **401**（公网实测一致）。
 - **SEC-2 `AUTH_SECRET` 静默忽略**：`auth.py` 顶部补 `load_dotenv()`（pytest 守卫），`_SECRET` 统一转 bytes，支持 `secrets.token_hex(32)` 配置；令牌跨重启可验。
-- **SEC-3 代理 IP 误判**：`get_client_ip` 优先采纳 `CF-Connecting-IP`（Cloudflare Tunnel），部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`；限流/防爆破在多 worker 下生效。
+- **SEC-3 代理 IP 误判**：`get_client_ip` 优先采纳 `CF-Connecting-IP`（反向代理 / CDN），部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`；限流/防爆破在多 worker 下生效。
 - **SEC-4 停用 `?token=` 传令牌**：仅读 `Authorization: Bearer` / `X-Token` 头，避免令牌经 URL/日志泄露。
 - **SEC-5 数据变更须登录**：写接口统一 `_require_session`，`public` 基准亦须登录态。
-- **SEC-6 公网关注册**：`REGISTRATION_ENABLED=false`（评委用内置 demo/demo123），保留可选 `REGISTRATION_INVITE_CODE`。
+- **SEC-6 公网关注册**：`REGISTRATION_ENABLED=false`（使用内置 demo/demo123），保留可选 `REGISTRATION_INVITE_CODE`。
 - **SEC-7 `/metrics` 收口**：纳入 `_require_admin`（匿名 401）；`/api/config` 保留开放（仅透出非敏感常量）。
 - **SEC-8 上传图签名短链（PII 收敛）**：删除 `/uploads` 静态公开挂载；本地兜底 URL 改由 `storage.sign_upload_url()` 生成 HMAC 签名 + TTL 短链 `/api/file/{sig}?f=&e=`，含路径穿越防护；OSS/七牛公网 URL 不受影响。匿名 `/uploads/任意` → **404**；有效签名 → **200**，伪造/过期 → **404**。
 - **SEC-9 CSP nonce 硬化**：首页每请求生成 `secrets.token_urlsafe(16)` nonce 注入内联 `<script>`，CSP `script-src 'self' 'nonce-…'` 去 `unsafe-inline`（style-src 保留 unsafe-inline 为已知权衡）。
@@ -201,8 +284,8 @@
 - **SEC-11 API Key 常量时间比较**：`_require_api_key`/`_require_admin` 改用 `hmac.compare_digest`。
 - **SEC-12 多 worker 共享状态外置**：新增 `shared_state.py`（独立 SQLite `rg_state.db` 存限流/登录锁，滑动窗口防爆破）；`db.py` 代际计数落库 `rg_kv` 表，根治多 worker 陈旧缓存。
 
-### 前端 / 评委体验
-- 金额配色提亮、胜诉率环图还原、评委引导横幅、空态文案优化。
+### 前端 / 用户体验
+- 金额配色提亮、胜诉率环图还原、使用者引导横幅、空态文案优化。
 
 ### 修复（Fixes）
 - 修 `storage` 密钥导入期捕获漂移（改动态 `auth._SECRET`）。
@@ -220,7 +303,7 @@
 
 ## [1.1.0] — 2026-08-21
 
-> 复赛冲刺版本：A 组「假能力变真」、B 组「数据闭环」、C 组「多租户 + 合规 + 国产化部署」全部落地；测试 30 → 65，lint 门禁清零。
+> 上线冲刺版本：A 组「假能力变真」、B 组「数据闭环」、C 组「多租户 + 合规 + 国产化部署」全部落地；测试 30 → 65，lint 门禁清零。
 
 ### A 组 · 把「假能力」变真（live 就绪 + 图床 + 逐能力回退）
 - **A1 真·同款图像向量比对**：live 模式接入图向量余弦（`tongyi-embedding-vision-plus`），图床回源；gateway 未开通时自动回退确定性 mock，逐能力标记真实/回退（`capabilities` 映射）。
@@ -261,7 +344,7 @@
 
 ## [1.0.0] — 2026-08-16
 
-> 复赛交付基线版本。首次将「退货情报站」作为完整产品形态对外交付：群体洞察看板为产品核心，单案取证为数据采集管道。
+> 交付基线版本。首次将「退货情报站」作为完整产品形态对外交付：群体洞察看板为产品核心，单案取证为数据采集管道。
 
 ### 新增（Features）
 - **大屏市场洞察看板**：9 张卡片（品类热力 / 根因归因 / 供应商红黑榜 / 平台对比 / 异常预警 / SKU 明细 / 老板报告 / 下一步建议 / 平台×供应商交叉矩阵），适配电脑 / 平板 / 电视多比例，单页占满不整页滚动。
@@ -279,7 +362,7 @@
 
 ### 文档（Docs）
 - 大厂标准代码审查报告（`docs/CODE_REVIEW.md`「六、」章节，综合评级 B-，落地 P1/P2/P3 共 17 项）。
-- 复赛录屏脚本 V1.0（3 分钟精华版，纯分镜/口播）。
+- 录屏脚本 V1.0（3 分钟精华版，纯分镜/口播）。
 
 ### 已知限制（Known Issues）
 - 单案取证的缺陷红框为演示示意框，未接入真实视觉模型（live 红框标注待做）。
@@ -290,7 +373,7 @@
 
 ## 版本规则
 
-- **主版本（MAJOR）**：不兼容的架构/产品定位变更（如赛道方向调整）。
+- **主版本（MAJOR）**：不兼容的架构/产品定位变更（如产品方向调整）。
 - **次版本（MINOR）**：向后兼容的功能新增（如新增洞察维度、新增平台）。
 - **修订（PATCH）**：向后兼容的问题修复（如 bug 修复、文案微调）。
 - 每次发版在本文档新增一个 `## [x.y.z]` 区块，并更新仓库根 `VERSION` 文件为同一版本号。

@@ -5,7 +5,7 @@ JSON 响应（choices[0].message.content / reasoning_content），断言：
   - 请求体含正确的 model 名（来自当前 profile 的 MODELS）与 messages 结构；
   - 响应解析（_extract_json / llm / llm_json）对 markdown 围栏、<think> 思考链、截断、
     多段 JSON 等真实噪声鲁棒；
-  - 模型命名契约：official 等赛事档模型须带 qwen/ 前缀，杜绝 404/模型不存在。
+  - 模型命名契约：official 等官方档模型须带 qwen/ 前缀，杜绝 404/模型不存在。
 """
 
 import re
@@ -75,7 +75,7 @@ def test_extract_json_robustness():
 
 
 def test_model_naming_contract():
-    """模型命名契约：official 等赛事档全部模型须带 qwen/ 前缀，杜绝 404/模型不存在。"""
+    """模型命名契约：official 等官方档全部模型须带 qwen/ 前缀，杜绝 404/模型不存在。"""
     for prof_name, prof in mr._MODEL_ROUTER_PROFILES.items():
         models = prof.get("models", {})
         for cap, mname in models.items():

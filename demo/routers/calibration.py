@@ -8,17 +8,21 @@ from __future__ import annotations
 from calibration import load_calibration_record
 from common import _require_admin, get_active_threshold, logger, save_calibration, suggest_threshold
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 
 
 # ===================== B组：相似度阈值自标定 + 真实数据回流 =====================
 class CalibrateRequest(BaseModel):
-    """阈值自标定输入：真同款样本相似度、真调包样本相似度。"""
+    """阈值自标定输入：真同款样本相似度、真调包样本相似度。
 
-    same_sims: list[float] = []
-    diff_sims: list[float] = []
+    样本数上限 5000：Youden J 标定是 O(n log n) 的排序 + 扫描，无上限时可用
+    超大数组拖垮同步端点（每请求都在线程池里跑）。超出直接 422。
+    """
+
+    same_sims: list[float] = Field(default_factory=list, max_length=5000)
+    diff_sims: list[float] = Field(default_factory=list, max_length=5000)
 
 
 @router.get("/api/calibrate")

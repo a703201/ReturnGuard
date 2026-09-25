@@ -65,7 +65,7 @@ export function switchTab(name){
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
 
-// 评委体验指引横幅（P0-2）：可关闭（仅会话内，刷新即重现），步骤 2 可点击跳转
+// 新手体验指引横幅（P0-2）：可关闭（仅会话内，刷新即重现），步骤 2 可点击跳转
 
 (function initJudgeGuide(){
   const guide=document.getElementById('judgeGuide');

@@ -166,7 +166,7 @@
     .kpis{gap:6px}
     .hrow1{gap:8px;flex-wrap:wrap}
     .hrow2{gap:8px}
-    /* 评委指引面板手机端全宽 + 缩小内边距 */
+    /* 新手指引面板手机端全宽 + 缩小内边距 */
     .judge-guide{top:52px;width:calc(100% - 16px);max-width:none;padding:10px 12px;border-radius:10px;font-size:11.5px}
     .judge-guide .jg-body{font-size:11.5px;line-height:1.5}
     .judge-guide .jg-steps{gap:4px 8px}
@@ -295,12 +295,12 @@
   .steps .st.cur{color:#04121f;background:var(--acc);border-color:var(--acc);box-shadow:0 4px 14px rgba(56,189,248,.25)}
   .steps .st.done{color:var(--ok);border-color:rgba(52,211,153,.4)}
   .steps i{width:18px;height:1px;background:#334155}
-  /* 分析中提示（live 模式耗时长，需让评委知道在跑而非卡死） */
+  /* 分析中提示（live 模式耗时长，需让使用者知道在跑而非卡死） */
   .analyzing{display:flex;align-items:center;gap:8px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.35);border-radius:8px;padding:8px 12px;margin-top:10px;font-size:13px;color:var(--acc)}
   .analyzing.hide{display:none!important}
   .analyzing .spin{width:14px;height:14px;border:2px solid rgba(56,189,248,.3);border-top-color:var(--acc);border-radius:50%;animation:spin .9s linear infinite;flex:none}
   @keyframes spin{to{transform:rotate(360deg)}}
-  /* 结果模式徽标：让评委一眼看出是真 AI 还是演示 */
+  /* 结果模式徽标：让使用者一眼看出是真 AI 还是演示 */
   .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;vertical-align:middle}
   .badge.mock{background:rgba(56,189,248,.15);color:var(--acc);border:1px solid rgba(56,189,248,.35)}
   .badge.live{background:rgba(52,211,153,.15);color:var(--ok);border:1px solid rgba(52,211,153,.4)}
@@ -318,8 +318,8 @@
   .dash-toolbar .dt-note{color:#94a3b8;font-size:12px}
   .dash-toolbar #btnReport{margin-left:auto;background:transparent;border:1px solid rgba(52,211,153,.45);color:var(--ok);padding:7px 12px;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s ease;white-space:nowrap}
   .dash-toolbar #btnReport:hover{background:rgba(52,211,153,.12);box-shadow:0 0 12px rgba(52,211,153,.2)}
-  /* 评委体验指引横幅（P0-2）：首屏醒目、可关闭、亮/暗主题均清晰 */
-  /* 评委指引 + 诚实声明：浮动提示框（不占看板布局） */
+  /* 新手体验指引横幅（P0-2）：首屏醒目、可关闭、亮/暗主题均清晰 */
+  /* 新手指引 + 诚实声明：浮动提示框（不占看板布局） */
   .judge-guide{position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:90;
     max-width:720px;width:calc(100% - 24px);display:flex;flex-direction:column;gap:8px;
     padding:12px 16px;border-radius:12px;
@@ -455,7 +455,7 @@
   .src-btn{background:transparent;color:#94a3b8;border:0;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600;transition:all .2s ease}
   .src-btn:hover{color:#e2e8f0}
   .src-btn.active{background:var(--acc);color:#04121f}
-  /* 数据源提示条 → 浮动面板（与评委指引同款风格） */
+  /* 数据源提示条 → 浮动面板（与新手指引同款风格） */
   .src-banner{display:none;position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:91;
     max-width:640px;width:calc(100% - 24px);flex-direction:column;gap:6px;
     padding:10px 14px;border-radius:12px;
@@ -709,7 +709,7 @@
     /* 顶栏版本徽标内联色 */
     #appVer{border-color:#cbd5e1;color:#64748b}
 
-    /* 评委指引浮动面板：浅色适配 */
+    /* 新手指引浮动面板：浅色适配 */
     .judge-guide{background:rgba(255,255,255,.98);backdrop-filter:blur(16px) saturate(1.2);
       border-color:rgba(14,165,233,.5);
       box-shadow:0 8px 32px rgba(0,0,0,.1),0 0 0 1px rgba(14,165,233,.08),0 2px 8px rgba(0,0,0,.04)}
@@ -785,7 +785,7 @@
       <section id="tab-dash" class="tabpane active" role="tabpanel" aria-labelledby="tabBtn-dash">
         <div id="judgeGuide" class="judge-guide">
           <div class="jg-head">
-            <strong data-i18n="judge.title">📋 评委体验指引</strong>
+            <strong data-i18n="judge.title">📋 新手体验指引</strong>
             <button id="jgClose" type="button" aria-label="关闭指引" title="关闭">×</button>
           </div>
           <div class="jg-body">
@@ -971,7 +971,7 @@
       <section id="tab-plat" class="tabpane" role="tabpanel" aria-labelledby="tabBtn-plat">
         <div class="scrollpane">
           <div class="card" style="margin-bottom:12px">
-            <h3>平台适配举证包<span class="badge" data-i18n="badge.plat">复赛交付物 A · 按平台告诉你要交什么证据</span></h3>
+            <h3>平台适配举证包<span class="badge" data-i18n="badge.plat">平台适配举证包 · 按平台告诉你要交什么证据</span></h3>
             <p class="desc" data-i18n="plat.desc">把 Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop 九大平台的退货/纠纷举证规则与 ReturnGuard 取证能力对齐；单案举证选平台即自动带出必备材料清单（只列客观要求，不做裁决结论）。</p>
             <h4 style="margin:6px 0 4px">核心规则对照表</h4>
             <div id="platCmp" class="scrollx"></div>

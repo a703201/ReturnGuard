@@ -1,4 +1,4 @@
-# ReturnGuard 运行依赖（已锁定主版本下的次版本，保障复赛复现；可用 pip-tools/uv 生成完整 lock）
+# ReturnGuard 运行依赖（已锁定主版本下的次版本，保障构建复现；可用 pip-tools/uv 生成完整 lock）
 # 安装：pip install -r requirements.txt
 fastapi==0.141.1
 uvicorn[standard]==0.52.1

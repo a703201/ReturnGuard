@@ -1,7 +1,7 @@
 """ReturnGuard · 平台适配举证包文档生成器
 
 从 platforms.EVIDENCE_SPECS 单一来源生成两份「交付物 A」：
-    - ../docs/platform_evidence.html   可渲染/打印的对照表 + 举证模板（评委直接看）
+    - ../docs/platform_evidence.html   可渲染/打印的对照表 + 举证模板（可直接查看）
     - ../docs/PLATFORM_EVIDENCE.md    同源 Markdown（便于纳入仓库/README 引用）
 
 与 platforms.py 同源，改规则只改一处，文档随之更新，杜绝文档与代码漂移。
@@ -102,7 +102,7 @@ def build_html(specs: list[dict]) -> str:
 <body>
 <div class="wrap">
   <h1>ReturnGuard · 平台适配举证包</h1>
-  <p class="lead">复赛交付物 A ｜ 把 ReturnGuard 的「只取证不裁决」能力对齐到各平台实际纠纷规则，
+  <p class="lead">平台适配举证包 ｜ 把 ReturnGuard 的「只取证不裁决」能力对齐到各平台实际纠纷规则，
   让商家按平台拿到"该交什么证据"的清单。规则依据各平台 2025–2026 公开退货/争议政策整理。</p>
 
   <div class="card">
@@ -144,7 +144,7 @@ def build_md(specs: list[dict]) -> str:
     lines = [
         "# ReturnGuard · 平台适配举证包（交付物 A）",
         "",
-        "> 复赛交付物 A。把 ReturnGuard 的「只取证不裁决」能力对齐到各平台实际纠纷规则，"
+        "> 平台适配举证包。把 ReturnGuard 的「只取证不裁决」能力对齐到各平台实际纠纷规则，"
         "让商家按平台拿到「该交什么证据」的清单。规则依据各平台 2025–2026 公开退货/争议政策整理。",
         "",
         "## ① 核心规则对照表",

@@ -41,7 +41,6 @@ _pytest_tmp.txt
 Dataset/
 assets/
 docs/
-复赛交付物/
 test_*.png
 resp.json
 

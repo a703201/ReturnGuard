@@ -5,15 +5,20 @@
 
 from __future__ import annotations
 
+import os
 from urllib.parse import quote
 
-from common import _get_insights
-from fastapi import APIRouter, Request
+from common import _check_rate_limit, _get_insights, get_client_ip
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pdf_report import default_filename, generate_insights_pdf
 from schemas import InsightsResponse
 
 router = APIRouter()
+
+# PDF 导出限流（每客户端每分钟）：报告生成是 CPU 重的同步任务（reportlab 排版 + 中文字体），
+# demo 源又允许匿名读，若不限流可被反复触发拖垮 single-worker 部署。
+_EXPORT_PDF_LIMIT = int(os.environ.get("EXPORT_PDF_RATE_LIMIT", "20"))
 
 
 @router.get("/api/insights", response_model=InsightsResponse)
@@ -52,7 +57,11 @@ def export_pdf(
     """导出洞察报告为 PDF（服务端生成，浏览器直接下载，不再依赖 window.print）。
 
     过滤条件与 /api/insights 完全一致，确保导出内容与当前看板对应。
+    按客户端 IP 限流（`EXPORT_PDF_RATE_LIMIT`，默认 20 次/分钟，置 0 关闭）：
+    PDF 生成为 CPU 重的同步任务，且 demo 源允许匿名读，需防被反复触发。
     """
+    if not _check_rate_limit(get_client_ip(request), scope="export_pdf", limit=_EXPORT_PDF_LIMIT):
+        raise HTTPException(status_code=429, detail="报告导出过于频繁，请稍后再试")
     agg = _get_insights(request, mode, category, platform, region, season)
     source = agg.get("source", "demo")
     pdf_bytes = generate_insights_pdf(

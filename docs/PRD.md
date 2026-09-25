@@ -2,7 +2,7 @@
 
 > **文档版本**：v2.1
 > **最后更新**：2026-09-14（对应应用版本 1.1.5）
-> **负责人**：ReturnGuard 团队（Lumio）
+> **负责人**：ReturnGuard 项目组
 > **关联文档**：`docs/API.md`（接口契约）、`docs/SCHEMA.md`（表结构）、`docs/AB_ROI_实证说明.md`（ROI / A/B 口径）、`docs/CODE_REVIEW.md`（审查记录）、`CHANGELOG.md`、`ModelRouter_API.docx`（模型能力参考）
 
 ---
@@ -12,11 +12,11 @@
 ### 1.1 一句话定位
 ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一笔退货纠纷沉淀为结构化证据，再聚合成选品避坑与品控洞察，帮助卖家**用退货数据反哺选品与供应链**，降低退货结构占比、提升举证胜诉率。
 
-### 1.2 参赛赛道与价值主张
-- **参赛赛道**：AI 市场洞察 · 智能选品引擎。
+### 1.2 业务方向与价值主张
+- **业务方向**：AI 市场洞察 · 智能选品引擎。
 - **双阶段设计**：
   - **阶段 A · 个案举证**（数据采集管道，附属能力）：上传「退回图 + 本店主图」，自动产出同款一致性、瑕疵标签、货不对板判定、举证卷宗与母语语音。
-  - **阶段 B · 群体洞察**（产品主体，赛道核心交付物）：聚合案件库，输出多维洞察看板——品类热力、根因归因、供应商红黑榜、平台胜诉对比、异常预警、选品建议。
+  - **阶段 B · 群体洞察**（产品主体，核心交付物）：聚合案件库，输出多维洞察看板——品类热力、根因归因、供应商红黑榜、平台胜诉对比、异常预警、选品建议。
 
 ### 1.3 解决的核心痛点
 1. **只知道退、不知道为什么退**：跨境退货率高，缺乏根因分析。
@@ -69,7 +69,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 | ④ | 证据卷宗 + 母语语音 | 生成举证报告文本 + 60 字口头陈述 + 可播放语音 | `qwen/qwen3.7-max` + `qwen/qwen3-tts-instruct-flash` |
 | ⑤ | 案件优先级排序 | 相似度低 / 缺陷重 / 金额高 → 优先处理；rerank 相关性 50% + 本地可解释公式 50% 融合 | `qwen/qwen3-rerank`（未开通/超时即回退本地确定性公式） |
 
-> 上表为 **official（赛事指定 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。详见 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
+> 上表为 **official（官方 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。详见 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
 
 ### 5.2 阶段 B · 群体洞察（功能⑥，产品核心）
 聚合维度：
@@ -86,7 +86,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 - **ROI 真实回测**：基于真实聚合值的保守 / 基准 / 乐观三档 + 敏感性分析，强制随结果下发 `method` / `disclaimer`（详见 `docs/AB_ROI_实证说明.md`）。
 - 选品 / 品控建议、洞察报告正文。
 
-### 5.3 平台适配举证包（复赛交付物 A）
+### 5.3 平台适配举证包
 覆盖九大平台（Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop）的退货纠纷举证规则与 ReturnGuard 取证能力映射；单案取证时选定平台即自动带出**必备举证材料清单**（只列客观要求，不做裁决结论）。
 
 ### 5.4 多租户与账户体系
@@ -116,7 +116,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 ## 7. 非功能性需求
 - **性能**：单案 mock < 500ms；live < 30s（受模型时延影响）。
 - **可用性**：live 逐能力回退，**失败结果不写缓存**（避免网关恢复后仍返回旧降级值）；数据库**统一 openGauss**（demo/auth → `returnguard`，real → 独立库 `returnguard_real`；业务代码零改动；仅离线 / CI 回退 SQLite）。
-- **部署**：Docker Compose（openGauss + FastAPI），build context 为仓库根（`..`）；应用对外仅绑 `127.0.0.1:65432`，数据库仅监听回环，供 Cloudflare Tunnel 暴露。
+- **部署**：Docker Compose（openGauss + FastAPI），build context 为仓库根（`..`）；应用与数据库均**仅绑宿主机回环**，对外发布由部署方在其前置反向代理 / CDN 并配置 HTTPS。
 - **安全**：`MODEL_ROUTER_API_KEY`、`AUTH_SECRET` 等敏感值仅以环境变量注入，不入库、不进前端、不写入镜像。详见《接口文档》§6（SEC-1 ~ SEC-13）。
 - **可观测**：`GET /health` 探针 + `GET /metrics` 运行指标（需管理员）。
 - **前端交付**：静态资源 URL 版本化（`?v=<VERSION>`）+ `no-store`，保证发版即生效、不受浏览器 / CDN 缓存影响。
@@ -152,7 +152,7 @@ FastAPI（demo/main.py 装配层 → routers/* 按域拆分）
 ---
 
 ## 11. 风险与依赖
-- 依赖赛事发放的 **Model Router Key**（live 模式）。**图床不再是必需项**——视觉输入默认内联 base64，无需公网图床或对象存储同步（`PUBLIC_IMAGE_BASE` 降为可选增强）。
+- 依赖网关侧发放的 **Model Router Key**（live 模式）。**图床不再是必需项**——视觉输入默认内联 base64，无需公网图床或对象存储同步（`PUBLIC_IMAGE_BASE` 降为可选增强）。
 - 相似度阈值 0.82 为经验初值，已提供 Youden J 自标定（`/api/calibrate`）。
 - openGauss 容器在 Windows + WSL2 下内存敏感，已备 PostgreSQL 兜底 compose（`docker-compose.pg.yml`）。
 - live 模式真实消耗付费 Key，已加三层配额闸（SEC-13）防公网滥用；超限明确返回 `429`，**不静默降级**。
@@ -164,5 +164,5 @@ FastAPI（demo/main.py 装配层 → routers/* 按域拆分）
 - **M1** 统一 openGauss 存储 + 容器化部署 ✅
 - **M2** live 模式全链路打通（文本 / 视觉 / 语音 / 向量 / rerank 均已实跑，逐能力回退）✅
 - **M3** 前端看板打磨 + 关键帧红框标注（真实坐标 / 回退示意如实区分）✅
-- **M4** 平台适配举证包（九平台）+ 复赛录屏 + 交付物 ✅
+- **M4** 平台适配举证包（九平台）+ 演示录屏 + 交付物 ✅
 - **M5** 多语言界面（zh/en/fr）+ 静态资源版本化 + 文档一致性收口 ✅

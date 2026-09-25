@@ -1,7 +1,7 @@
 """ReturnGuard · 数据持久层（仓储层）
 
 职责：把「案件」这一核心数据从 JSON 文件升级为**数据库**，解决原 cases.json 全量读写
-带来的并发覆盖、无数据模型、无事务等问题，并为复赛切换到国产数据库 openGauss 预留
+带来的并发覆盖、无数据模型、无事务等问题，并为切换到国产数据库 openGauss 预留
 同构接口。
 
 开发与部署**统一使用 openGauss**（华为开源国产关系型数据库，兼容 PostgreSQL 协议）：
@@ -12,7 +12,7 @@
     - 其向量能力可进一步把「图向量比对」做成真实落库的相似度检索，替代当前 mock 相似度。
 
 数据来源双库隔离（演示 / 实际），均落同一 openGauss 实例、按 source 物理隔离：
-    - demo 源：来自种子 cases.json（openGauss `returnguard` 库 `cases` 表），用于复赛演示，绝不混入真实业务数据。
+    - demo 源：来自种子 cases.json（openGauss `returnguard` 库 `cases` 表），用于演示，绝不混入真实业务数据。
     - real 源：初始为空，由网页「数据录入」添加实际退货案件，按 tenant_id 隔离。
     - 两源各自独立库文件/实例，物理隔离；通过 ?source=demo|real 或前端顶栏开关切换，
       切换零代码。所有仓储函数均带 source 参数（默认 demo），向后兼容。
@@ -81,13 +81,59 @@ def _patch_opengauss_dialect(url: str) -> None:
 # 两库 URL 经 DATABASE_URL / REAL_DATABASE_URL 分别注入（见 docker/docker-compose.yml）。
 BASE = os.path.dirname(os.path.abspath(__file__))
 # 默认即 openGauss（开发&部署统一）；本地需先启动 openGauss 容器（见 docker/docker-compose.yml 的 db 服务）。
-DEFAULT_OG = "postgresql+psycopg2://gaussdb:Gauss-2026@localhost:5432/returnguard"
+# 口令与部署侧同源：优先读 GS_PASSWORD（compose 已强制必填），未设置时才回退到本地开发用示例口令。
+# 这样「容器的库口令」与「本机直连的库口令」不会各写一份而漂移。
+_OG_PASSWORD = os.environ.get("GS_PASSWORD", "Gauss-2026")
+_OG_HOST = os.environ.get("GS_HOST", "localhost")
+_OG_PORT = os.environ.get("GS_PORT", "5432")
+_OG_USER = os.environ.get("GS_USERNAME", "gaussdb")
+DEFAULT_OG = f"postgresql+psycopg2://{_OG_USER}:{_OG_PASSWORD}@{_OG_HOST}:{_OG_PORT}/returnguard"
 # 离线/CI/无 openGauss 环境才显式回退 SQLite 文件库（仍支持，但非默认）。
 DEFAULT_SQLITE = "sqlite:///" + os.path.join(BASE, "cases.db")
 REAL_SQLITE = "sqlite:///" + os.path.join(BASE, "cases_real.db")
+
+
+def _derive_real_url(demo_url: str) -> str:
+    """由 demo 源连接串推导 real 源连接串（库名/文件名换成 *_real）。
+
+    背景（P0 隔离的真实缺口）：此前 `REAL_DATABASE_URL` 的默认值直接等于 demo 的
+    `DEFAULT_OG`，即**未显式配置时 real 源会写进 demo 库**——「real 写入绝不污染 demo
+    看板」这一承诺只在 compose（显式注入了 REAL_DATABASE_URL）下成立，本机直跑 /
+    自定义 DATABASE_URL 的场景会静默退化。改为按 demo 连接串推导独立库后，任何
+    部署形态都默认分库。
+
+    - `.../returnguard`      → `.../returnguard_real`
+    - `.../cases.db`（SQLite）→ `.../cases_real.db`
+    - 解析失败 / 无法推导时原样返回，并打 CRITICAL 提示需显式配置。
+    """
+    try:
+        scheme, rest = demo_url.split("://", 1)
+        if scheme.startswith("sqlite"):
+            head, _, dbname = rest.rpartition("/")
+            if not dbname:
+                raise ValueError("无法解析 SQLite 路径")
+            stem, dot, ext = dbname.rpartition(".")
+            base_name = stem if dot else dbname
+            new_name = f"{base_name}_real.{ext}" if dot else f"{base_name}_real"
+            return f"{scheme}://{head}/{new_name}"
+        # postgresql+psycopg2://user:pw@host:port/dbname
+        prefix, _, dbname = rest.rpartition("/")
+        if not dbname:
+            raise ValueError("无法解析库名")
+        return f"{scheme}://{prefix}/{dbname}_real"
+    except Exception:  # noqa: BLE001
+        logger.critical(
+            "无法由 DATABASE_URL 推导 real 源独立库，real 源将沿用 demo 连接串（隔离退化）。"
+            "请显式设置 REAL_DATABASE_URL。原始值：%s",
+            demo_url,
+        )
+        return demo_url
+
+
 # 默认走 openGauss；显式设置 DATABASE_URL / REAL_DATABASE_URL 可覆盖（含回退 SQLite）。
 DEMO_DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_OG)
-REAL_DATABASE_URL = os.environ.get("REAL_DATABASE_URL", DEFAULT_OG)
+# real 源：优先显式配置；未配置则按 demo 连接串推导出*独立库*，杜绝默认同库。
+REAL_DATABASE_URL = os.environ.get("REAL_DATABASE_URL") or _derive_real_url(DEMO_DATABASE_URL)
 SOURCES = {"demo": DEMO_DATABASE_URL, "real": REAL_DATABASE_URL}
 DEFAULT_SOURCE = "demo"
 VALID_SOURCES = ("demo", "real")
@@ -307,6 +353,52 @@ class Case(Base):  # type: ignore[misc,valid-type]
 
 
 _COLUMNS = {c.name for c in Case.__table__.columns}
+# 各 String 列的长度上限（供写入前统一收敛，见 _clamp_values）。
+_STR_LIMITS: dict[str, int] = {
+    c.name: int(c.type.length)
+    for c in Case.__table__.columns
+    if isinstance(c.type, String) and getattr(c.type, "length", None)
+}
+_FLOAT_COLUMNS = ("amount", "similarity", "priority_score")
+
+
+def _clamp_values(data: dict) -> dict:
+    """写入前的最后一道防线：字符串按列长截断、浮点去 NaN/Inf、defect_tags 归一为 list[str]。
+
+    为什么必须在持久层做（而不是只靠 pydantic 校验）：
+      - `POST /api/cases` 走 `ManualCase`（pydantic），但 CSV / xlsx 导入走 `importer`，
+        两条链路都会落到 `save_case`；上游新增入口时极易漏校验；
+      - openGauss 对 `VARCHAR(n)` 是**严格长度校验**（PostgreSQL 直接报错），此前
+        `sku_name` 超长即批量插入报 `DataError`、接口 500，仅在种子数据里手工规避过；
+      - JSON 列若非 list 或含非字符串元素，会让后续聚合（按标签计数）抛异常。
+
+    截断而非拒绝：导入场景下一条脏数据不应让整批导入失败，日志留痕即可追溯。
+    """
+    for name, limit in _STR_LIMITS.items():
+        v = data.get(name)
+        if isinstance(v, str) and len(v) > limit:
+            logger.warning("字段 %s 超长（%d > %d），已截断", name, len(v), limit)
+            data[name] = v[:limit]
+    for name in _FLOAT_COLUMNS:
+        v = data.get(name)
+        if v is None:
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            logger.warning("字段 %s 非数值（%r），已归零", name, v)
+            data[name] = 0.0
+            continue
+        if f != f or f in (float("inf"), float("-inf")):  # NaN / ±Inf
+            logger.warning("字段 %s 为非有限数值（%r），已归零", name, v)
+            f = 0.0
+        data[name] = f
+    tags = data.get("defect_tags")
+    if not isinstance(tags, list):
+        data["defect_tags"] = [str(tags)] if tags else ["无明显瑕疵"]
+    else:
+        data["defect_tags"] = [str(t)[:64] for t in tags if str(t).strip()] or ["无明显瑕疵"]
+    return data
 
 
 def _norm_date(v):
@@ -337,6 +429,9 @@ def _row_to_dict(row) -> dict:
 def _dict_to_row(d: dict) -> Case:
     """dict → ORM 行（只取表中存在的列，忽略 dossier/voice 等临时字段）。"""
     data = {k: v for k, v in d.items() if k in _COLUMNS}
+    # 写入前统一收敛：超长字符串截断、非有限数值归零、defect_tags 归一为 list[str]。
+    # 放在这里而非各路由，可同时覆盖手动录入 / 取证沉淀 / CSV·xlsx 导入三条链路。
+    data = _clamp_values(data)
     # JSON 列若为空给默认，避免后续聚合索引报错
     if data.get("defect_tags") is None:
         data["defect_tags"] = ["无明显瑕疵"]

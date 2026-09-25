@@ -1,7 +1,7 @@
 """ReturnGuard · 提示词集中管理（live 模式）
 
 把 models_router 里散落的内联 prompt 统一抽到这里，按「方案功能编号 + 编排层级」组织，
-便于评审、调参与录屏讲解。所有函数返回可直接喂给大模型（chat/completions 的 user 消息）的字符串。
+便于调试、调参与录制讲解。所有函数返回可直接喂给大模型（chat/completions 的 user 消息）的字符串。
 
 约定：
 - 视觉 / OCR 类：模型走多模态，prompt 作为文本指令随图一起发送。

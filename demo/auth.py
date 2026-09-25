@@ -1,10 +1,10 @@
 """ReturnGuard · 账户体系 + 多租户隔离（C组：多租户 + 账户体系）
 
 设计原则（零新依赖，stdlib 实现，开发/部署同构）：
-- 密码：pbkdf2_hmac 加盐哈希（SHA-256，10 万轮），不存明文。
+- 密码：pbkdf2_hmac 加盐哈希（SHA-256，60 万轮，见 `CURRENT_PBKDF2_ITERS`），不存明文。
 - 令牌：HMAC-SHA256 签名的无状态令牌 `b64(username)|exp|sig`，后端可校验、免存储。
 - 租户：用户名即租户标识（tenant_id）。real 源案件按 tenant_id 隔离；demo 源为共享演示库，
-  不参与租户隔离（保持复赛演示零改造）。
+  不参与租户隔离（保持演示零改造）。
 - 用户库：独立引擎（AUTH_DATABASE_URL，默认 sqlite users.db；可指向 openGauss 与生产案件同库）。
 """
 

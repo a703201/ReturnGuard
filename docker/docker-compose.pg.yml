@@ -2,10 +2,14 @@
 # ReturnGuard · 本地验证兜底编排（PostgreSQL 版）
 # 用途：当 openGauss 镜像在 Docker Desktop/WSL2 等环境下实在起不来时，
 #       用官方 PostgreSQL 容器做本地全链路验证，业务代码零改动。
-# 运行：docker compose -f docker-compose.pg.yml up -d
+# 运行：docker compose -f docker/docker-compose.pg.yml up -d
 # 部署配置与源码解耦：本文件位于仓库 docker/，build context 为仓库根（..）。
+#
+# ⚠️ 本编排仅用于「本地全链路验证」，不是生产部署形态：
+#    - 生产请用 docker-compose.yml（openGauss，含 realdb-init 独立库与完整安全透传）；
+#    - 本文件已对齐主 compose 的口令强制与端口收敛，但不含全部安全变量透传。
 # ============================================================
-name: returnguard
+name: returnguard-pg
 
 services:
   db:
@@ -13,11 +17,13 @@ services:
     container_name: rg_postgres
     environment:
       POSTGRES_USER: gaussdb
-      POSTGRES_PASSWORD: ${GS_PASSWORD:-Gauss-2026}
+      # 与主 compose 一致：口令必须显式提供，缺失即中止，避免照搬示例口令即可连库
+      POSTGRES_PASSWORD: ${GS_PASSWORD:?GS_PASSWORD 必须在 docker/.env 中显式设置}
       POSTGRES_DB: returnguard
       TZ: Asia/Shanghai
     ports:
-      - "5432:5432"
+      # 仅监听宿主机回环：此前 "5432:5432" 等价 0.0.0.0，数据库直接暴露到局域网
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -28,6 +34,34 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # ---------- real 源独立库一次性初始化（与主 compose 的 realdb-init 对齐）----------
+  # demo/auth 落 returnguard，real 落 returnguard_real，保持 demo/real 物理隔离不因
+  # 「换了兜底数据库」而失效；幂等：库已存在则直接退出。
+  realdb-init:
+    image: postgres:15-alpine
+    container_name: rg_pg_realdb_init
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${GS_PASSWORD:?GS_PASSWORD 必须在 docker/.env 中显式设置}
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $(seq 1 30); do
+          if psql -h db -U gaussdb -d postgres -tAc \
+              "SELECT 1 FROM pg_database WHERE datname='returnguard_real';" | grep -q 1; then
+            echo "[realdb-init] returnguard_real 已存在，跳过"; exit 0
+          fi
+          echo "[realdb-init] 第 $i 次尝试创建 returnguard_real ..."
+          if psql -h db -U gaussdb -d postgres -c "CREATE DATABASE returnguard_real;"; then
+            echo "[realdb-init] 已创建 returnguard_real"; exit 0
+          fi
+          sleep 3
+        done
+        echo "[realdb-init] 创建 returnguard_real 失败"; exit 1
+
   app:
     build:
       context: ..
@@ -37,14 +71,38 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      realdb-init:
+        condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+      DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
+      AUTH_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
+      REAL_DATABASE_URL: postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard_real
+      MODEL_ROUTER_PROFILE: ${MODEL_ROUTER_PROFILE:-tokenplan}
       MODEL_ROUTER_API_KEY: ${MODEL_ROUTER_API_KEY:-}
       MODEL_ROUTER_BASE_URL: ${MODEL_ROUTER_BASE_URL:-}
       PUBLIC_IMAGE_BASE: ${PUBLIC_IMAGE_BASE:-}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-false}
+      # 跨 worker 共享状态（限流 / 登录锁）落 SQLite 文件，单容器多 worker 共享同一份
+      STATE_DB_URL: ${STATE_DB_URL:-sqlite:////app/demo/state/rg_state.db}
     ports:
-      - "8000:8000"
+      # 仅暴露给宿主机回环（供本地反向代理 / 调试），不直接对局域网开放
+      - "127.0.0.1:65432:8000"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
+    volumes:
+      - pg_uploads:/app/demo/uploads
+      - pg_state:/app/demo/state
 
 volumes:
   pgdata:
+  pg_uploads:
+  pg_state:

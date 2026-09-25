@@ -1,7 +1,7 @@
 # ReturnGuard 代码与工程化审查（大厂对标）
 
-> **当前版本**：1.1.5（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
-> **当前测试**：`pytest demo/tests -q` **150 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐、`test_storage.py` 对齐当前存储层、`test_i18n.py` 多语言与静态资源版本化、`test_docs_consistency.py` 文档漂移守护）
+> **当前版本**：2.0.0（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
+> **当前测试**：`pytest demo/tests -q` **168 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐、`test_storage.py` 对齐当前存储层、`test_i18n.py` 多语言与静态资源版本化、`test_docs_consistency.py` 文档漂移守护、`test_hardening.py` 边界与配额回归）
 > **安全项**：**SEC-1 ~ SEC-13 全清零**（另含 SEC-P0 系列）
 > **最新审查**：见第十一节「大厂标准审查结论摘要（2026-08-29）」；i18n / 静态资源版本化两次收口见 `CHANGELOG.md` 的 1.1.3、1.1.4 条目
 > 说明：第一~十节为**历次审查的历史记录**（按当时版本留档，不回溯改写，其中的测试数等数字为当时快照）；当前状态以上方四行与第十一节为准。
@@ -28,7 +28,7 @@
 | Docker 加固 | B | A | root 运行；app 无 healthcheck；无资源限制 |
 | 文档（README/PRD/API） | B+ | A | 良好，README 引用的方案文件需确认在仓库 |
 
-**总评**：初赛 demo 可过关；复赛/对外演示前，建议优先补齐 P1（安全+配置）与 P2（契约+类型），再补 P3（测试+CI）。
+**总评**：原型阶段可过关；对外演示前，建议优先补齐 P1（安全+配置）与 P2（契约+类型），再补 P3（测试+CI）。
 
 ---
 
@@ -95,7 +95,7 @@
 10. **数据建模：`date` 存 String + 无迁移**
     - 位置：`demo/db.py:87` `date = Column(String(32))`；`init_db` 用 `create_all` 无 Alembic。
     - 影响：无法按日期做 SQL 范围查询/索引；schema 变更靠删库重建。
-    - 修复：`date = Column(Date)`（聚合层已会 `strptime`，可两端打通）；引入 Alembic 做迁移（demo 阶段可暂缓，但复赛建议加）。
+    - 修复：`date = Column(Date)`（聚合层已会 `strptime`，可两端打通）；引入 Alembic 做迁移（demo 阶段可暂缓，但建议加）。
 
 11. **`load_cases` 全表扫描、无缓存/分页**
     - 位置：`db.load_cases` 每次 `/api/insights` 全量 `query(Case).all()`。
@@ -107,7 +107,7 @@
     - 影响：测试无法隔离；配置必须在 import 前就位。
     - 修复：配置/引擎用懒初始化（`get_engine()` 工厂），测试可注入内存库。
 
-### P3 — 工程化（复赛前补）
+### P3 — 工程化（对外发布前补）
 13. **无自动化测试**：补 `tests/`——`test_pipeline_mock.py`（校验 `_mock`/`_aggregate`/`_mock_attribution` 字段与单调性）、`test_api.py`（FastAPI `TestClient` 打 `/api/analyze`、`/api/insights` 健康路径）、`test_security.py`（路径穿越被拒）。
 14. **无 CI**：加 `.github/workflows/ci.yml`——lint(ruff)+type(mypy)+test(pytest)，PR 必过。
 15. **Dockerfile 以 root 运行**：加 `useradd -m appuser && USER appuser`；`uploads/` 属主改 appuser。
@@ -126,7 +126,7 @@
 
 ---
 
-## 四、建议落地顺序（复赛前）
+## 四、建议落地顺序（对外发布前）
 - **Phase 1（必修，约 0.5 天）**：P1-1 路径穿越、P1-2 死配置、P1-3 文件校验、P1-4 app healthcheck、P1-5 根 .gitignore。
 - **Phase 2（强契约，约 1 天）**：P2-6 Pydantic 契约、P2-7 类型注解+linter、P2-8 常量/函数拆分、P2-9 异常日志。
 - **Phase 3（工程化，约 1 天）**：P2-10/11 数据建模与缓存、P3-13 测试、P3-14 CI、P3-15/16 Docker 非 root + logging、P3-17 live 图床落地。
@@ -157,9 +157,9 @@
 | P3-14 | 无 CI | ✅ 已修 | `5a8cc9c`（`.github/workflows/ci.yml`） |
 | P3-15 | Dockerfile root | ✅ 已修 | `5a8cc9c`（非 root `appuser`） |
 | P3-16 | print→logging | ✅ 已修 | `5a8cc9c` |
-| P3-17 | live 图床未落地 | ⚠️ 仍待办 | 需对象存储/内网 DNS，复赛部署前补 |
+| P3-17 | live 图床未落地 | ⚠️ 仍待办 | 需对象存储/内网 DNS，生产部署前补 |
 
-**结论**：初版列出的 17 项中 16 项已闭环，仅 P3-17（live 图片公网可达）因依赖外部存储，属部署期事项，未在本机代码层修复，需在复赛公网部署时补「上传即回传图床」或「/uploads 配内网 DNS」。
+**结论**：初版列出的 17 项中 16 项已闭环，仅 P3-17（live 图片公网可达）因依赖外部存储，属部署期事项，未在本机代码层修复，需在公网部署时补「上传即回传图床」或「/uploads 配内网 DNS」。
 
 ### 5.2 新增代码复审发现
 
@@ -190,7 +190,7 @@
 ### 5.4 仍建议（低优先级，非阻塞）
 
 - **S1（建议）**：`/api/insights` 的 `platform` 过滤未校验非法值，传错值只返回空聚合（不报错）。可加 `if platform and not is_valid_platform(platform): raise 400` 与 `/api/analyze` 保持一致。
-- **S2（文案）**：`avg_dispute_rate` 实为 `1 − 平均相似度` 的**代理指标**，并非平台真实争议率；前端卡片称「平均退货争议率」易致评委误解。建议在卡面 hint 或 API 文档注明这是「以同款一致性反推的争议代理指标」。
+- **S2（文案）**：`avg_dispute_rate` 实为 `1 − 平均相似度` 的**代理指标**，并非平台真实争议率；前端卡片称「平均退货争议率」易致使用者误解。建议在卡面 hint 或 API 文档注明这是「以同款一致性反推的争议代理指标」。
 - **S3（清理）**：`main.py` 的 `save_case({**result, ..., "platform": platform})` 中 `platform` 键重复（`result` 已含），值相同无害，建议删去冗余键。
 - **S4（扩展期）**：前端 `loadPlatforms()` 的 `attrs` 硬编码 4 项；若后续为 `platforms.py` 增加属性维度，需同步此处（与 `generate_platform_doc.py` 的 `ATTRIBUTES` 一并维护）。
 
@@ -205,7 +205,7 @@
 
 **S2（文案）→ 已修（`schemas.py` + `pipeline.py` + 前端）**
 - `InsightsResponse` 增 `dispute_rate_note: str = ""`；`pipeline._aggregate` 计算处补注释并注入说明：`avg_dispute_rate` 是由「退货图与本店主图相似度」推算的**代理指标**（`1 − 平均相似度`），反映货不对板/调包嫌疑强度，**并非平台标记的争议笔数**。
-- 前端 KPI 标签由「平均退货争议率」改为「货不对板嫌疑率」，并加 `代理指标 ⓘ` 提示（hover 显示完整说明），消除评委误解。
+- 前端 KPI 标签由「平均退货争议率」改为「货不对板嫌疑率」，并加 `代理指标 ⓘ` 提示（hover 显示完整说明），消除使用者误解。
 - 测试锁住：`test_insights_dispute_rate_is_proxy`。
 
 **S3（清理）→ 已修（`main.py /api/analyze`）**
@@ -219,7 +219,7 @@
 - 守住「只取证不裁决」：举证结果区仍标注「演示示意框、不替代平台裁决」。
 
 **验证**：ruff 全绿；pytest **18 passed**（原 16 + 新增 S1/S2 各 1）；TestClient 冒烟：`/api/insights` 非法 platform→400、合法 SHEIN→200(165 案)、`dispute_rate_note` 存在、前端大屏结构标记齐全、analyze 关联 Temu 举证 5 条。提交 `见下方提交记录`。
-- **P3-17（部署期）**：live 模式图片公网可达仍未落地，复赛公网部署前必须补。
+- **P3-17（部署期）**：live 模式图片公网可达仍未落地，公网部署前必须补。
 
 ---
 
@@ -245,7 +245,7 @@
 | CI/CD & 容器 | **A-** | `ci.yml` 跑 `ruff format/check + pytest`；Docker 非 root + 等待 DB + 幂等 `init_db`，规范 |
 | **综合** | **B-** | 工程化基础扎实，存在 1 个 P1 数据 bug 与若干 P2 待修 |
 
-## 6.2 实锤问题（P1 · 建议复赛前修复）
+## 6.2 实锤问题（P1 · 建议对外发布前修复）
 
 ### P1-1 上传单案缺维度，静默污染聚合看板 ⚠️ 实锤
 - **现象**：`/api/analyze` 落库的 `Case` 缺少 `category / supplier / outcome`（实测 INSERT 参数：`category=None, supplier=None, outcome=None`），保存后进入洞察会被算作 `category='未分类'`、`outcome='未知'`、`supplier='未知'`。
@@ -253,7 +253,7 @@
   - `pipeline._mock` / `live_analyze` 返回结构**不含** `category/supplier/outcome`（`pipeline.py:128-140`、`models_router.py:240-251`）；
   - `main.analyze` 的 `save_case` 字典仅补了 `sku/amount/platform/returned_image/product_image`（`main.py:158-166`）；
   - 动态复现：上传 1 单后 `build_insights` 的 `total_cases` 由 672→**673**，且 `outcome_dist` 出现 `'未知'` 桶。
-- **影响**：每上传一单都稀释「维权胜诉率 / 累计退款」KPI，并在品类、平台、供应商、根因各维度注入噪声桶，复赛演示时看板数字会"越用越假"。
+- **影响**：每上传一单都稀释「维权胜诉率 / 累计退款」KPI，并在品类、平台、供应商、根因各维度注入噪声桶，演示时看板数字会"越用越假"。
 - **整改**：① 表单增加 `category / supplier` 选择（或从 listing 文本/平台规则推断）；② 或给单案打 `outcome='待分析'` 标记，`_aggregate` 对未分析单案**不计入 KPI 分母**、单独分组，避免污染图表；③ 至少不要让 `outcome/category` 退化为 `'未知'/'未分类'` 混入统计图。
 
 ### P1-2 `analyze` 缺乏原子性与失败清理（R-1/R-2）
@@ -264,7 +264,7 @@
 
 ### P1-3 未转义渲染模型输出 → 存储型/反射型 XSS 面（F-1）
 - **位置**：`index.html` 在表格里用 `innerHTML` 直接拼 `defect_tags / supplier / sku / top_defect`（如 `:594 :634 :651`）。mock 模式下这些来自固定词表（安全），但 **`mode=live` 时 `defect_tags` 取自视觉模型自由文本**，未做任何转义即 `innerHTML`，可注入 `<img onerror>` 等。
-- **影响**：当前为单用户自 XSS，但一旦多租户/对外即高危；安全评审一律按 P1 计。
+- **影响**：当前为单用户自 XSS，但一旦多租户/对外即高危；安全审阅一律按 P1 计。
 - **整改**：对 LLM/用户来源字段统一用 `textContent`，或加 `escapeHtml()` 工具函数；`renderBarh/renderMatrix` 的 `title`/`label` 同理。
 
 ## 6.3 重要问题（P2）
@@ -275,7 +275,7 @@
 - **P2-4 阈值 `0.82` 硬编码漂移（F-6）**：`main.py:721`、``generate_dataset.py:176`` 直接写 `0.82`，而 `pipeline` 用的是 `constants.SAME_ITEM_THRESHOLD`（`constants.py:9`）。三处不同步 → 判定口径漂移。整改：前端/生成器统一从接口或常量取值。
 - **P2-5 聚合每请求重算 + 缓存跨进程不安全（A-2/P-1/R-5）**：`/api/insights` 每次都对全量案件 `_aggregate`（O(n)）；`load_cases` 缓存是模块级变量（`db.py:111`），**仅单进程有效**，多 worker（uvicorn `--workers>1`）下各进程各持缓存、保存后其他进程读不到更新。整改：聚合结果按 `(mode,category,platform)` 缓存并在 save 时失效；或上 Redis；多 worker 部署需明确缓存一致性方案。
 - **P2-6 `save_case` 静默丢弃字段（D-2）**：`db._dict_to_row` 只取 `_COLUMNS`，`analyze_case` 产出的 `dossier / voice_text / voice_audio_b64 / defect_boxes / priority_score` 全部不入表。属"取证结果不可回放"。整改：至少落 `defect_boxes`（红框坐标）、`priority_score`、`dossier` 等，便于案件复盘。
-- **P2-7 依赖未锁版（C-1）**：`requirements.txt` 中 `fastapi / uvicorn / requests` 未固定版本，`SQLAlchemy` 仅下限。整改：补 `requirements.txt` 精确版本 + 引入 lock（uv/pip-tools），保障复赛复现。
+- **P2-7 依赖未锁版（C-1）**：`requirements.txt` 中 `fastapi / uvicorn / requests` 未固定版本，`SQLAlchemy` 仅下限。整改：补 `requirements.txt` 精确版本 + 引入 lock（uv/pip-tools），保障构建复现。
 - **P2-8 写接口无鉴权/限流（S-3）**：`/api/analyze` 为公网可写、接收上传并落库，无认证与限流 → 可被刷盘/刷库。整改：演示环境加演示态开关；对外需鉴权 + 速率限制。
 - **P2-9 可观测性缺失（O-1）**：`analyze/insights` 无耗时与结构化日志，`/health` 仅静态；无指标端点。整改：加 request latency 日志 + `/metrics`（或接入已有监控）。
 
@@ -300,11 +300,11 @@
 
 | 阶段 | 项 | 估时 |
 |---|---|---|
-| **复赛演示前（必做）** | P1-1 上传维度补全 / P1-2 原子性清理 / P1-3 XSS 转义 | 0.5–1 天 |
-| **复赛公网部署前** | P2-1 uploads 鉴权过期 / P2-2 收紧契约 / P2-7 锁依赖 / P2-8 鉴权限流（若对外） | 0.5–1 天 |
+| **演示前（必做）** | P1-1 上传维度补全 / P1-2 原子性清理 / P1-3 XSS 转义 | 0.5–1 天 |
+| **公网部署前** | P2-1 uploads 鉴权过期 / P2-2 收紧契约 / P2-7 锁依赖 / P2-8 鉴权限流（若对外） | 0.5–1 天 |
 | **持续打磨** | P2-3/4/5/6/9、P3-1~5 | 1–2 天 |
 
-> 结论：代码已达"可演示、架构清晰、工程化到位"水平；**阻断性风险集中在 P1-1（数据污染）**，复赛路演前务必先修。其余 P2 多为生产化加固，可按部署节奏推进。
+> 结论：代码已达"可演示、架构清晰、工程化到位"水平；**阻断性风险集中在 P1-1（数据污染）**，对外发布前务必先修。其余 P2 多为生产化加固，可按部署节奏推进。
 
 ---
 
@@ -375,14 +375,14 @@
 - 安全面：P1 全部清零；XSS 前端转义 + 后端 CSP 双保险；写接口鉴权/限流；多租户隔离经动态复现。
 - 质量面：测试 30 → **65**（含负向/一致性/租户隔离/openGauss 导入），ruff check + format 全绿。
 - 交付面：A/B/C 三组全部落地并文档化（CHANGELOG v1.1.0、README、`openGauss部署指南.md`、本报告）。
-- 遗留均为部署期/生产化增强，不阻断复赛演示与上架节奏。
+- 遗留均为部署期/生产化增强，不阻断演示与上架节奏。
 
 ---
 
 # 八、安全专项复审（2026-08-27）· 大厂标准多维度 · 重点安全
 
-> 复审基准：截至当前 HEAD（v1.x，含双 profile 网关、移动端/UI 加固、Cloudflare Tunnel 公网部署）。
-> 本轮与历次不同：**代码已对外公网可访问**（`https://rg.a703201sworld.top`，Cloudflare Tunnel 转发到本机 `127.0.0.1:65432`）。
+> 复审基准：截至当前 HEAD（v1.x，含双 profile 网关、移动端/UI 加固、反向代理 / CDN 公网部署）。
+> 本轮与历次不同：**代码已对外公网可访问**（`http://127.0.0.1:65432`，反向代理 / CDN 转发到本机 `127.0.0.1:65432`）。
 > 因此本轮以「公网部署安全」为切点，按大厂维度（安全/架构/健壮性/性能/数据/测试/可观测/配置/前端/CI-CD）重新走查，重点揪「演示态默认配置在公网语境下是否成立」。
 > 方法：通读 `demo/` 全量源码 + `docker/` 部署配置 + 前端 `index.html` 转义点 + 历史 review 对账，结合部署现实推断可达性（不依赖临时起服）。
 
@@ -397,7 +397,7 @@
 | 前端质量 | **B+** | 已统一 `esc()` + 后端 CSP；`unsafe-inline` 削弱纵深、个别模型字段需复核是否全走 `esc()` |
 | 可观测 / 配置 / CI | **B+** | 结构化日志 + `/metrics` + 安全响应头；部署 env 缺 `AUTH_SECRET`/`AUTH_TRUSTED_PROXIES` |
 
-**一句话**：工程底子扎实（A-），但「公网体验地址」按当前默认配置跑，**安全面有 3 个 P1 必须修**才能算对外可接受。以下按严重度列出。
+**一句话**：工程底子扎实（A-），但「对外开放地址」按当前默认配置跑，**安全面有 3 个 P1 必须修**才能算对外可接受。以下按严重度列出。
 
 ## 8.2 安全发现（按严重度）
 
@@ -434,13 +434,13 @@
 ### 【SEC-3 · P1→P2】代理/客户端 IP 误判：Cloudflare 部署下限流与防爆破退化
 
 - **位置**：`main.py:197-209` `get_client_ip` 仅当 `request.client` 属于 `AUTH_TRUSTED_PROXIES` 才采纳 `X-Forwarded-For`/`X-Real-IP`；`main.py:90` `AUTH_TRUSTED_PROXIES` 默认空；`.env.example:49` 亦空。
-- **现象**：经 Cloudflare Tunnel 时，`cloudflared` 以**本地连接**转发到 `127.0.0.1:65432`，故 `request.client.host == 127.0.0.1` 对**所有访客**一致。因 `AUTH_TRUSTED_PROXIES` 为空 → 代码取直连 IP → 所有请求共用 `127.0.0.1` 一个桶。
+- **现象**：经 反向代理 / CDN 时，`反向代理` 以**本地连接**转发到 `127.0.0.1:65432`，故 `request.client.host == 127.0.0.1` 对**所有访客**一致。因 `AUTH_TRUSTED_PROXIES` 为空 → 代码取直连 IP → 所有请求共用 `127.0.0.1` 一个桶。
 - **影响**：
   1. `analyze/register/login` 的按 IP 限流**坍缩成全局单桶**：单攻击源无法被隔离限速，且正常流量尖峰会把所有人一起 429；
   2. 按 IP 的登录失败锁定（`_login_lock_until`）退化为「锁 127.0.0.1」→ 实际不起作用；
   3. 审计日志 `client_ip` 全为 `127.0.0.1`，无法溯源。
 - **整改（必修/部署）**：
-  - 部署环境设 `AUTH_TRUSTED_PROXIES=127.0.0.1`（cloudflared 本地转发）→ 使 `X-Forwarded-For` 首段（真实访客 IP）被采纳；
+  - 部署环境设 `AUTH_TRUSTED_PROXIES=127.0.0.1`（反向代理本地转发）→ 使 `X-Forwarded-For` 首段（真实访客 IP）被采纳；
   - 更稳：直接读 Cloudflare 头 `CF-Connecting-IP`（在 `get_client_ip` 增加该分支），避免依赖 XFF 可被伪造；
   - 配合 SEC-2，多 worker 下进程内 `_rate_window`/`_login_fails` 仍不安全（见 SEC-12）。
 
@@ -460,7 +460,7 @@
 
 - **位置**：`main.py:87` 默认 `true`；`docker-compose.local.yml:44` 亦 `true`。
 - **影响**：公网任意人可注册账户 → 用户库被刷、租户数据无限增长。
-- **整改**：公网体验地址设 `REGISTRATION_ENABLED=false` 或 `REGISTRATION_INVITE_CODE=<评委码>`；demo 账号已预置 `demo/demo123`。
+- **整改**：对外开放地址设 `REGISTRATION_ENABLED=false` 或 `REGISTRATION_INVITE_CODE=<邀请码>`；demo 账号已预置 `demo/demo123`。
 
 ### 【SEC-7 · P2】`/metrics` 与 `/api/config` 未鉴权 → 信息泄露
 
@@ -510,7 +510,7 @@
 | **P2 应做** | SEC-4 停用 `?token=`；SEC-5 数据变更须登录+Key；SEC-6 公网关注册/邀码；SEC-7 `/metrics`+`/config` 收口；SEC-8 签名 URL | 0.5–1 天 |
 | **P3 打磨** | SEC-9 CSP nonce；SEC-10 时序/轮数；SEC-11 常量时间比 Key；SEC-12 多 worker 共享状态；补 3 类安全测试 | 1 天 |
 
-> 结论：代码工程化已达大厂 A- 水平；**但在公网部署语境下，安全面有 SEC-1/2/3 三个 P1 必须先行修复**，否则「体验地址」属可被任意写入/篡改阈值的高风险暴露面。修复后安全面可达 B+，满足复赛对外演示与评委体验要求。
+> 结论：代码工程化已达大厂 A- 水平；**但在公网部署语境下，安全面有 SEC-1/2/3 三个 P1 必须先行修复**，否则「体验地址」属可被任意写入/篡改阈值的高风险暴露面。修复后安全面可达 B+，满足对外演示与用户体验要求。
 
 ---
 
@@ -524,10 +524,10 @@
 |---|---|---|---|
 | **SEC-1** | 写接口无鉴权全开 | `main.py`：新增 `_require_session`（写接口必须登录会话）+ `_require_admin`（calibrate/metrics 须 `ADMIN_API_KEY` 或登录）；`/api/analyze`、`POST/DELETE /api/cases`、`/api/import_csv` 改走 `_require_session`；`/api/calibrate`、`/api/metrics` 改走 `_require_admin`。 | 匿名 analyze/cases/calibrate/metrics → **401**；登录 demo → analyze 200；calibrate/metrics 带 `ADMIN_API_KEY` 才过。公网实测一致。 |
 | **SEC-2** | `AUTH_SECRET` 被 dotenv 顺序静默忽略 | `auth.py` 顶部补 `load_dotenv()`（带 pytest 守卫）；`_SECRET` 经 `_resolve_secret()` 统一转 bytes；`AUTH_SECRET` 支持 `secrets.token_hex(32)` 十六进制串按字节解码（与文档示例一致）。`demo/.env` 已注入固定 `AUTH_SECRET`。 | 子进程导入 `auth` 确证从 `.env` 读到密钥；令牌跨 reload 可验；重启令牌不再失效。 |
-| **SEC-3** | 代理客户端 IP 误判 | `get_client_ip` 优先采纳 `CF-Connecting-IP`（Cloudflare Tunnel），其次 `X-Forwarded-For`/`X-Real-IP`；仅当直连属 `AUTH_TRUSTED_PROXIES` 才信任。部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`。 | 单元测试：可信代理下 `203.0.113.5` 被采纳；非可信代理忽略伪造头。 |
+| **SEC-3** | 代理客户端 IP 误判 | `get_client_ip` 优先采纳 `CF-Connecting-IP`（反向代理 / CDN），其次 `X-Forwarded-For`/`X-Real-IP`；仅当直连属 `AUTH_TRUSTED_PROXIES` 才信任。部署 `AUTH_TRUSTED_PROXIES=127.0.0.1`。 | 单元测试：可信代理下 `203.0.113.5` 被采纳；非可信代理忽略伪造头。 |
 | **SEC-4** | 停用 `?token=` 查询传令牌 | `_resolve_tenant` 仅读 `Authorization: Bearer` / `X-Token` 头，删去 `?token=`（避免令牌经 URL/Referer/代理日志泄露）。 | — |
 | **SEC-5** | 数据变更须登录 | 见 SEC-1（`_require_session`）。 | — |
-| **SEC-6** | 公网关注册 | `demo/.env` + `docker-compose.local.yml` 置 `REGISTRATION_ENABLED=false`（评委用内置 demo/demo123）；保留 `REGISTRATION_INVITE_CODE` 可选邀请制。 | — |
+| **SEC-6** | 公网关注册 | `demo/.env` + `docker-compose.local.yml` 置 `REGISTRATION_ENABLED=false`（使用内置 demo/demo123）；保留 `REGISTRATION_INVITE_CODE` 可选邀请制。 | — |
 | **SEC-7** | `/metrics`/`/config` 收口 | `/metrics` 纳入 `_require_admin`（匿名 401，已实测）；`/api/config` 保留开放（前端加载常量所需，仅透出非敏感 URL）。 | `/metrics` 匿名 401（实测）。 |
 | **SEC-10** | 登录时序侧信道 | `authenticate` 用户不存在时也跑一次等代价 pbkdf2，消除「用户枚举」时序差。 | — |
 | **SEC-10** | KDF 轮数偏低 | pbkdf2 由 10 万轮提至 **60 万轮**（`CURRENT_PBKDF2_ITERS`）；存量账户经 `pw_iters` 列 + rehash-on-login 渐进升级（无迁移破坏）；`init_auth_db` 补 `pw_iters` 列（默认旧轮数，避免存量校验失败）。 | 登录成功自动升级哈希（无感）。 |
@@ -547,7 +547,7 @@
 | **SEC-9 CSP nonce** | `script-src 'unsafe-inline'` 因前端为静态 `index.html` 内联脚本；去 inline 需模板化注入 per-request nonce。XSS 已由 `esc()`/`textContent` 全程阻断（PDF 亦 `_esc`），纵深仍够。 | 低 | 重构前端为服务端模板时落地。 |
 | **SEC-12 多 worker 共享状态** | `_rate_window`/`_login_fails`/`_metrics`/`_version_cache`/`db._cache` 为进程内结构，多 worker 不安全。 | 低（当前单 worker） | 部署单 worker，或上 Redis 共享。 |
 
-> 状态：第八节 P1/P2/P3 已全部落地（残余为架构级、非阻断）。安全面由 A-（公网下有 P1 缺口）提升至 **B+/A- 区间**，满足复赛对外公网演示与评委体验要求。
+> 状态：第八节 P1/P2/P3 已全部落地（残余为架构级、非阻断）。安全面由 A-（公网下有 P1 缺口）提升至 **B+/A- 区间**，满足对外公网演示与用户体验要求。
 
 ## 10. 安全复审残余项闭环（2026-08-27，SEC-8 / SEC-9 / SEC-12）
 
@@ -589,7 +589,7 @@
 - **`auth._SECRET` 导入期捕获漂移**：`storage.py` 原 `from auth import _SECRET as _SIGN_KEY` 在 `importlib.reload(auth)` 后失效致验签失败，改动态引用 `auth._SECRET`。
 - **`rg_state.db` / `*.db` 不入库**：已在 `.gitignore` 的 `*.db` 规则下忽略（含 `users.db`/`cases.db`），共享状态库零入库污染。
 
-> 状态：第八节全部安全发现（SEC-1 ~ SEC-12）**已实现并验证清零**。安全面由 A- 提升至 **A 区间**，满足复赛公网演示 + 评委审计 + 多 worker 部署弹性。
+> 状态：第八节全部安全发现（SEC-1 ~ SEC-12）**已实现并验证清零**。安全面由 A- 提升至 **A 区间**，满足公网演示 + 第三方审计 + 多 worker 部署弹性。
 >
 > 📌 **后续新增**：公网演示上线后补第 13 项 **SEC-13（live 付费链路配额闸）**——`demo/quota.py` 三层闸门（全局日 / 账号日 / IP 小时），仅拦 `mode=live`，超限 `429` 且不静默降级；同时把 openGauss 端口由 `5432:5432` 收紧为**仅监听回环**。故当前安全项范围为 **SEC-1 ~ SEC-13**（另含 SEC-P0 系列）。
 
@@ -624,7 +624,7 @@
 - 版本号全仓统一为 **1.1.5**（`VERSION` / `/api/config` 为单一来源）。
 - 演示数据口径统一：案件总数 **1206** 条、胜诉率 **34.6%**、平台 **9 个**（Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop）。
 - 图床状态更正为**本地自持**：链路优先级 `self`（自托管隧道）> `public_base`（自建反代）> `local`（签名短链兜底）；**未配置隧道/反代时默认 `local`**，退货图不出境。远端对象存储（七牛云）接口为**预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭）。
-- 公网体验地址更正为**已上线**：https://rg.a703201sworld.top （测试账号 `demo` / `demo123`）。
+- 对外开放地址更正为**已上线**：http://127.0.0.1:65432 （测试账号 `demo` / `demo123`）。
 
 ## 11.4 仍待跟进（非阻断）
 

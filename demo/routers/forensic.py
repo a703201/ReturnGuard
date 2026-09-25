@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import uuid
 
@@ -27,12 +28,22 @@ from common import (
     save_case,
 )
 from constants import SUPPORTED_LANGUAGES
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from quota import check_live_quota
 from schemas import AnalyzeResult, ManualCase
 
 router = APIRouter()
+
+# 入参边界（与 db.Case 的列长对齐）：超限一律 400，而不是让 DB 层截断/报错。
+# 为什么在路由层就拒绝（而非只靠 db._clamp_values 截断）：
+#   截断是持久层的「最后防线」，用于挡住 CSV/xlsx 这类批量脏数据；面向用户的表单接口
+#   应当**明确报错**，否则用户提交了 500 字的 SKU 却只看到一条被悄悄改短的数据。
+_MAX_SKU_LEN = 64
+_MAX_CATEGORY_LEN = 64
+_MAX_SUPPLIER_LEN = 32
+_MAX_LISTING_LEN = 20_000  # 本店图文承诺（文本）
+_MAX_AMOUNT = 1e9  # 单笔金额上限（防误填天文数字污染聚合）
 
 
 @router.post("/api/analyze", response_model=AnalyzeResult)
@@ -80,6 +91,18 @@ def analyze(
     # 母语陈述目标语言：白名单校验，避免下游模板/音色取空
     if language not in SUPPORTED_LANGUAGES:
         raise HTTPException(status_code=400, detail="language 不在支持列表")
+    # 字段边界：长度与数值合法性（与 db.Case 列长对齐），避免落库报错或聚合被污染
+    if len(sku) > _MAX_SKU_LEN:
+        raise HTTPException(status_code=400, detail=f"sku 长度不得超过 {_MAX_SKU_LEN}")
+    if len(category) > _MAX_CATEGORY_LEN:
+        raise HTTPException(status_code=400, detail=f"category 长度不得超过 {_MAX_CATEGORY_LEN}")
+    if len(supplier) > _MAX_SUPPLIER_LEN:
+        raise HTTPException(status_code=400, detail=f"supplier 长度不得超过 {_MAX_SUPPLIER_LEN}")
+    if len(listing_text) > _MAX_LISTING_LEN:
+        raise HTTPException(status_code=400, detail=f"listing_text 长度不得超过 {_MAX_LISTING_LEN}")
+    # NaN / ±Inf 会被 float() 接受但不该入库（会让聚合的金额/均值变成 NaN 并传染全看板）
+    if not math.isfinite(amount) or amount < 0 or amount > _MAX_AMOUNT:
+        raise HTTPException(status_code=400, detail="amount 必须为 0 ~ 1e9 的有限数值")
 
     # SEC-13 live 独立配额闸：live 链路真实消耗服务端付费 Key，而公网演示账号
     # demo/demo123 是已对外发布的公开凭据，通用限流（60 次/分钟）挡不住"低频持续"
@@ -188,8 +211,8 @@ def analyze(
 def cases(
     request: Request,
     slim: bool = True,
-    page: int = 1,
-    page_size: int = 50,
+    page: int = Query(1, ge=1, description="页码，从 1 开始"),
+    page_size: int = Query(50, ge=1, le=200, description="每页条数（上限 200）"),
     category: str = "",
     platform: str = "",
     region: str = "",
@@ -230,7 +253,8 @@ def add_case(c: ManualCase, request: Request):
     """网页「数据录入」：手动添加一条实际退货案件到指定 source（默认 real 由前端开关控制）。
 
     不强制传图，填字段即可录入；落库后对应 source 的洞察看板实时刷新。
-    写接口：设置 ANALYZE_API_KEY 后需携带 API Key（_require_api_key）。
+    写接口：须登录会话（_require_session），匿名 → 401；请求体为 `ManualCase`，
+    字段长度与数值范围由 pydantic 校验（见 `schemas.ManualCase`），越界 → 422。
     """
     source = _resolve_source(request)
     _require_session(request)

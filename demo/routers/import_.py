@@ -17,6 +17,11 @@ from importer import import_csv_text, import_file
 
 router = APIRouter()
 
+# 表单直贴 CSV 的体积上限：与上传文件共用 10MB 口径。此前只校验了 UploadFile 的
+# 大小，`csv_text` 表单字段无上限——可以把任意大的 body 塞进内存解析（无鉴权前的
+# 内存放大面），故一并收敛。
+_MAX_CSV_TEXT_CHARS = 10 * 1024 * 1024
+
 
 @router.post("/api/import_csv")
 def import_csv(
@@ -48,6 +53,11 @@ def import_csv(
         text = csv_text
     if not text.strip():
         raise HTTPException(status_code=400, detail="请提供 csv_file 或 csv_text")
+    if len(text) > _MAX_CSV_TEXT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CSV 文本过大，上限 {_MAX_CSV_TEXT_CHARS // 1024 // 1024}MB 字符",
+        )
     # 仅允许导入 real 源，避免污染演示种子库；导入行归属当前租户（匿名 → public）
     if source != "real":
         logger.warning("CSV 导入强制落到 real 源（忽略 source=%s），避免污染 demo 种子库", source)

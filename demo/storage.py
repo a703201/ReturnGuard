@@ -6,13 +6,13 @@
 
 后端一览（`IMAGE_BED` 环境变量可显式指定；未指定时按下列**自动优先级**）：
     - local（默认兜底）：落在 ``demo/uploads/``，经 HMAC 签名短链 ``/api/file/{sig}?f=..&e=..``
-      短期可读。**复赛演示即用此/自托管通道，不依赖任何第三方云服务。**
-    - self：配 ``RG_SELF_IMAGE_BASE``（如 Cloudflare Tunnel 域名 + ``/api/img``），把本地图
+      短期可读。**演示即用此/自托管通道，不依赖任何第三方云服务。**
+    - self：配 ``RG_SELF_IMAGE_BASE``（如反向代理 / CDN 域名 + ``/api/img``），把本地图
       复制为 256-bit 不可猜测 key 后经 ``/api/img/{key}`` 暴露，供 live 视觉模型回源。
     - public_base：已有自建反代把 uploads 目录暴露为公网时，配 ``PUBLIC_IMAGE_BASE``。
     - qiniu（**远端预留，默认关闭**）：七牛云对象存储。仅当显式设 ``IMAGE_BED=qiniu`` 且
       配齐 ``QINIU_ACCESS_KEY/SECRET_KEY/BUCKET/DOMAIN`` 时启用；qiniu SDK 为**可选依赖**，
-      未安装则自动降级到下一后端（不影响上传主流程）。**复赛不启用，保留接口做后续准备。**
+      未安装则自动降级到下一后端（不影响上传主流程）。**默认不启用，保留接口做后续准备。**
 
 自动优先级（未显式指定 IMAGE_BED 时）：self > public_base > local。
 qiniu 不进入自动链——必须显式开启，避免误上传到第三方云。
@@ -168,7 +168,7 @@ def _serve_via(backend: str, local_path: str, public_key: str) -> str | None:
 def _qiniu_upload(local_path: str, public_key: str) -> str | None:
     """远端预留后端：上传到七牛云对象存储并返回公网 URL（失败返回 None 以降级）。
 
-    仅当 IMAGE_BED=qiniu 且配置齐备、SDK 可用时被调用；复赛不启用。
+    仅当 IMAGE_BED=qiniu 且配置齐备、SDK 可用时被调用；默认不启用。
     """
     if _qiniu_mod is None:
         return None

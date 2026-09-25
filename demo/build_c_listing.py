@@ -34,7 +34,7 @@ canvas.paste(ts2, ((W - box_w) // 2, 40))
 
 # bottom: promise block (simulating a real listing's 卖点/承诺文字)
 d.line([(60, 40 + box_h + 30), (W - 60, 40 + box_h + 30)], fill=(210, 210, 210), width=2)
-title = "Lumio Studio · 纯棉印花 T 恤【官方正品】"
+title = "Sunrise Studio · 纯棉印花 T 恤【官方正品】"
 d.text((70, 40 + box_h + 50), title, font=f_h, fill=(20, 20, 20))
 promises = [
     "材质：100% 新疆长绒棉 · 亲肤透气",

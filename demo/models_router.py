@@ -1,4 +1,4 @@
-"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼网关调用，支持 Token Plan 测试网关 / 赛事指定 Model Router 双 profile 一键切换）
+"""ReturnGuard · 模型能力层（live 模式，经阿里云百炼网关调用，支持 Token Plan 测试网关 / 官方 Model Router 双 profile 一键切换）
 
 本文件把「方案文档」里规划的模型能力封装成可调用函数，供 pipeline 在 live 模式下调取。
 切换网关只需改 MODEL_ROUTER_PROFILE（tokenplan / official），详见下方「双 profile」配置块。
@@ -7,10 +7,10 @@
     profile      能力(④文本/⑥TTS)            其余(①向量/②VL/③OCR/⑤rerank)
     ──────────  ──────────────────────────  ──────────────────────────────────
     tokenplan    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen/qwen3-vl-plus 等（视觉未开通→回退）
-    official     qwen/qwen3.7-max / qwen/qwen3-tts-instruct-flash   qwen/qwen3-vl-plus 等（赛事指定）
+    official     qwen/qwen3.7-max / qwen/qwen3-tts-instruct-flash   qwen/qwen3-vl-plus 等（官方网关）
     dashscope    qwen3.7-max / qwen-audio-3.0-tts-plus    qwen3-vl-plus 等（自购·视觉齐全·数据不出境）
 
-⚠️ 两个网关「模型命名」不同：Token Plan 文本/TTS 为无 qwen/ 前缀旧名；赛事指定 Model Router
+⚠️ 两个网关「模型命名」不同：Token Plan 文本/TTS 为无 qwen/ 前缀旧名；官方 Model Router
 （model-router.edu-aliyun.com）全部模型必须带 qwen/ 前缀（见 ModelRouter_API.docx）。切换 profile
 时 base_url + key + 模型标识三者一并切换，避免 404/模型不存在。
 
@@ -74,14 +74,14 @@ logger = logging.getLogger("returnguard.models_router")
 if sys.modules.get("pytest") is None and "PYTEST_CURRENT_TEST" not in os.environ:
     load_dotenv()
 
-# 双 profile：tokenplan=本地测试（Token Plan 专属网关）/ official=赛事指定「阿里云百炼 Model Router」。
+# 双 profile：tokenplan=本地测试（Token Plan 专属网关）/ official=官方网关「阿里云百炼 Model Router」。
 # 切换只需改 MODEL_ROUTER_PROFILE 一个变量，避免 base_url 与 key 错配；各 profile 的
-# base_url 有默认值，仅 official 的 key（MODEL_ROUTER_OFFICIAL_KEY=组委会发放）需单独配置。
+# base_url 有默认值，仅 official 的 key（MODEL_ROUTER_OFFICIAL_KEY=发放）需单独配置。
 #
 # ⚠️ 关键差异：两个网关的「模型标识命名」不同！
 #   - Token Plan 网关：文本/TTS 用「无 qwen/ 前缀」旧命名（qwen3.7-max / qwen-audio-3.0-tts-plus），
 #     视觉/OCR/向量沿用 qwen/ 前缀。
-#   - 赛事指定 Model Router（model-router.edu-aliyun.com）：全部模型「必须带 qwen/ 前缀」
+#   - 官方 Model Router（model-router.edu-aliyun.com）：全部模型「必须带 qwen/ 前缀」
 #     （如 qwen/qwen3.7-max、qwen/qwen3-tts-instruct-flash、qwen/qwen3-rerank）。
 #   因此 base_url 切换的同时，模型标识也必须随 profile 切换，否则会 404/模型不存在。
 #   下方 models 字典把每个能力的模型标识按 profile 固化，统一由 MODELS[...] 下发，杜绝错配。
@@ -139,7 +139,7 @@ MODELS: dict[str, str] = _PROFILE["models"]
 # 把其他 profile 的端点错配——此前 tokenplan 的 MODEL_ROUTER_BASE_URL 曾把 official/dashscope
 # 端点污染成 Token Plan 地址，导致"切了 profile 仍打旧网关"）：
 #   - tokenplan ：允许 MODEL_ROUTER_BASE_URL 覆盖；否则取 Token Plan 专属默认
-#   - official  ：固定赛事指定端点，可用 MODEL_ROUTER_OFFICIAL_BASE_URL 覆盖（一般不改）
+#   - official  ：固定官方网关端点，可用 MODEL_ROUTER_OFFICIAL_BASE_URL 覆盖（一般不改）
 #   - dashscope ：固定百炼国内站端点，可用 DASHSCOPE_BASE_URL 覆盖
 _PROFILE_BASE_ENV = {
     "tokenplan": "MODEL_ROUTER_BASE_URL",
@@ -155,7 +155,7 @@ PUBLIC_IMAGE_BASE = os.environ.get("PUBLIC_IMAGE_BASE", "")
 # 可用 MODEL_ROUTER_TEXT_MODEL 覆盖（演示求快可切 kimi-k2.6 / deepseek-v4-pro / qwen3.6-flash 等，
 # 但 official profile 下覆盖值也必须带 qwen/ 前缀才生效，对比结论见 compare_models.py）。
 TEXT_MODEL = os.environ.get("MODEL_ROUTER_TEXT_MODEL", MODELS["text"])
-# 赛事指定 Model Router 的全部模型必须带 qwen/ 前缀；若 .env 遗留 tokenplan 风格的无前缀命名
+# 官方 Model Router 的全部模型必须带 qwen/ 前缀；若 .env 遗留 tokenplan 风格的无前缀命名
 # （如 qwen3.7-max），在 official profile 下自动补齐前缀，避免 404/模型不存在，保证一键切换可用。
 if MODEL_ROUTER_PROFILE == "official" and not TEXT_MODEL.startswith("qwen/"):
     TEXT_MODEL = f"qwen/{TEXT_MODEL}"
@@ -322,7 +322,7 @@ def _headers():
 
 # 视觉输入归一化：把「本地路径 / 公网 URL / data URI」统一成送给视觉网关的值。
 # 关键决策（P3-17 收口后的视觉实跑修复）：优先把本地上传图转成 base64 data URI 内联，
-# 彻底绕开「网关需回源拉取我们隧道图」这一最脆弱环节（cloudflared 进程一旦停，隧道 530，
+# 彻底绕开「网关需回源拉取我们隧道图」这一最脆弱环节（反向代理 进程一旦停，隧道 530，
 # 网关报 Failed to download multimodal content）。内联字节同样只流经阿里云国内站，数据不出境。
 _IMG_MIME = {
     "png": "image/png",

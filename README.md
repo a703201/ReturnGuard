@@ -1,63 +1,46 @@
 # ReturnGuard · 跨境退货情报站
 
-> 参赛赛道：**AI 市场洞察 · AI 智能选品引擎**（退货纠纷数据驱动的选品避坑与品控洞察）
-> 赛事：AI+跨境黑客松巅峰赛 · 复赛　|　团队：**Lumio**
-> 核心 AI 能力全部经 **阿里云百炼 Model Router** 调用
-> 初赛过程材料见 `docs/legacy/`
+> **业务方向**：AI 市场洞察 · 智能选品引擎（退货纠纷数据驱动的选品避坑与品控洞察）
+> **核心 AI 能力**：经 **阿里云百炼 Model Router** 调用（文本 / 视觉 / OCR / 重排 / 语音）
 
-> **命名约定**：全仓统一使用「**ReturnGuard 退货情报站**」。旧称「退件法医 / 跨境退货举证官」为单案取证时代的旧名（偏"鉴定/追责"），仅存于 `docs/legacy/` 历史材料中，新文档一律不再使用。
+> **命名约定**：全仓统一使用「**ReturnGuard 退货情报站**」。历史曾用名「退件法医 / 跨境退货举证官」偏「鉴定 / 追责」语义，已全部废弃，新代码与新文档一律不再使用。
 
 ## 电梯陈述（一句话）
 
 > 跨境卖家 20%–30% 的退货率里，真正该赔的只是一部分，更多是因为「拿不出客观证据」而白白败诉。
 > ReturnGuard 用图像向量、视觉理解与语音合成，把每一笔退货变成可量化的取证报告；再把所有案件聚合成选品与品控洞察——**既在单笔纠纷里少赔，又从源头看懂钱漏在哪**。
 
-## 一分钟速览（评委 / 体验入口）
+## 一分钟速览
 
-- **公网体验地址**：https://rg.a703201sworld.top （Cloudflare Tunnel 固定域名）
-- **测试账号**：`demo` / `demo123`
-- **代码仓库**：GitHub `a703201/ReturnGuard`（主仓库，`https://github.com/a703201/ReturnGuard`）；Gitea 镜像 `git@100.103.184.33:a703201/ReturnGuard.git`；GitCode 镜像 `https://gitcode.com/a703201/ReturnGuard`（已公开，三路同步推送）
-- **当前版本**：1.1.5（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致）
+- **当前版本**：2.0.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
+- **本机访问**：`http://127.0.0.1:65432`（容器）/ `http://127.0.0.1:8000`（直接 `uvicorn`）
+- **内置演示账号**：`demo` / `demo123`
+- **代码仓库**：GitHub `a703201/ReturnGuard`（主）；Gitea / GitCode 为镜像
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
   - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
-- **图床**：**本地自持**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代，默认 `local`，配了隧道/反代则自动升级为 `self`/`public_base`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭），复赛演示不启用第三方云
-- **Live 合规**：支持 `official`（**赛事指定 Model Router，提交口径**）/ `tokenplan`（Token Plan 自测网关）/ `dashscope`（自购通道）三 profile，改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动；逐项核对见 `复赛交付物/LIVE_COMPLIANCE.md`。
+- **图床**：**本地自持**（`local` 签名短链 / `self` 自托管反代 / `public_base` 自建反代，默认 `local`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭）
+- **模型网关 profile**：`tokenplan`（默认）/ `official`（官方 Model Router）/ `dashscope`（自购按量），改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + key + 模型标识三者联动
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
 ## 系统架构一览
 
 ![系统架构](assets/arch.png)
 
-- **前端层**：单页应用（上传/卷宗/洞察看板/数据录入），demo-real 双源切换
+- **前端层**：单页应用（上传 / 卷宗 / 洞察看板 / 数据录入），demo-real 双源切换
 - **后端编排层**：FastAPI DAG（并行取证 + 洞察聚合 + 多租户）
 - **模型能力层**：阿里云百炼 Model Router（7 能力，live/mock 韧性切换）
 - **洞察层（产品核心）**：聚类归因 / 预测预警 / 选品避坑 / 供应商品控
-- **数据层**：demo 库（演示种子，openGauss `returnguard`）+ real 库（真实数据，独立库 `returnguard_real`），**双库物理隔离**（real 写入绝不污染 demo 看板，P0 已验证）
-
-## 项目里程碑时间线（P0-3）
-
-| 阶段 | 时间 | 关键产出 |
-|---|---|---|
-| 立项 & 数据集 | 2026-07 | 确定「退货法医 + 退货反推选品避坑」空白定位；固定种子生成多维合成退货案件基线 |
-| 单案取证 live 化 | 2026-08-19 | 阿里云百炼 Token Plan 网关真接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，逐能力回退 mock |
-| 群体洞察看板 | 2026-08 | 聚类归因 / 预测预警 / 选品避坑清单 / 供应商品控，洞察层成型（产品核心） |
-| 进入复赛 | 2026-08-25 | 确认 AI+跨境黑客松巅峰赛复赛资格（场景三 · AI 市场洞察） |
-| 数据集融合重建 | 2026-08-27 | 演示库替换为 **1206 条**退货案件（融合 Amazon Returns / UCI Online Retail / TheLook 三个公开数据集，平台字段按品类×地区重映射），平台由 4 个扩展至 **9 个**（胜诉率 **34.6%**） |
-| 公网可体验 | 2026-08-27 | Cloudflare Tunnel 固定域名 https://rg.a703201sworld.top（测试账号 demo/demo123） |
-| 部署加固 | 2026-08-29 | 切换 openGauss 部署（demo/real/auth 三库全 openGauss）；修复 sku_name 长度溢出 / Docker 本地 WAL disk I/O error / 前端 ESM 拆分点击无反应 / 版本号 Vunknown；测试 86 → **88 passed** |
-| 复赛交付 | 2026-09-01 ~ 09-13 | 可运行 Demo + 演示视频 + 技术说明 + GitCode 镜像仓库 + 测试账号 + 阶段成果 |
-| 决赛路演 | 2026-09-25 | 数贸会现场路演（完成度 / 业务价值 / 技术创新 / 用户体验 / 商业落地） |
-
-> 时间线同步置顶架构图，便于评委一眼看清「从创意到复赛」的推进节奏。
+- **数据层**：demo 库（演示种子，openGauss `returnguard`）+ real 库（真实数据，独立库 `returnguard_real`），**双库物理隔离**；连接串未显式配置时由 demo 串**自动推导**出独立 real 库，任何部署形态都默认分库
 
 ## 项目简介
+
 ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一致性比对、瑕疵识别、listing 承诺核验、一键证据卷宗 + 母语语音），并把沉淀的退货数据聚合成**「选品 / 品控洞察」**，反哺选品决策。把售后成本中心变成市场洞察数据源——用已成交的真实退货负面信号驱动选品，比公开评论更可信。
 
-## 核心能力 → 模型映射（阿里云百炼 Model Router）
+## 核心能力 → 模型映射
 
-> ⚠️ **两个网关的模型命名不同**：赛事指定 Model Router（`model-router.edu-aliyun.com`）要求**全部模型带 `qwen/` 前缀**；Token Plan 网关的文本/TTS 用无前缀旧名。切换 profile 时 base_url + key + 模型标识三者一并切换，否则 404。代码单一来源：`demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
+> ⚠️ **不同网关的模型命名不同**：官方 Model Router（`model-router.edu-aliyun.com`）要求**全部模型带 `qwen/` 前缀**；Token Plan 网关的文本/TTS 用无前缀旧名。切换 profile 时 base_url + key + 模型标识三者一并切换，否则 404。代码单一来源：`demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
 
-| 能力 | `official`（赛事指定 · 提交口径） | `tokenplan`（Token Plan 自测） |
+| 能力 | `official` | `tokenplan` |
 |---|---|---|
 | 同款一致性（VL 直接判同款） | `qwen/qwen3-vl-plus` | 同左 |
 | 视觉理解（瑕疵识别 / 红框定位） | `qwen/qwen3-vl-plus` | 同左 |
@@ -66,11 +49,12 @@ ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一
 | 排序（案件优先级） | `qwen/qwen3-rerank` | `qwen3-rerank` |
 | 语音合成（母语陈述） | `qwen/qwen3-tts-instruct-flash` | `qwen-audio-3.0-tts-plus` |
 
-> 说明：洞察层（聚类归因 / 选品建议）复用文本模型，**不单独调用 deepseek 系列**；`demo/compare_models.py` 中的 `deepseek-v4-pro` / `kimi-k2.6` 等仅供模型对比实验，非线上链路。
+> 洞察层（聚类归因 / 选品建议）**复用文本模型**，不单独调用 deepseek 系列；`demo/compare_models.py` 中的 `deepseek-v4-pro` / `kimi-k2.6` 等仅供模型对比实验，非线上链路。
 >
-> 同款一致性说明：百炼 OpenAI 兼容模式**不支持视觉向量模型**（`tongyi-embedding-vision-plus` 会返回 `Unsupported model ... for OpenAI compatibility mode`），故线上主路径为 **VL 模型同时看退回件与本店主图直接判同款**（`models_router.vl_similarity`）——更贴合"调包 / 同款"的业务判定；图像向量仅在通道开通后作备选，再不可用时回退到与 mock **同口径**的内容哈希（见 `demo/imghash.py`）。
+> 同款一致性说明：百炼 OpenAI 兼容模式**不支持视觉向量模型**（`tongyi-embedding-vision-plus` 会返回 `Unsupported model ... for OpenAI compatibility mode`），故线上主路径为 **VL 模型同时看退回件与本店主图直接判同款**（`models_router.vl_similarity`）——更贴合「调包 / 同款」的业务判定；图像向量仅在通道开通后作备选，再不可用时回退到与 mock **同口径**的内容哈希（见 `demo/imghash.py`）。
 
 ## 取证工作流（双闭环）
+
 ```mermaid
 flowchart LR
   A[①上传与预处理] --> B[②并行取证 图向量+VL+OCR]
@@ -83,71 +67,77 @@ flowchart LR
 ```
 
 ## 系统架构
+
 ```mermaid
 flowchart TB
   FE[前端层 上传/卷宗/洞察看板] --> BE[后端编排层 FastAPI 工作流]
   BE --> IN[洞察层 聚类归因/选品建议]
-  BE --> M[模型能力层 Model Router 图向量/VL/OCR/LLM/Rerank/TTS/推理]
-  BE <--> D[数据层 对象存储+案例库+阈值样本]
+  BE --> M[模型能力层 Model Router 图向量/VL/OCR/LLM/Rerank/TTS]
+  BE <--> D[数据层 openGauss 双库 + 签名短链图床]
 ```
 
-## 复赛冲刺能力（1.1.5）
+## 主要能力
 
-> 安全复审全量闭环：公网部署语境下安全发现项 **SEC-1 ~ SEC-13（另含 SEC-P0 系列）全部清零**——写接口鉴权、签名短链收敛 PII、CSP 硬化、多 worker 共享状态外置、KDF 提至 60 万轮、API Key 常量时间比较、live 配额闸（SEC-13）、数据库仅监听回环。当前测试 **150 passed 全绿**（含 `/api/export_pdf` 与 `/api/import_csv` 链路补齐、`test_storage.py` 重写对齐当前存储层、`test_i18n.py` 多语言与静态资源版本化、`test_docs_consistency.py` 文档漂移守护），安全面达 A 区间。
-- **A 组 · 假能力变真**：live 模式真实接入图向量同款比对 / VL 瑕疵识别（真实红框）/ OCR / rerank，统一**可插拔图床抽象**（`local` 签名短链 / `self` 自托管隧道 / `public_base` 自建反代 / `qiniu` 远端预留）供模型服务端回源——**默认本地自持、退货图不出境**；未开通的模型**逐能力自动回退** mock 并标记，gateway 渐进开通即生效。
-- **B 组 · 数据闭环**：时间序列 + 次月预测预警；CSV 批量导入真实退货数据（`POST /api/import_csv`）+ 平台连接器位；相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
-- **C 组 · 多租户 + 合规 + 国产化**：注册/登录/令牌（一个用户=一个租户），real 源案件按租户隔离（私有严格隔离 + `public` 公共基准）；XSS 全量转义 + CSP 防御纵深；负向/一致性测试补齐；region/season 维度下钻；**openGauss 部署 + 启动自动导入**（`RG_AUTO_IMPORT_CSV`，幂等）。
+### A 组 · 真实模型接入（非演示壳）
 
-## 工程收口（赛后小项）
+- live 模式真实接入图向量同款比对 / VL 瑕疵识别（**真实红框坐标**）/ OCR / rerank / TTS，统一**可插拔图床抽象**（`local` 签名短链 / `self` 自托管 / `public_base` 自建反代 / `qiniu` 远端预留）供模型服务端回源——**默认本地自持、退货图不出境**；未开通的模型**逐能力自动回退** mock 并如实标记（`capabilities` 字典 / `defect_boxes_live`），网关渐进开通即生效。
+- 诚实性红线：`mode`、`defect_boxes_live`、`capabilities` 必须如实反映真实调用情况，**不把演示示意说成真实模型输出**。
 
-在答辩所需关键项全部收口后，针对大厂审查报告的赛后级条目做了几处低风险的工程加固（均不改变外部行为）：
+### B 组 · 数据闭环
 
-- **P1-12 洞察聚合投影**：`load_filtered_cases` 在行→dict 后剔除 `voice_audio_b64` / `dossier` 两个 base64/Text 大字段，避免 1206 行 × 大对象的无谓 IO 与内存放大（单案取证路径不受影响）。
-- **P2-4 重复代码去重**：`_gen_wav` 下沉为 `demo/audio_utils.py` 单一来源（原 pipeline / models_router 各一份逐字副本）；`_norm_date_key` 统一引用 `db._norm_date_key`（importer 不再自带副本）。
-- **P2-2 接口契约统一**：除 `/api/analyze`、`/api/insights` 外，/health、/api/config、/metrics、/api/platforms、/api/cases、/api/auth/*、/api/calibrate、/api/import_* 等接口补上 `response_model`（新增 `HealthResp` / `PlatformsResp` / `AuthTokenResp` / `SimpleOkResp` / `DeleteCaseResp`）。
-- **P2-11 去硬编码路径**：`start_rg.py`、`public-demo.bat` 的 cloudflared / 隧道配置路径改为环境变量可覆盖；`deploy/rg-tunnel.yml` 移除写死的本机用户名凭证路径（cloudflared 默认从 `%USERPROFILE%/.cloudflared/<tunnel-id>.json` 读取）。
-- **P1-2（降 P2）注释对齐**：`shared_state.py` 注释与部署决策对齐——共享状态库仅支持 SQLite（upsert 依赖 `ON CONFLICT`），明确不可指向 openGauss，消除原注释「可指向 openGauss」的误导。
-- **P2-8 匿名登录体验**：写接口（取证 / 导入 / 删除）收到 401 时主动弹出登录框衔接，而非只抛一行错误（前端已在多处落地）。
-- **P2-5 connector 批量去 N+1**：`import_from_connector` 改用 `bulk_upsert_cases` 单事务批量写入，消除此前逐行 `save_case` 的 N+1 旧链路；`save_case` 已不再被本模块引用。
-- **P2-9 提示词版本管理 / A-B**：`prompts.py` 新增 `PROMPT_VERSION` 常量与 `_PROMPT_VARIANTS` 注册表（含 `current_prompt_variant()`），insights system persona 注入 `[提示词版本：X / variant=Y]` 标识，便于回滚与 A/B 对照。
-- **P2-12 CI 安全门禁**：`.github/workflows/ci.yml` 将 mypy 由「continue-on-error 不阻断」升级为**阻断门禁**；新增 `bandit` 源码安全审计与 `pip-audit` 依赖 CVE 扫描（先以可见性优先运行，基线稳定后可去 `continue-on-error` 转阻断）。
-- **P2-14 幻觉数值校验**：`pipeline._reconcile_insights` 新增 LLM 输出与真实聚合数值一致性校验——win_rate / total_cases / 各维胜诉率与聚合偏差超阈值即回退 mock 聚合并标注 `reconciled_from='aggregate'`，不再仅靠 prompt 约束防幻觉。
-- **P2-6 前端骨架屏 + 构建链路**：`index.html` 加 shimmer 骨架屏样式，首屏数据抵达前显示占位（渲染覆盖后自然消失）；新增 `package.json` + `scripts/minify.mjs` 轻量 terser 压缩构建链路（作为建议项**不接入 CI**，以免破坏演示现场）。
-- **P2-7 前端 i18n**：新增 `demo/static/i18n.js`（字典 + `t()` / `setLang()` / `applyI18n()`），顶栏新增语言切换并持久化偏好（`localStorage.rg_lang`）；可见标签抽取 `data-i18n` 接线。**当前已扩展到 zh / en / fr 三语**（详见下方「2026-09-14」）。
-- **P2-1 平台分布口径说明**：数据集本身不均衡（Amazon 444/37% vs Lazada 38/3%），"9 平台均衡"为按「品类 × 地区」重映射的演示展示口径，已在评委指引与平台举证包文案中如实标注，代码中不伪造均衡分布。
+- 时间序列 + 次月预测预警；CSV / xlsx 批量导入真实退货数据（`POST /api/import_csv`、`POST /api/import_file`）+ 平台连接器位。
+- 相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
+- **ROI 真实回测**：基于真实聚合值的保守 / 基准 / 乐观三档 + 单因子敏感性，`method` / `disclaimer` 强制随结果下发（明确声明「模型回测，非 A/B 实测因果」）。
+- **A/B 台架** `demo/ab_experiment.py`：同批案件、同模型、同聚合输入下只改 prompt 变体，量化 JSON 可用率 / 幻觉对账 / 耗时。
 
-### 第二轮收口（2026-09-10 多维度复查项）
+### C 组 · 多租户 + 合规 + 国产化
 
-- **N1/N2 图床后端化（本地默认 + 远端预留）**：`storage.py` 重构为**可插拔后端注册表**——`local`（签名短链）/ `self`（自托管隧道）/ `public_base`（自建反代）自动优先级，`qiniu` 远端对象存储为**预留接口**（`IMAGE_BED=qiniu` 显式开启，SDK 缺失自动降级，**复赛不启用**）；同步修正 README/CHANGELOG/CODE_REVIEW 中"七牛云已激活"的**口径漂移**；启动日志与 `/api/config` 透出实际后端。
-- **N5 单案优先级接入 rerank**：`live_analyze` 用 `qwen3-rerank` 对单案紧急性打分（语义化 query = `_PRIORITY_QUERY`），与本地可解释公式 **5:5 融合**；`capabilities["rerank"]` 如实标注真实/回退，网关未开通即回退确定性公式。
-- **N8 供应商维度扩充（3 家 → 8 家）**：新增 `suppliers.py` 单一来源（缺陷定池 + SKU 熵），修正原哈希退化成"仅 S2/S3/S6"的问题——演示数据集供应商由 **3 家扩展到 8 家**（S1~S8），红黑榜与「平台 × 供应商」交叉信息量显著提升。
-- **N6 ROI 面板接入真实数据**：客单价（退款 ÷ 案件数）与争议占比（代理嫌疑率）按当前看板**真实值**自动填入并标注「真实 / 假设」，附数据来源行，不再纯静态示例。
-- **N3 i18n 扩容**：`data-i18n` 由 14 处扩展到 **30 处**（新增 15 张卡片标题 + 关键按钮），`i18n.js` 字典补齐 zh/en。
-- **N4 构建链路可用化**：`scripts/minify.mjs` 输出到 `dist/` 并**重写 ESM 相对导入**（`./x.js` → `./x.min.js`），生成 `dist/index.html`；设 `SERVE_MINIFIED=1` 即启用压缩产物（实测 **-31%**），默认仍发未压缩源，演示现场零风险。
+- 注册 / 登录 / 令牌（一个用户 = 一个租户），real 源案件按租户严格隔离（私有隔离 + `public` 公共基准）；demo 源为共享只读演示库，**禁止删除、禁止写入**（写入一律归正到 real 源，避免污染演示基准）。
+- XSS 全量转义 + CSP 防御纵深；openGauss 部署 + 启动自动导入（`RG_AUTO_IMPORT_CSV`，幂等）。
 
-> 当前测试 **150 passed 全绿**（`ruff format` / `ruff check` / `mypy` / `pytest --cov-fail-under=75` 四道门禁本地全通过）。
-> （上表为 2026-09-10 第二轮收口时的快照，当时 123 passed；后续经 i18n 与静态资源版本化两次收口增至 138，详见下方「2026-09-14」。）
+### D 组 · 安全与配额（SEC-1 ~ SEC-13 全清零）
 
-### 2026-09-11 四项收口（审查报告全部缺陷项清零）
-- **母语多语 TTS**：语言→音色映射为单一来源（`demo/constants.py`），`tts()` / `live_analyze()` 按 `language` 选音色；`/api/analyze` 接收 `language`、`/api/config` 下发 `languages`；前端取证表单可选语言，结果区展示「语言 · 音色」。
-- **正文级 i18n**：`data-i18n` 30 → **123** 处，并把**动态渲染层**（`render.js` + `app.js`）共 **192** 处硬编码中文接入 `t()`；字典 zh/en 各 **315 键**。新增 `scripts/check_i18n.py` 做键完整性校验（零缺失 / 零冗余 / zh-en 一致），可直接进 CI。
-  > 边界声明：**后端返回的数据值**（洞察正文、缺陷标签、供应商名等）仍为其原始语言，i18n 覆盖的是界面与结构化文案。
-- **ROI 回测 + A/B 台架**：`pipeline._roi_backtest()` 用真实聚合值给出保守/基准/乐观三档可挽回区间与敏感性，`method`/`disclaimer` 强制随结果下发（**模型回测，非 A/B 实测因果**）；`demo/ab_experiment.py` 为可复现的 prompt 变体对照台架（live 实跑 + `--mode mock` 零成本干跑）。详见 **`docs/AB_ROI_实证说明.md`**。
-- **告警清零**：`datetime.utcnow()` 引发的 19 条 SQLAlchemy DeprecationWarning → 0。
+- 写接口须**登录会话**（`Authorization: Bearer` / `X-Token`），管理端点须 `ADMIN_API_KEY` 或登录；`?token=` 查询参数已停用。
+- PII 收敛：退货图经 HMAC 签名 + TTL 短链 `/api/file/{sig}` 提供，`/uploads` 公开挂载已移除。
+- 令牌 HMAC 无状态签名；口令 pbkdf2 **60 万轮**、未知用户跑等代价哈希消除枚举时序差、登录即渐进 rehash。
+- 限流 / 登录封禁 / **live 配额**外置到 `rg_state.db`（多 worker 一致）；数据库仅监听回环。
+- **SEC-13 live 配额闸**：三层（全局日 / 账号日 / IP 小时），**覆盖 `/api/analyze`、`/api/insights?mode=live` 与 `/api/export_pdf?mode=live`** 三条会消耗付费 Key 的链路，超限 `429` + 明确文案，**不静默降级为 mock**。
 
-### 2026-09-14 新增法语（fr）界面本地化
-- **语言由 zh/en 扩展到 zh/en/fr**：`demo/static/i18n.js` 新增完整 `fr` 字典，三语各 **355 键**，键集合逐一对齐（`scripts/check_i18n.py` 改为以 zh 为基准校验全部语言，并新增「块内重复键」检查与 `data-i18n-label` 识别）。
-- **数字与日期格式本地化**：`locale` 键驱动 `toLocaleString`/`toLocaleTimeString`，法语为 `fr-FR`（千分位窄不换行空格、小数点逗号、日期 DD/MM/YYYY）；修复 `app.js` 中 ROI 面板硬编码的 `zh-CN`。
-- **补齐此前漏抽的硬编码文案**：登录 / 注册弹窗、**数据录入表单**（标题/字段标签/optgroup 分组名/判定结果选项，共 24 处）、录入页删除确认与状态、`html[lang]` 按 `zh-CN`/`en-US`/`fr-FR` 设置。
-  > ⚠️ 录入表单的 `value` 保持中文枚举（`赢`/`部分退款`/`输`/`待分析`）不变——这是入库契约，本地化只改显示文案。
-- **法语排版适配**：拉丁语系文案比中文长 2.5–4.75 倍，已约束 `.brand` 宽度并放宽筛选器 `max-width`（130→190px），修复法语下顶栏错位。
-- **修复「升级后前端不生效」**：分两步定位——① `/static/*` 原下发 `max-age=60` 导致窗口期内不回源；② 改 `no-cache` 后**本机正常、公网仍失效**，实测 CDN 会把它覆写成 `max-age=14400`。最终方案：**静态资源 URL 版本化**（`main.VersionedStaticFiles` 给整条 ESM 依赖链追加 `?v=<VERSION>`，入口由 `__ASSET_VER__` 注入）+ `/static/*` 发 `no-store`，从机制上不依赖链路是否遵守缓存头。详见 CHANGELOG。
-- **新增回归测试** `demo/tests/test_i18n.py`（15 例）：语言块齐全、三语键一致、无重复键、`locale` 与语言对应、选择器覆盖全部语言、表单枚举 value 未被翻译、optgroup 用 label 属性、静态资源必须 `no-store`、入口与子模块 import 均版本化等。
-- 端到端验证：`/api/analyze?language=fr` 返回法语陈述与 `voice=Serena` 音频；`/api/config` 的 `languages` 含 `{code:fr,label:Français,voice:Serena}`。
+### 界面与本地化
+
+- 界面 **zh / en / fr** 三语，顶栏切换并持久化；静态文案走 `data-i18n`，动态渲染走 `t()`，词典键完整性由 `scripts/check_i18n.py` 强制对齐。
+- 母语语音陈述支持 8 个语种（`zh`/`en`/`es`/`pt`/`de`/`fr`/`ja`/`ko`），语言 → 音色映射为单一来源（`demo/constants.py`）。
+- 数字与日期按语言格式化（`fr-FR` 为窄不换行空格千分位 + 逗号小数点）。
+- **边界声明**：后端返回的**数据值**（洞察正文、缺陷标签、供应商名）保持原始语言；表单 `value` 是入库枚举（`赢`/`部分退款`/`输`/`待分析`），不随翻译改变。
+
+## 2.0.0 · 工程化收口（本次变更）
+
+> 项目定位由「一次性活动作品」转为**常规工程**，并在此基础上补齐边界与异常处理。
+
+**清理历史项目语境 / 移除已停用的公网体验地址**
+
+- 清除全仓历史项目语境（活动名称、参与信息、评审语境、团队名与专用名词）与对外发布的体验地址及其配套隧道配置；受影响的文案、注释、文档、引用同步改写。
+- 移除 `docs/` 下的历史归档目录、`deploy/`（公网演示脚本与隧道配置）、`docker/returnguard-tunnel.service`、`docker/docker-compose.local.yml`（已弃用）、根目录 `.rg_tunnel.pid` 等运行时残留。
+- `start_rg.py` / `stop_rg.py` 重写为纯粹的**容器生命周期脚本**（启动 / 停止 / `--build` 重建 / `--down` 清理），不再涉及隧道与公网域名，路径全部由脚本自身位置推导。
+- 文档全部改写为常规工程口径；`openGauss部署指南.md` 中失效的「公网反代」表述同步修正。
+
+**功能完善与健壮性**
+
+- **缺陷修复 · 数据源隔离**：`REAL_DATABASE_URL` 此前默认值等于 demo 连接串，**未显式配置时 real 源会写进 demo 库**（仅在 compose 下靠显式注入掩盖）。现改为由 demo 串**派生独立库**（`returnguard` → `returnguard_real`，`cases.db` → `cases_real.db`），任何部署形态默认分库；无法派生时打 `CRITICAL` 提示显式配置。同时 openGauss 连接串不再硬编码口令，改为与 `GS_PASSWORD` 同源。
+- **缺陷修复 · 配额旁路**：`/api/insights?mode=live` 与 `/api/export_pdf?mode=live` 会调用付费 LLM，此前**不受 SEC-13 配额约束**（不断切换过滤条件即可持续消耗额度）。现统一在 `common._get_insights` 收口。
+- **持久层写入收敛** `db._clamp_values`：超长字符串按列长截断、`NaN / ±Inf` 归零、`defect_tags` 归一为 `list[str]`。放在仓储层可同时覆盖**手动录入 / 取证沉淀 / CSV·xlsx 导入**三条链路（openGauss 对 `VARCHAR(n)` 严格校验，此前超长即 `DataError` → 500）。
+- **入参边界**：`/api/cases` 分页 `ge=1 / le=200`；`ManualCase` 全字段长度与数值范围约束（越界 422 并指明字段）；`/api/analyze` 的 `amount` 必须有限且 `0 ~ 1e9`，`sku` / `category` / `supplier` / `listing_text` 长度上限（越界 400）；`/api/import_csv` 表单直贴文本加体积上限；`/api/calibrate` 样本量上限；`/api/export_pdf` 按 IP 限流（`EXPORT_PDF_RATE_LIMIT`）。
+- **文档一致性守护扩展**（`demo/tests/test_docs_consistency.py`）：新增「全仓无历史项目语境」「无已退役公网地址 / 隧道引用」「`package.json` 版本 = `VERSION`」「`API.md` 的 `LIVE_QUOTA_*` 变量名与 `quota.py` 一致」「`.env.example` 覆盖全部配额变量」等断言，任一侧漂移即 CI 失败。
+- 修正文档与代码的事实漂移：`API.md` 误记的 `LIVE_QUOTA_GLOBAL_DAILY` / `LIVE_QUOTA_ACCOUNT_DAILY` / `LIVE_QUOTA_IP_HOURLY`（代码实际读 `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`）；`auth.py` 模块 docstring 的 KDF 轮数（10 万 → 60 万）；`/api/cases` 文档中已移除的 `ANALYZE_API_KEY` 描述。
+- **兜底编排加固** `docker/docker-compose.pg.yml`：数据库与应用的端口改为仅绑回环（此前 `0.0.0.0` 暴露）、口令强制必填（与主 compose 同口径）、新增 `realdb-init` 创建独立 real 库以保持物理隔离、补齐 `AUTH_SECRET` / `ADMIN_API_KEY` 等安全变量透传。
+- 新增 `docs/DEPLOYMENT.md`：容器化部署（openGauss / PostgreSQL 兜底）、环境变量清单、真实数据自动导入、故障排查一体化说明。
+
+> 完整的逐条变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ## 快速开始
 
 **方式一：本地直跑（开发）**
+
 ```bash
 cd returnguard/demo
 pip install -r requirements.txt
@@ -155,54 +145,126 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 # 浏览器打开 http://127.0.0.1:8000
 ```
 
-**方式二：容器部署（演示 / 公网，推荐）**
+> ⚠️ 本地直跑默认连 openGauss（需先 `docker-compose -f docker/docker-compose.yml up -d db`）。
+> 无 openGauss 的离线 / CI 环境请显式回退 SQLite：`DATABASE_URL=sqlite:///./cases.db`。
+> ⚠️ 非提权进程绑定 `0.0.0.0` 或低端口在 Windows 上可能报 `winerror 10013`，本地联调统一用 `127.0.0.1`。
+
+**方式二：容器部署（推荐）**
+
 ```bash
 cd returnguard
+cp docker/.env.example docker/.env      # 填 GS_PASSWORD 等
 docker compose -f docker/docker-compose.yml up -d --build app
-# 应用映射到 http://127.0.0.1:65432 （compose 内 app 监听 8000；对外仅绑回环，供 cloudflared 隧道）
+# 应用映射到 http://127.0.0.1:65432（容器内 app 监听 8000；对外仅绑宿主机回环）
 ```
-> 公网体验：Cloudflare Tunnel（`deploy/rg-tunnel.yml`）把 `https://rg.a703201sworld.top` 指向 `127.0.0.1:65432`。
-> ⚠️ 非提权进程绑定低端口或 `0.0.0.0` 可能报 `winerror 10013`；本地联调统一用 `127.0.0.1`。
-- **开发与部署统一使用 openGauss**（华为开源国产库，兼容 PostgreSQL 协议）：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss；demo 与 auth 落在 `returnguard`，real 落在**独立库 `returnguard_real`**（见 [`openGauss部署指南.md`](openGauss部署指南.md)）；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`）。
-- 部署 openGauss：`docker compose -f docker/docker-compose.yml up -d`（含 openGauss 服务 + `realdb-init` 自动建独立 real 库）；或设 `DATABASE_URL`/`AUTH_DATABASE_URL`/`REAL_DATABASE_URL` 指向 openGauss + `RG_AUTO_IMPORT_CSV=<csv>` 启动自动导入，详见 [`openGauss部署指南.md`](openGauss部署指南.md)。
-- 可选环境变量：`AUTH_SECRET`（令牌签名，生产必设）、`FORCE_RESEED=1`（重置 demo 种子，compose 已透传）。写接口鉴权统一走**登录会话**（内置 demo/demo123 账户），不再有免登录 API Key 通道（`ANALYZE_API_KEY` 已废弃移除）。`STATE_DB_URL` 默认留空、回退内置 SQLite（`rg_state.db`）承载跨 worker 限流/登录锁 KV——openGauss 不支持 `ON CONFLICT` upsert，故刻意不指向 openGauss。
-- 安全相关环境变量（公网部署必设）：
-  - `AUTH_SECRET`：令牌 HMAC 签名密钥（`secrets.token_hex(32)` 生成，生产必设，否则每次重启令牌失效）。
-  - `AUTH_TRUSTED_PROXIES`：可信任的反代网段（Cloudflare Tunnel 部署设 `127.0.0.1`，使限流/防爆破按真实客户端 IP 生效）。
-  - `ADMIN_API_KEY`：`/api/calibrate`、`/metrics` 管理端点密钥（不设置则仅登录会话可访问）。
-  - `REGISTRATION_ENABLED`：公网演示设 `false`（用内置 demo/demo123）；可选 `REGISTRATION_INVITE_CODE` 邀请制。
-  - `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN`：登录防爆破阈值与锁定时长（分钟）。
-  - `UPLOAD_URL_TTL`：上传图签名短链有效期（秒，默认 3600）。
-- 上传图不再经 `/uploads` 公开挂载，改为 HMAC 签名短链 `/api/file/{sig}`（PII 收敛，详见 `docs/API.md` §3.10 与 `CHANGELOG.md` SEC-8）。
-- live 相关环境变量：`MODEL_ROUTER_API_KEY`（**必需**）；`MODEL_ROUTER_PROFILE`（`official`/`tokenplan`/`dashscope`）；`PUBLIC_IMAGE_BASE`（**可选**，视觉输入默认内联 base64，无需公网图床）；`LIVE_QUOTA_*`（SEC-13 三层配额，置 `0` 关闭该层）。
+
+> 需要发布到公网时，由部署方自行在其前面加反向代理 / CDN 并配置 HTTPS；
+> 反代场景下务必设 `AUTH_TRUSTED_PROXIES=<反代回环 IP>`，使限流与防爆破按真实客户端 IP 生效。
+
+一键脚本：`python start_rg.py`（启动并等待就绪）、`python stop_rg.py`（停止）、
+`python start_rg.py --build`（改代码后重建镜像）、`python stop_rg.py --down`（清理容器与网络，保留数据卷）。
+
+详见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 与 [`openGauss部署指南.md`](openGauss部署指南.md)。
+
+## 配置（环境变量）
+
+### 数据库
+
+| 变量 | 说明 |
+|---|---|
+| `DATABASE_URL` | demo 源连接串（默认 openGauss `localhost:5432/returnguard`） |
+| `REAL_DATABASE_URL` | real 源连接串；**留空时由 `DATABASE_URL` 派生独立库**（`*_real`） |
+| `AUTH_DATABASE_URL` | 账户 / 令牌库；留空时与业务库同源 |
+| `STATE_DB_URL` | 跨 worker 限流 / 登录锁 / 配额计数库（**仅支持 SQLite**，4 个斜杠的绝对路径） |
+| `GS_PASSWORD` / `GS_HOST` / `GS_PORT` / `GS_USERNAME` | openGauss 连接参数（口令来源与 compose 同源） |
+| `FORCE_RESEED` | `1` = 启动时重建 demo 演示种子（real 源数据不动） |
+| `RG_AUTO_IMPORT_CSV` | 启动时自动导入该 CSV 到 real 源（幂等去重） |
+| `UPLOAD_MAX_AGE_HOURS` / `UPLOAD_URL_TTL` | 上传图清理阈值（默认 24h）/ 签名短链有效期（默认 3600s） |
+
+### 安全（对外部署必设）
+
+| 变量 | 说明 |
+|---|---|
+| `AUTH_SECRET` | 令牌 HMAC 签名密钥（`secrets.token_hex(32)`），不设则重启令所有令牌失效 |
+| `ADMIN_API_KEY` | 管理端点（`/api/calibrate`、`/metrics`）密钥；不设则退化为「要求登录」 |
+| `AUTH_TRUSTED_PROXIES` | 可信反代网段（逗号分隔 IP/CIDR）；仅当直连客户端在列表内才采纳转发头 |
+| `REGISTRATION_ENABLED` / `REGISTRATION_INVITE_CODE` | 注册开关（默认关闭）/ 邀请码 |
+| `AUTH_REGISTER_LIMIT` / `AUTH_LOGIN_IP_LIMIT` | 每 IP 每分钟注册 / 登录上限 |
+| `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN` | 登录防爆破阈值与锁定时长（分钟） |
+| `ANALYZE_RATE_LIMIT` / `EXPORT_PDF_RATE_LIMIT` | 每客户端每分钟的分析 / 报告导出上限（`0` = 关闭该层） |
+| `CORS_ALLOW_ORIGINS` | 跨域白名单（逗号分隔具体域名，禁止 `*`）；留空 = 同源不挂 CORS |
+
+### live 模型链路
+
+- `MODEL_ROUTER_PROFILE`：`tokenplan`（默认）/ `official` / `dashscope`。
+- `MODEL_ROUTER_API_KEY`（tokenplan）/ `MODEL_ROUTER_OFFICIAL_KEY`（official）/ `DASHSCOPE_API_KEY`（dashscope）：**live 必需**。
+- `PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED`：**可选**。视觉输入默认**内联 base64**，本机直跑即可，无需公网图床。
+- `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`：SEC-13 三层配额（默认 300 / 60 / 20，`0` 关闭该层）。
+- `WAL_CHECKPOINT_INTERVAL_SEC`：SQLite WAL 巡检间隔（秒，`<=0` 关闭）。
 
 ## 验证脚本
-`verify_api.py`：纯标准库、零依赖，验证两项关键能力是否真能跑通：
-- **图向量比对**：`qwen/tongyi-embedding-vision-plus`（tokenplan 下为无前缀）嵌入两张图 → 余弦相似度。
-  > 注：线上**同款判定主路径已改为 VL 双图直接判同款**（`models_router.vl_similarity`），向量仅作通道开通后的备选；本脚本仍可用于验证向量端点本身是否可用。
-- **TTS → ASR 闭环**：用 API 自身 TTS 合成语音 → ASR 转写回来，验证语音端点。
 
-运行：
+`verify_api.py`：纯标准库、零依赖，验证两项关键能力是否真能跑通——
+
+- **图像向量比对**：嵌入两张图 → 余弦相似度。
+  > 注：线上**同款判定主路径为 VL 双图直接判同款**；向量仅作通道开通后的备选，本脚本可用于验证向量端点本身是否可用。
+- **TTS → ASR 闭环**：用 API 自身 TTS 合成语音 → ASR 转写回来。
+
 ```bash
 export MODEL_ROUTER_API_KEY=sk-xxx   # Windows: set MODEL_ROUTER_API_KEY=sk-xxx
 python verify_api.py
 ```
 
-## 提交状态
-- **初赛**：创意方案已通过官方在线表单提交（完整版见 `docs/legacy/ReturnGuard_方案.md`，表单精简版见 `docs/legacy/ReturnGuard_表单提交文案.md`）。
-- **复赛规划**：可运行 Web Demo（上传退件图 → 相似度 / 瑕疵 / 卷宗 / 语音 + 洞察看板）+ GitCode 仓库 + 3 分钟演示视频 + 容器化体验地址（详见方案 4.5 节）。
+## 测试与质量门禁
+
+```bash
+# 从仓库根运行（coverage 路径与 pyproject 的 omit 规则据此匹配）
+python -m pytest -q demo/tests                    # 单元 + 集成
+python scripts/check_i18n.py                      # 三语键完整性
+ruff format --check demo && ruff check demo       # 格式 / 静态检查
+mypy demo --config-file pyproject.toml            # 类型检查（增量门禁）
+```
+
+CI（`.github/workflows/ci.yml`）在 Python 3.11 / 3.12 上跑 ruff / mypy / pytest（`--cov-fail-under=75`），
+并附加 bandit 源码安全审计与 pip-audit 依赖 CVE 扫描。当前 **168 passed 全绿**。
 
 ## 目录
-- `verify_api.py` — 关键 API 验证脚本
-- `README.md` — 本文件
-- `CHANGELOG.md` — 版本变更记录（当前 1.1.5）
-- `openGauss部署指南.md` — openGauss 真实部署 + 真实数据自动导入
-- `docs/` — 专项文档：`API.md`（接口契约）、`SCHEMA.md`（表结构）、`PRD.md`（产品需求）、`AB_ROI_实证说明.md`（ROI 与 A/B 口径边界）、`CODE_REVIEW.md`（大厂标准审查记录）、`legacy/`（初赛归档）
-- `demo/` — FastAPI 应用：
-  - **装配层**：`main.py`（app 创建 / 中间件注册 / 路由聚合 / lifespan / `VersionedStaticFiles` 静态资源版本化）、`common.py`（配置 / 依赖 / 限流 / 中间件 / 聚合辅助）
-  - **路由层**：`routers/`（按域拆分：`frontend` / `forensic` / `insights` / `auth` / `calibration` / `import_`）
-  - **业务层**：`pipeline.py`（取证 / 洞察 / ROI 回测）、`models_router.py`（真实模型 + 逐能力回退）、`auth.py`（账户 / 多租户）、`calibration.py`（阈值自标定）、`importer.py`（CSV 回流）、`platforms.py`（平台举证规则）、`quota.py`（SEC-13 live 配额闸）、`storage.py`（图床）、`shared_state.py`（跨 worker 状态）、`imghash.py`（内容哈希单一口径）、`prompts.py`（提示词版本 / 变体）
-  - **前端**：`static/index.html`（单页，5 Tab）+ `static/app.js` / `render.js` / `store.js` / `api.js`（ESM 拆分）+ `static/i18n.js`（zh/en/fr 三语字典）
-  - **工具 / 实验**：`ab_experiment.py`（prompt 变体 A/B 台架）、`compare_models.py`（模型对比）、`convert_datasets.py`（数据集融合）、`seed_real.csv`（自动导入样例）、`tests/`（150 passed）
-- `scripts/` — 工程脚本：`check_i18n.py`（三语键完整性校验，可进 CI）、`minify.mjs`（可选压缩构建）
-- （初赛完整方案 / 表单文案已归档至 `docs/legacy/`）
+
+```
+returnguard/
+├── VERSION                     # 版本单一来源
+├── CHANGELOG.md                # 版本变更记录
+├── README.md                   # 本文件
+├── openGauss部署指南.md         # openGauss 部署 + 真实数据自动导入
+├── start_rg.py / stop_rg.py    # 容器一键启动 / 停止
+├── package.json                # 前端可选压缩构建链路（terser）
+├── assets/                     # 架构图 / 流程图
+├── docs/
+│   ├── API.md                  # 接口契约
+│   ├── SCHEMA.md               # 表结构
+│   ├── PRD.md                  # 产品需求
+│   ├── DEPLOYMENT.md           # 部署与运维
+│   ├── AB_ROI_实证说明.md       # ROI 回测 / A-B 台架的口径与边界
+│   ├── CODE_REVIEW.md          # 工程审查记录
+│   └── reference/              # 网关接口参考（Model Router API）
+├── demo/                       # FastAPI 应用
+│   ├── main.py                 # 装配层（app / 中间件 / 路由聚合 / 静态资源版本化）
+│   ├── common.py               # 配置 / 依赖 / 限流 / 中间件 / 聚合辅助
+│   ├── routers/                # frontend · forensic · insights · auth · calibration · import_
+│   ├── pipeline.py             # 取证 + 洞察 + ROI 回测
+│   ├── models_router.py        # 真实模型调用 + 逐能力回退
+│   ├── db.py / auth.py         # 仓储层 / 账户体系
+│   ├── cache.py / shared_state.py / quota.py / storage.py
+│   ├── schemas.py / constants.py / prompts.py / platforms.py / suppliers.py
+│   ├── static/                 # index.html + ESM 前端（app/render/store/api/i18n）
+│   └── tests/                  # 测试套件
+├── scripts/                    # check_i18n.py · minify.mjs · 端到端脚本
+└── docker/                     # Dockerfile · compose · entrypoint · systemd
+```
+
+## 已知边界与后续方向
+
+- **live 需自备网关 Key**：无 Key 时接口自动以 mock 运行，功能不中断，但结果不是真实模型输出（响应中已如实标注）。
+- **A/B 与 ROI 不是因果实测**：`roi_backtest` 是基于真实聚合值的**模型回测**；真 A/B 需要线上流量分组，属运营阶段工作。引用时须连同 `method` / `disclaimer` 一并呈现。
+- **多实例共享状态**：限流 / 配额落 `rg_state.db`，多主机部署需改为方言无关 upsert 或 Redis 后端（`shared_state.py` 当前仅支持 SQLite）。
+- **演示数据集**：平台字段为按「品类 × 地区」规则重映射的演示渠道标签，文档与界面均如实标注，代码中不伪造均衡分布。

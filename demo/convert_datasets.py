@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ReturnGuard · 真实数据集 → 案件 JSON/CSV 转换器（复赛·真实数据回流）
+"""ReturnGuard · 真实数据集 → 案件 JSON/CSV 转换器（真实数据回流）
 
 把 Dataset/ 下的三个公开电商退货数据集归一化为 ReturnGuard 案件 schema：
   - Dataset/amazon_returns_dataset_cleaned.xlsx        Amazon 真实退货（含 return_reason 退货原因）

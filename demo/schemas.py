@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DefectBox(BaseModel):
@@ -47,12 +47,15 @@ class AnalyzeResult(BaseModel):
     # 红框是否来自真实视觉模型：True=live 真实坐标框，False=live 回退示意框 / mock 演示框。
     # 前端据此区分红框(真实)与琥珀色示意框(回退)，如实呈现、不替代平台裁决。
     defect_boxes_live: bool = False
-    # 退回图访问地址（/uploads/<文件名>），前端据此加载做红框标注；
+    # 退回图访问地址：本地兜底为 HMAC 签名短链 `/api/file/{sig}?f=&e=`（SEC-8，含 TTL），
+    # 配了图床/自托管时为对应公网 URL。前端据此加载图片做红框标注；
     # 用 URL 替代整图 base64，避免 10MB 图塞进 JSON 撑大响应（P3-5）。
     returned_image_url: str = ""
     case_id: str = ""
     platform: str = ""
     platform_evidence: list[str] = []
+    # 本次取证是否成功落库（false 时前端应提示「未入库」，避免用户以为已沉淀）
+    persisted: bool = False
     mode: str = "mock"
     error: str | None = None
     # 母语语音：本单 ④ 陈述文本语言 / ⑥ TTS 音色（zh/en/es/pt/de/fr/ja/ko）
@@ -107,29 +110,33 @@ class ManualCase(BaseModel):
 
     字段与 Case 表对齐；均带默认值，未填字段落库为缺省值（聚合时按 P1-1 规则跳过噪声桶）。
     缺陷标签以字符串数组传入；缺省给「无明显瑕疵」占位，避免聚合索引报错。
+
+    长度/范围约束（2.0.0 补齐）：上限与 `db.Case` 的列长、聚合语义一一对齐，越界直接
+    返回 422 并指明字段，而不是等到落库时由数据库报 DataError（500）或被静默截断。
     """
 
-    sku: str
-    sku_name: str = ""
-    category: str = ""
-    supplier: str = ""
-    supplier_name: str = ""
-    platform: str = ""
-    language: str = "zh"
-    region: str = ""
-    amount: float = 0.0
-    date: str = ""
-    similarity: float = 0.0
+    sku: str = Field(..., max_length=64, description="SKU 编码（必填）")
+    sku_name: str = Field("", max_length=256)
+    category: str = Field("", max_length=64)
+    supplier: str = Field("", max_length=32)
+    supplier_name: str = Field("", max_length=128)
+    platform: str = Field("", max_length=32)
+    language: str = Field("zh", max_length=16)
+    region: str = Field("", max_length=32)
+    # 金额上限 1e9：防误填天文数字把「累计退款额 / 笔均退款」等 KPI 拉到失真
+    amount: float = Field(0.0, ge=0, le=1e9)
+    date: str = Field("", max_length=32, description="YYYY-MM-DD，非法格式落库时归 NULL")
+    similarity: float = Field(0.0, ge=0, le=1)
     same_item: bool = True
-    defect_tags: list[str] = []
-    defect_description: str = ""
-    consistency: str = ""
-    outcome: str = ""
-    mode: str = "manual"
-    listing_text: str = ""
-    priority_score: float = 0.0
-    returned_image: str = ""
-    product_image: str = ""
+    defect_tags: list[str] = Field(default_factory=list, max_length=20)
+    defect_description: str = Field("", max_length=2000)
+    consistency: str = Field("", max_length=2000)
+    outcome: str = Field("", max_length=32)
+    mode: str = Field("manual", max_length=32)
+    listing_text: str = Field("", max_length=20_000)
+    priority_score: float = Field(0.0, ge=0, le=1)
+    returned_image: str = Field("", max_length=256)
+    product_image: str = Field("", max_length=256)
 
 
 class HealthResp(BaseModel):

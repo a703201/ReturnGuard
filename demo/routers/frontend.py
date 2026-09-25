@@ -133,8 +133,8 @@ def api_config():
             for code, meta in TTS_VOICES.items()
         ],
         "default_language": DEFAULT_LANGUAGE,
-        # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=赛事指定 Model Router，
-        # 复赛提交时切到 official 即演示用赛事指定端点（详见 demo/.env.example）。
+        # 模型网关 profile：tokenplan=Token Plan 测试网关 / official=官方 Model Router，
+        # 对外演示时切到 official 即演示用官方网关端点（详见 demo/.env.example）。
         # 注意：不再回传内部网关地址 model_router_endpoint（P2-信息泄露），前端无需该值。
         "model_router_profile": MODEL_ROUTER_PROFILE,
     }

@@ -1,14 +1,15 @@
 # ReturnGuard 接口文档（API.md）
 
 > **服务**：ReturnGuard Demo（FastAPI）
-> **最后更新**：2026-09-14（1.1.4）
+> **最后更新**：2026-09-25（2.0.0）
 > **关联文档**：`docs/PRD.md`、`docs/SCHEMA.md`、`docs/AB_ROI_实证说明.md`、`docs/CODE_REVIEW.md`、`CHANGELOG.md`、`ModelRouter_API.docx`（模型能力参考）
 
 ---
 
 ## 1. 概述
 - **本地 Base URL**：`http://127.0.0.1:8000`（直接 `uvicorn main:app` 时）
-- **容器 / 公网 Base URL**：`http://127.0.0.1:65432`（compose 映射，本地联调）；公网 `https://rg.a703201sworld.top`（Cloudflare Tunnel → `127.0.0.1:65432`）
+- **容器 Base URL**：`http://127.0.0.1:65432`（compose 映射到宿主机回环）
+  > 对外发布由部署方在其前置反向代理 / CDN 并配置 HTTPS；应用自身只绑回环，不直接暴露。
 - **前端页面**：`GET /` 返回「退货情报站」单页应用，**5 个 Tab**：市场洞察 / 平台举证包 / 供应商透视 / 单案取证 / 数据录入。
 - **数据格式**：JSON（`/api/analyze`、`/api/import_csv`、`/api/import_file` 为 `multipart/form-data`）。
 - **双模式**：多数接口支持 `mode=mock|live`，默认 `mock`。
@@ -25,7 +26,7 @@
 - **鉴权（强制）**：写接口（`POST /api/analyze`、`POST/DELETE /api/cases`、`POST /api/import_csv`、`POST /api/import_file`）须携带登录会话；管理端点（`POST /api/calibrate`、`GET /metrics`）须 `ADMIN_API_KEY` 或登录会话。令牌经 `Authorization: Bearer <token>` 或 `X-Token: <token>` 头传递（**不再支持 `?token=` 查询参数**，SEC-4）。未携带 → `401`。
 - **多租户**：`real` 源案件按 `tenant_id` 隔离；归属不明的历史数据归入显式 `public` 桶（**不再隐式共享**，SEC-P0）；`demo` 源为共享只读演示库。数据变更接口均须登录态，禁止匿名写入。
 - **静态资源版本化**：`/static/*` 的 URL 带 `?v=<APP_VERSION>`（服务端注入），并下发 `Cache-Control: no-store`；发版即换 URL，避免浏览器 / CDN 命中旧前端产物。
-- **live 配额闸（SEC-13）**：`mode=live` 受三层配额限制（全局日 / 账号日 / IP 小时，环境变量 `LIVE_QUOTA_*`，置 `0` 关闭该层），超限返回 `429` 并明确告知，**不静默降级为 mock**。
+- **live 配额闸（SEC-13）**：`mode=live` 受三层配额限制（全局日 / 账号日 / IP 小时，环境变量 `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`，置 `0` 关闭该层），超限返回 `429` 并明确告知，**不静默降级为 mock**。该闸门覆盖**全部会消耗付费 Key 的链路**：`/api/analyze`、`/api/insights?mode=live`、`/api/export_pdf?mode=live`。
 
 ---
 
@@ -99,6 +100,17 @@
 | `mode` | form-data | string | 否 | `mock`（默认）/ `live`（受 SEC-13 配额约束） |
 
 > 写库归正：取证结果一律落 **real 源**（当前租户库），即便传 `source=demo` 也会被强制归正，避免污染共享演示种子库。
+
+**入参边界（2.0.0 补齐）**
+
+| 参数 | 约束 | 越界响应 |
+|---|---|---|
+| `amount` | 必须为有限数值且 `0 ~ 1e9` | `400` |
+| `sku` / `category` / `supplier` | 长度 ≤ 64 / 64 / 32（与 `cases` 表列长对齐） | `400` |
+| `listing_text` | 长度 ≤ 20000 | `400` |
+| `platform` | 必须在平台举证包支持列表内 | `400` |
+| `language` | 必须在 `constants.TTS_VOICES` 内 | `400` |
+| `mode` | `mock` / `live` | `400` |
 
 **响应字段（200, application/json · `AnalyzeResult`）**
 
@@ -215,6 +227,10 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 ### 3.6 `GET /api/export_pdf` —— 导出洞察报告
 按当前筛选条件生成 PDF 报告（`application/pdf`）。支持的 query 与 `/api/insights` 一致（`source` / `mode` / `category` / `platform` / `region` / `season`）。
 
+> 限流（2.0.0 新增）：按客户端 IP 限制为 `EXPORT_PDF_RATE_LIMIT`（默认 20 次/分钟，置 `0` 关闭），超限 `429`。
+> 原因：报告生成为 CPU 重的同步任务（reportlab 排版），而 demo 源允许匿名读，需防被反复触发。
+> `mode=live` 时同样受 SEC-13 配额闸约束。
+
 ---
 
 ### 3.7 `GET /api/platforms` —— 平台适配举证包（交付物 A）
@@ -241,8 +257,8 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 |---|---|---|---|
 | `source` | string | `demo` | `demo` / `real` |
 | `slim` | bool | `true` | `true` 只投影录入列表所需字段（剔除 `dossier`、`voice_audio_b64` 等大字段），避免整库大响应 |
-| `page` | int | `1` | 页码 |
-| `page_size` | int | `50` | 每页条数 |
+| `page` | int | `1` | 页码（`ge=1`，越界 → `422`） |
+| `page_size` | int | `50` | 每页条数（`ge=1, le=200`，越界 → `422`） |
 | `category` / `platform` / `region` / `outcome` | string | `""` | 等值过滤，**下推 SQL WHERE**（减少拉库与传输） |
 
 **响应信封**
@@ -254,6 +270,7 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 
 ### 3.9 `POST /api/cases` · `DELETE /api/cases/{case_id}` —— 网页端录入 / 删除
 - **`POST /api/cases`**（`201`）：按 `ManualCase` 契约写入一条案件，生成 `RG-<hex>` 的 `case_id`；须登录会话（匿名 → `401`）。请求体见 §4.1。
+  > 字段边界（2.0.0 补齐）：`sku` ≤ 64、`sku_name` ≤ 256、`category` ≤ 64、`supplier` ≤ 32、`supplier_name` ≤ 128、`platform` / `region` / `outcome` / `mode` ≤ 32、`language` ≤ 16、`listing_text` ≤ 20000、`defect_description` / `consistency` ≤ 2000、`returned_image` / `product_image` ≤ 256、`defect_tags` ≤ 20 项；`amount` ∈ `[0, 1e9]`、`similarity` / `priority_score` ∈ `[0, 1]`。越界返回 `422` 并指明字段（不再等到落库时被截断或报 500）。
 - **`DELETE /api/cases/{case_id}`**：删除指定案件（仅当前租户可删自己写入的；跨租户 → `403`/`404`）；须登录会话。
 - **`demo` 源禁止删除**（共享演示库，公开测试账号不可删光种子数据，SEC-P0）。
 - 两接口仅落**当前数据源**（`?source=demo|real`），互不污染。
@@ -274,12 +291,15 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 
 ### 3.12 `POST /api/import_csv` · `POST /api/import_file` —— 真实数据批量回流
 - **`/api/import_csv`**：CSV 文本导入（列名映射 / 类型转换 / 中文表头不敏感）。`csv_file` 可选（`File`），缺失时按 `RG_AUTO_IMPORT_CSV` 启动自动导入（幂等去重）。
+  > 体积上限（2.0.0 补齐）：上传文件与表单直贴的 `csv_text` 均限 10MB，超限 `413`。
 - **`/api/import_file`**：上传 `.xlsx` / `.csv` **文件**导入，自动识别数据集类型；响应含新增 / 更新 / 跳过计数。
 - 两者均须登录会话（匿名 → `401`）。
+- 导入的每一行都会经过持久层收敛（超长字符串按列长截断、非有限数值归零、`defect_tags` 归一），单行脏数据不会让整批导入失败。
 
 ### 3.13 `GET · POST /api/calibrate` —— 相似度阈值自标定
 - **`GET`**：返回当前生效阈值（标定值或默认 0.82）与标定样本量。公开。
 - **`POST`**：用真同款 / 真调包样本按 **Youden J** 最优分离点标定阈值并落盘（`CalibrateRequest`）；须 `ADMIN_API_KEY` 或登录会话，匿名 → `401`。
+  > 样本量上限（2.0.0 补齐）：`same_sims` / `diff_sims` 各 ≤ 5000，越界 `422`。
 
 ### 3.14 `GET /metrics` —— 运行指标（SEC-1/7）
 返回请求量 / 平均耗时 / 错误数 / 取证与洞察调用量等；须 `ADMIN_API_KEY` 或登录会话，匿名 → `401`。
@@ -287,7 +307,7 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 ### 3.15 账户与鉴权接口（v1.1.0+）
 | 方法 / 路径 | 说明 | 鉴权 |
 |---|---|---|
-| `POST /api/auth/register` | 注册新账户（一个用户 = 一个租户），成功即返回令牌；受 `REGISTRATION_ENABLED` / `REGISTRATION_INVITE_CODE` 约束 | 公开（公网演示默认关闭） |
+| `POST /api/auth/register` | 注册新账户（一个用户 = 一个租户），成功即返回令牌；受 `REGISTRATION_ENABLED` / `REGISTRATION_INVITE_CODE` 约束 | 公开（对外部署默认关闭） |
 | `POST /api/auth/login` | 登录，返回 HMAC 签名令牌（无状态，7 天过期）；密码 pbkdf2 60 万轮 | 公开 |
 | `GET /api/auth/me` | 返回当前登录用户 / 租户标识，供前端恢复会话 | 登录会话 |
 | `POST /api/auth/logout` | 登出（自增 `token_version`，该用户已签发令牌立即全失效） | 登录会话 |
@@ -339,14 +359,14 @@ live 模式经**阿里云百炼 Model Router** 调用多模态大模型，协议
 - **Base URL**：`https://model-router.edu-aliyun.com/v1`
 - **认证**：`Authorization: Bearer <MODEL_ROUTER_API_KEY>`
 - **环境变量**：
-  - `MODEL_ROUTER_API_KEY`：赛事发放的算力 Key（**live 必需**）。
+  - `MODEL_ROUTER_API_KEY`：网关 API Key（**live 必需**）。
   - `MODEL_ROUTER_PROFILE`：网关 profile，默认 `tokenplan`；提交 / 演示口径为 `official`。切换时 `base_url` + key + 模型标识**三者联动**，否则 404。
   - `PUBLIC_IMAGE_BASE`（**可选**）：仅当希望视觉能力走「公网 URL 回源」时才需要。**默认不必配**——`models_router._img_source` 会把本地上传图**转成 base64 data URI 内联**后发给模型，无需图片公网可达，也无需对象存储同步。
 
 > 重要变更：早期版本要求图片必须公网可达（`PUBLIC_IMAGE_BASE` + 对象存储同步）才能真正跑通 live 视觉；现已改为**内联 base64**，本机直跑即可，`PUBLIC_IMAGE_BASE` 降级为可选增强项。
 
 ### 5.3 模型能力映射表
-`official`（赛事指定 / 提交口径，全部带 `qwen/` 前缀）与 `tokenplan`（Token Plan 自测网关）命名不同：
+`official`（官方网关 / 对外口径，全部带 `qwen/` 前缀）与 `tokenplan`（Token Plan 自测网关）命名不同：
 
 | 能力 | `official` | `tokenplan` | 调用端点 |
 |---|---|---|---|
@@ -394,7 +414,7 @@ live 模式经**阿里云百炼 Model Router** 调用多模态大模型，协议
 { "model": "qwen/qwen3-rerank", "query": "<追回价值描述>",
   "documents": ["案件A描述", "案件B描述"] }
 ```
-返回 `results[]`。单案优先级采用 **rerank 相关性 50% + 本地可解释公式 50%** 的 5:5 融合（`_PRIORITY_QUERY` 为语义化 query）；赛事未发放额度或超时即回退**本地确定性公式**，并在 `capabilities["rerank"]` 如实标注。
+返回 `results[]`。单案优先级采用 **rerank 相关性 50% + 本地可解释公式 50%** 的 5:5 融合（`_PRIORITY_QUERY` 为语义化 query）；网关额度不可用或超时即回退**本地确定性公式**，并在 `capabilities["rerank"]` 如实标注。
 
 **⑥ 母语语音 —— `POST /v1/audio/speech`**
 ```json
@@ -440,7 +460,7 @@ build_insights_live(aggregated):
 - **可选**：`PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED`——仅在希望走公网回源取图时才配置；默认内联 base64，无需对象存储。
 - 逐能力渐进开通：网关开通哪个模型，对应能力即自动变真，`capabilities` 会如实反映；未开通的能力仅该步回退，其余不受影响。
 - 无 Key 时接口自动以 mock 模式运行，功能演示不中断。
-- SEC-13 配额：`LIVE_QUOTA_GLOBAL_DAILY` / `LIVE_QUOTA_ACCOUNT_DAILY` / `LIVE_QUOTA_IP_HOURLY`（置 `0` 关闭该层），超限 `429` 且**不静默降级**。
+- SEC-13 配额：`LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`（置 `0` 关闭该层），超限 `429` 且**不静默降级**。该闸门同时覆盖 `/api/analyze`、`/api/insights?mode=live` 与 `/api/export_pdf?mode=live`（2.0.0 前仅覆盖 `/api/analyze`，洞察与导出可绕过）。
 
 ---
 
@@ -452,8 +472,8 @@ build_insights_live(aggregated):
 - **令牌密钥**：`AUTH_SECRET` 从 `.env` 加载（修复 dotenv 顺序 bug，SEC-2）；生产必设，否则每次重启令牌失效。支持 `secrets.token_hex(32)` 配置。
 - **PII 收敛（SEC-8）**：客户退货图不再经 `/uploads` 公开挂载，改为 HMAC 签名 + TTL 短链 `/api/file/{sig}`；伪造/过期/枚举均返回 `404`，不泄露文件是否存在。自托管 `self` 图床另用 256-bit 不可猜测 key（SEC-P0）。
 - **CSP（SEC-9）**：前端已外置为同源 ES module，由 `script-src 'self'` 放行；首页**每请求仍生成 nonce**（保留机制，防将来回嵌内联脚本）。`script-src` 去除 `unsafe-inline`；另含 `default-src 'self'`、`img-src 'self' data: https:`、`object-src 'none'`、`base-uri 'self'`、`frame-ancestors 'none'`、`X-Content-Type-Options: nosniff`、`Referrer-Policy` 等响应头。非 `/` 路由亦已收紧（SEC-P0）。
-- **限流 / 防爆破（SEC-3/12）**：按客户端真实 IP（Cloudflare Tunnel 取 `CF-Connecting-IP`）限流；登录失败按滑动窗口封禁（`LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN`）。限流与登录锁状态外置为独立 SQLite（`rg_state.db`，`shared_state.py`），**多 worker 下一致**。
-- **live 配额闸（SEC-13）**：`demo/quota.py` 三层闸门（全局日 / 账号日 / IP 小时），仅拦 `mode=live`，超限 `429` + 明确文案，**不静默降级**。计数库持久化于 named volume，重建容器不清零。
+- **限流 / 防爆破（SEC-3/12）**：按客户端真实 IP（反向代理 / CDN 取 `CF-Connecting-IP`）限流；登录失败按滑动窗口封禁（`LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN`）。限流与登录锁状态外置为独立 SQLite（`rg_state.db`，`shared_state.py`），**多 worker 下一致**。
+- **live 配额闸（SEC-13）**：`demo/quota.py` 三层闸门（全局日 / 账号日 / IP 小时），仅拦 `mode=live`，超限 `429` + 明确文案，**不静默降级**；覆盖分析、洞察与报告导出三条付费链路。计数库持久化于 named volume，重建容器不清零。
 - **口令存储（SEC-10）**：pbkdf2 提至 **60 万轮**；未知用户也跑等代价哈希，消除用户枚举时序差；存量账户登录时渐进 rehash 升级。
 - **密钥比较（SEC-11）**：API Key / 管理员密钥比较改用 `hmac.compare_digest`（常量时间）。
 - **多 worker（SEC-12）**：聚合代际计数落库 `rg_kv`；限流/登录锁外置 `shared_state`。单 worker 演示零配置即可；多实例部署状态不再割裂。

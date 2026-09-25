@@ -1,4 +1,4 @@
-"""ReturnGuard 复赛 Demo 后端（FastAPI 装配入口）。
+"""ReturnGuard Demo 后端（FastAPI 装配入口）。
 
 本文件现在只负责「装配」，不再承载业务逻辑：
     - 创建 app、定义 lifespan（启动期建库 / 预置账号 / WAL 巡检）
@@ -85,7 +85,7 @@ async def lifespan(app):
     init_db("real")  # 实际数据库：确保表存在，初始空库待录入
     # C组：账户/用户表（多租户隔离的租户目录）
     auth.init_auth_db()
-    # 复赛交付：预置演示测试账号（评委可直接登录 real 源体验多租户隔离 + 实际数据洞察）
+    # 交付：预置演示测试账号（可直接登录 real 源体验多租户隔离 + 实际数据洞察）
     try:
         auth.register("demo", "demo123", "ReturnGuard 演示租户")
         logger.info("已预置演示测试账号 demo/demo123")
@@ -109,7 +109,7 @@ async def lifespan(app):
     _cleanup_old_uploads(max_age_hours=float(os.environ.get("UPLOAD_MAX_AGE_HOURS", "24")))
     # 图床后端自检日志：方便现场确认「当前用本地还是远端」，避免文档与运行态不一致。
     logger.info(
-        "图床后端已就绪 backend=%s public_ready=%s（复赛演示用本地/自托管；qiniu 为预留远端接口）",
+        "图床后端已就绪 backend=%s public_ready=%s（演示用本地/自托管；qiniu 为预留远端接口）",
         backend_name(),
         is_public_ready(),
     )

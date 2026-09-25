@@ -2,7 +2,7 @@
 //
 // 现状：demo/static 下的 ES Module（app.js / render.js / store.js / api.js / i18n.js）
 // 由 index.html 以 <script type="module"> 直接加载，浏览器原生解析，**无需打包即可运行**
-// （演示/评审现场默认用未压缩源，便于讲解与调试）。
+// （演示/默认用未压缩源，便于讲解与调试）。
 //
 // 本脚本提供**可用的生产压缩产物**：
 //   1) 用 terser 压缩每个源文件 → demo/static/dist/*.min.js（保留 ESM，不做模块合并）；

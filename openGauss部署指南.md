@@ -1,6 +1,6 @@
 # ReturnGuard · openGauss 部署与真实数据自动导入指南
 
-> 适用：复赛部署期使用国产数据库 openGauss 承载**全部业务数据**——demo / real / auth 三库均落在 openGauss（`db:5432/returnguard`），用户库不再落容器 SQLite、跨重启不丢。
+> 适用：生产部署期使用国产数据库 openGauss 承载**全部业务数据**——demo / real / auth 三库均落在 openGauss（`db:5432/returnguard`），用户库不再落容器 SQLite、跨重启不丢。
 > **开发与部署统一使用 openGauss**：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`），**业务代码零改动**。
 
 ---
@@ -24,18 +24,18 @@
 ```bash
 cd returnguard/docker
 docker compose up -d --build
-# 应用映射 127.0.0.1:65432:8000，由 Cloudflare Tunnel 反代到公网
+# 应用映射 127.0.0.1:65432:8000（仅绑宿主机回环；对外发布由部署方自行加反向代理 / CDN）
 ```
 
 compose 中已设：
 
 ```yaml
 environment:
-  DATABASE_URL:        postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
-  AUTH_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard
+  DATABASE_URL:        postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
+  AUTH_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
   # P0 物理隔离：real 源使用独立库 returnguard_real（由 compose 的 realdb-init 一次性服务创建），
   # 与 demo/认证库（returnguard）分库，杜绝「写入 real 却污染 demo 看板」的部署态缺陷。
-  REAL_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD:-Gauss-2026}@db:5432/returnguard_real
+  REAL_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard_real
 ```
 
 > 关键：demo 与 auth 同库 `returnguard`（按 `source`/`tenant_id` 隔离），而 **real 源独立库 `returnguard_real`**——二者为 openGauss 上的两个数据库，实现真正的物理隔离：real 写入不会进入 demo 看板、demo 种子数字恒定不被污染。用户库不再落容器 SQLite，跨容器重启不丢账号与令牌。`returnguard_real` 由 compose 的 `realdb-init` 服务幂等创建（全新 `docker compose up` 自动就绪）。
@@ -57,6 +57,10 @@ export UPLOAD_MAX_AGE_HOURS=24
 ```
 
 启动后 `db.py` 的 `get_engine` 会自动建表（`Base.metadata.create_all`）+ 列迁移（`_migrate_case_columns`），无需手动建表。
+
+> **real 源独立库的默认行为（2.0.0 修正）**：`REAL_DATABASE_URL` 未显式配置时，`db.py` 会**由 `DATABASE_URL` 自动推导**独立库名（`returnguard` → `returnguard_real`，SQLite 的 `cases.db` → `cases_real.db`），因此任何部署形态都默认分库，不会静默把 real 写进 demo 库。若连接串形态特殊导致无法推导，日志会打 `CRITICAL` 提示显式配置。
+> openGauss 连接串中的口令与 `GS_PASSWORD` 同源（`DEFAULT_OG` 不再硬编码示例口令）。
+> 更完整的部署 / 环境变量 / 故障排查说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 > 兼容性补丁：openGauss 的 `SELECT version()` 返回 `(openGauss 5.0.0 ...)`，SQLAlchemy PG 方言会误判；`db.py` 已内置 `_patch_opengauss_dialect`，仅在连接 openGauss/PostgreSQL 时挂接，提取主版本号，导入期无副作用。
 
@@ -101,9 +105,9 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 ## 4. 验证部署
 
 ```bash
-# 健康检查（容器映射 127.0.0.1:65432 → 容器 8000；公网经 Cloudflare Tunnel）
+# 健康检查（容器映射 127.0.0.1:65432 → 容器 8000；如需公网访问，自行前置反向代理 / CDN）
 curl http://127.0.0.1:65432/health
-curl http://127.0.0.1:65432/api/config        # 应返回 "version": "1.1.5"
+curl http://127.0.0.1:65432/api/config        # 应返回 "version": "2.0.0"
 
 # 看板应基于 real 源、含自动导入的数据
 curl "http://127.0.0.1:65432/api/insights?source=real&mode=mock" | python -m json.tool | head -20
@@ -126,7 +130,7 @@ curl "http://127.0.0.1:65432/api/cases?source=demo&slim=1" | python -c "import s
 
 - **物理隔离（P0 修正）**：demo 与 auth 同库 `returnguard`，real 源独立库 `returnguard_real`（`realdb-init` 创建）。demo 永远来自种子、real 来自录入/导入、auth 存账号/令牌；三者切换零代码（`?source=demo|real` 或前端顶栏）。因 real 为独立库，`init_db('real', force=True)` 重置实际库时**不会**误清 demo 种子（旧设计共享同库时会，已根治）。
 - **`sku_name` 长度**：模型定义为 `VARCHAR(256)`；cases.json 中有商品名长达 145 字符，openGauss 严格长度校验会在 `VARCHAR(128)` 下批量插入报 `DataError`，已扩列规避。
-- **Docker 本地 SQLite 绑挂载坑**：若用 `docker-compose.local.yml`（SQLite + 绑挂载）在 Windows 上启动会遇 `PRAGMA journal_mode=WAL` 的 `disk I/O error`，可设 `SQLITE_NO_WAL=1` 改用 DELETE 日志模式；**生产部署请用本指南的 openGauss compose**，无此问题。
+- **Docker 绑挂载与 WAL**：历史上曾用 SQLite + 宿主目录绑挂载的编排（`docker-compose.local.yml`），在 Windows/macOS 挂载点上会触发 `PRAGMA journal_mode=WAL` 的 `disk I/O error`（该编排已于 2.0.0 移除）。如需在绑定挂载场景临时回退，可用 `SQLITE_NO_WAL=1` 改走 DELETE 日志模式；**部署请统一用 `docker-compose.yml`（openGauss）或 `docker-compose.pg.yml`（PostgreSQL 兜底）**。
 - 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
 - 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
-- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `1.1.5`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
+- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `2.0.0`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
