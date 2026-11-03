@@ -8,9 +8,13 @@ export const $ = s => document.querySelector(s);
 
 export const pct = x => (x*100).toFixed(0) + '%';
 
+// 解析 CSS 变量为具体颜色值：SVG 表现属性（stroke/fill）不认 var()，须取解析后的实值
+export const cv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const rcKey = w => w>=0.5?'ok':w>=0.3?'warn':'bad';
+
 export const wrColor = w => w>=0.5?'var(--ok)':w>=0.3?'var(--warn)':'var(--bad)';
 
-export const realColor = w => w>=0.5?'#4ade80':w>=0.3?'#facc15':'#fb7185';
+export const realColor = w => cv('--'+rcKey(w));
 
 export const winRateCell = x => (x && (x.decided===undefined || x.decided>0)) ? pct(x.win_rate) : t('dyn.pending');
 
@@ -25,7 +29,7 @@ export function renderDonut(svg, rate){
   const col=realColor(v);
   const dash=`${(v*c).toFixed(1)} ${c.toFixed(1)}`;
   svg.style.setProperty('--dash-full', c.toFixed(1));
-  svg.innerHTML=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="var(--border)" stroke-width="9"/>`
+  svg.innerHTML=`<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${cv('--border')}" stroke-width="9"/>`
     +`<circle class="donut-ring" cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${col}" stroke-width="9" stroke-linecap="round" `
     +`stroke-dasharray="${dash}" stroke-dashoffset="${c.toFixed(1)}" transform="rotate(-90 ${cx} ${cy})"/>`;
   // 触发下一帧动画
@@ -83,7 +87,7 @@ export function renderMatrix(el, rows){
       const r=map[p+'|'+s];
       if(!r){html+='<td>-</td>';return;}
       const rc=realColor(r.win_rate);
-      const rgba=rc==='#34d399'?'52,211,153':rc==='#fbbf24'?'251,191,36':'248,113,113';
+      const rgba=cv('--'+rcKey(r.win_rate)+'-rgb');
       html+=`<td style="background:rgba(${rgba},.18);color:${rc};font-weight:600">${winRateCell(r)}`
         +`<br><span style="font-size:10px;color:var(--txt3)">${r.cases}${t('dyn.unitCases')}</span></td>`;
     });
@@ -127,17 +131,17 @@ export function renderTrendLine(el, ts, forecast){
   for(let g=0; g<=4; g++){
     const gy=(padT + (H-padB-padT)*g/4).toFixed(1);
     const gv=Math.round(maxV*(1-g/4));
-    grid+=`<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="#1e293b" stroke-width="1"></line>`;
-    grid+=`<text x="${padL-5}" y="${(+gy+3).toFixed(1)}" fill="#64748b" font-size="9" text-anchor="end">${gv}</text>`;
+    grid+=`<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="${cv('--ch-grid')}" stroke-width="1"></line>`;
+    grid+=`<text x="${padL-5}" y="${(+gy+3).toFixed(1)}" fill="${cv('--txt3')}" font-size="9" text-anchor="end">${gv}</text>`;
   }
   all.forEach((p,i)=>{
-    xlab+=`<text x="${X(i)}" y="${H-10}" fill="${p.f?'#fbbf24':'#94a3b8'}" font-size="9" text-anchor="middle">${esc(p.label)}</text>`;
+    xlab+=`<text x="${X(i)}" y="${H-10}" fill="${p.f?cv('--ch-s2'):cv('--txt3')}" font-size="9" text-anchor="middle">${esc(p.label)}</text>`;
   });
   let dots='';
-  all.forEach((p,i)=>{ dots+=`<circle cx="${X(i)}" cy="${Y(p.v)}" r="2.6" fill="${p.f?'#fbbf24':'#22d3ee'}"></circle>`; });
+  all.forEach((p,i)=>{ dots+=`<circle cx="${X(i)}" cy="${Y(p.v)}" r="2.6" fill="${p.f?cv('--ch-s2'):cv('--ch-s1')}"></circle>`; });
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" style="display:block">
-    ${grid}${histPath?`<path d="${histPath}" fill="none" stroke="#22d3ee" stroke-width="2.2"></path>`:''}
-    ${fPath?`<path d="${fPath}" fill="none" stroke="#fbbf24" stroke-width="2.2" stroke-dasharray="5 4"></path>`:''}
+    ${grid}${histPath?`<path d="${histPath}" fill="none" stroke="${cv('--ch-s1')}" stroke-width="2.2"></path>`:''}
+    ${fPath?`<path d="${fPath}" fill="none" stroke="${cv('--ch-s2')}" stroke-width="2.2" stroke-dasharray="5 4"></path>`:''}
     ${dots}${xlab}</svg>`;
 }
 
@@ -187,7 +191,7 @@ export function renderSourcingLoop(el, items){
 }
 
 
-export const SUP_PALETTE=['#f87171','#fbbf24','#38bdf8','#a78bfa','#34d399','#fb923c','#e879f9','#22d3ee'];
+export const SUP_PALETTE=['#ff453a','#ff9f0a','#ffd60a','#30d158','#0a84ff','#5e5ce6','#bf5af2','#64d2ff'];
 
 export function renderSuppliers(d){
   const el=$('#supList'); el.innerHTML='';

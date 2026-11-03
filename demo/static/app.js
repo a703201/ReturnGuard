@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { state } from './store.js';
 import { apiFetch, authToken } from './api.js';
-import { $, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier, esc, exportReport, pct, populateFilters, realColor, renderAnnot, renderBadge, renderBarh, renderDonut, renderForecast, renderMatrix, renderOrchestration, renderSourcingLoop, renderSuppliers, renderTrendLine, setStep, trendLabel, winRateCell, wrColor } from './render.js';
+import { $, cv, _collapseCard, _expandCard, animateValue, closeOverlay, copyDossier, esc, exportReport, pct, populateFilters, realColor, renderAnnot, renderBadge, renderBarh, renderDonut, renderForecast, renderMatrix, renderOrchestration, renderSourcingLoop, renderSuppliers, renderTrendLine, setStep, trendLabel, winRateCell, wrColor } from './render.js';
 import { t, setLang, applyI18n, currentLang } from './i18n.js';
 
 // 胜诉率单元格：decided=0 表示该维度尚无已判定案件（全是「待分析」），
@@ -406,7 +406,7 @@ export async function loadInsights(){
       +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${winRateCell(x)}</td>`;
     rt.appendChild(tr);
   });
-  renderBarh($('#regionBars'), (d.region_view||[]).map(x=>({label:x.region,v:x.refund,text:'¥'+x.refund,color:'#22d3ee'})));
+  renderBarh($('#regionBars'), (d.region_view||[]).map(x=>({label:x.region,v:x.refund,text:'¥'+x.refund,color:cv('--ch-cat1')})));
 
   // ⑭ 季节分布
   const stt=$('#seasonTbl').querySelector('tbody'); stt.innerHTML='';
@@ -416,7 +416,7 @@ export async function loadInsights(){
       +`<td style="color:${wrColor(x.win_rate)};font-weight:600">${pct(x.win_rate)}</td>`;
     stt.appendChild(tr);
   });
-  renderBarh($('#seasonBars'), (d.season_view||[]).map(x=>({label:x.season,v:x.refund,text:'¥'+x.refund,color:'#e879f9'})));
+  renderBarh($('#seasonBars'), (d.season_view||[]).map(x=>({label:x.season,v:x.refund,text:'¥'+x.refund,color:cv('--ch-cat2')})));
 
   // ⑮ 退货成本 & 供应商黑名单
   $('#costKpis').innerHTML =
@@ -444,9 +444,9 @@ export async function loadInsights(){
   renderSourcingLoop($('#sourcingLoop'), d.sourcing_checklist||[]);
 
   // 图形化
-  renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:'#fbbf24'})));
+  renderBarh($('#catBars'), (d.category_heatmap||[]).map(x=>({label:x.category,v:x.refund,text:'¥'+x.refund,color:cv('--ch-cat3')})));
   renderBarh($('#platBars'), (d.platform_view||[]).map(x=>({label:x.platform,v:Math.round((x.win_rate||0)*100),text:pct(x.win_rate),color:realColor(x.win_rate||0)})), {absolute:true});
-  renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:x.level==='高风险'?'#fb7185':x.level==='优质'?'#4ade80':'#facc15'})));
+  renderBarh($('#supBars'), (d.supplier_scorecard||[]).map(x=>({label:x.supplier,v:x.quality_score,text:String(x.quality_score),color:cv('--'+(x.level==='高风险'?'bad':x.level==='优质'?'ok':'warn'))})));
   renderMatrix($('#matrixHeat'), d.platform_supplier_matrix||[]);
   renderSuppliers(d);
   renderDonut($('#kWinDonut'), d.win_rate||0);
