@@ -80,6 +80,7 @@ def new_frontend():
     每请求生成 nonce 注入 CSP；前端为构建产物（外部 JS/CSS），script-src 只需 'self'。
     产物不存在时给出明确的中文提示页，而非 500。"""
     import os
+
     # BASE = demo/ 目录；构建产物在 demo/webapp/index.html。
     index_path = os.path.join(BASE, "webapp", "index.html")
     if not os.path.exists(index_path):
@@ -94,9 +95,9 @@ def new_frontend():
     html = html.replace("__CSP_NONCE__", nonce)
     csp = (
         "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
-        "style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{n}'; "
+        f"style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{nonce}'; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
-    ).format(n=nonce)
+    )
     return HTMLResponse(content=html, headers={"Content-Security-Policy": csp})
 
 

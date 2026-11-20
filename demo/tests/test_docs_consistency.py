@@ -359,6 +359,7 @@ def test_decision_logic_doc_covers_key_thresholds():
 
 # ── 仓颉后端对外契约守护（openapi.yaml / SDK）────────────────────────────
 
+
 def _cj_routes() -> set[tuple[str, str]]:
     """从仓颉路由注册区提取 (method, path) 集合，路径参数 :x 归一化为 {x}。"""
     routes: set[tuple[str, str]] = set()
@@ -424,11 +425,22 @@ def test_python_sdk_covers_core_methods():
     """Python SDK 必须覆盖对外契约的核心能力方法（防 SDK 退化）。"""
     sdk = _read(ROOT / "sdk" / "python" / "returnguard_client.py")
     required = (
-        "def login", "def refresh", "def logout", "def me", "def config",
-        "def ai_providers", "def insights", "def analyze", "def cases",
-        "def add_case", "def delete_case", "def import_csv",
-        "def export_pdf_base64", "def export_pdf_bytes",
-        "def audit_verify", "def audit_list",
+        "def login",
+        "def refresh",
+        "def logout",
+        "def me",
+        "def config",
+        "def ai_providers",
+        "def insights",
+        "def analyze",
+        "def cases",
+        "def add_case",
+        "def delete_case",
+        "def import_csv",
+        "def export_pdf_base64",
+        "def export_pdf_bytes",
+        "def audit_verify",
+        "def audit_list",
     )
     missing = [name for name in required if name not in sdk]
     assert not missing, f"Python SDK 缺少核心方法：{missing}"
