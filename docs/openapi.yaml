@@ -1,0 +1,662 @@
+openapi: 3.0.3
+info:
+  title: ReturnGuard 退货情报站 API
+  version: 3.0.0
+  description: |
+    ReturnGuard 仓颉后端对外契约。所有响应均为 JSON（除 /api/export_pdf）。
+    认证：`Authorization: Bearer <token>`；令牌由 `/api/auth/login` 获取。
+    单库多租户：登录后按租户隔离，演示账户 demo/demo123 看预置种子。
+    密钥不出现在任何公开响应中。
+  license:
+    name: Apache-2.0
+servers:
+  - url: http://127.0.0.1:58080
+    description: 本机 Docker 部署（默认端口）
+  - url: http://localhost:8000
+    description: 原生 FastAPI 兼容后端（Python 版）
+
+tags:
+  - name: 系统
+  - name: 认证
+  - name: 洞察
+  - name: 案件
+  - name: 平台与AI
+  - name: 审计
+
+paths:
+  /health:
+    get:
+      tags: [系统]
+      summary: 健康检查（深探针：含 DB SELECT 1）
+      responses:
+        '200':
+          description: 正常
+          content:
+            application/json:
+              example: { status: ok, persistence: opengauss }
+        '503':
+          description: DB 不可用
+          content:
+            application/json:
+              example: { status: degraded, db: unavailable }
+
+  /api/config:
+    get:
+      tags: [系统]
+      summary: 前端常量单一来源（版本/阈值/供应商/语言/当前AI provider）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string, example: 3.0.0 }
+                  same_item_threshold: { type: number, example: 0.82 }
+                  persistence: { type: string, enum: [opengauss, memory] }
+                  quota_backend: { type: string, enum: [opengauss, memory] }
+                  sources: { type: array, items: { type: string }, example: [unified] }
+                  provider:
+                    type: object
+                    properties:
+                      key: { type: string }
+                      name: { type: string }
+                      configured: { type: boolean }
+                  suppliers: { type: object, additionalProperties: { type: string } }
+
+  /api/platforms:
+    get:
+      tags: [平台与AI]
+      summary: 9 大平台举证规则（退货窗口/响应时限/运费/举证偏向/必备材料/常见失分）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  platforms:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        label: { type: string }
+                        return_window: { type: string }
+                        response_window: { type: string }
+                        shipping_payer: { type: string }
+                        burden_bias: { type: string }
+                        required_evidence: { type: array, items: { type: string } }
+                        common_loss_reasons: { type: array, items: { type: string } }
+                        special_clauses: { type: array, items: { type: string } }
+                        capability_map: { type: object, additionalProperties: { type: string } }
+
+  /api/ai/providers:
+    get:
+      tags: [平台与AI]
+      summary: 14 个 AI 平台能力矩阵（公开，不含密钥）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current: { type: string, description: 当前生效 provider key }
+                  configured: { type: boolean, description: 当前 provider 是否已配置密钥 }
+                  providers:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        label: { type: string }
+                        supported: { type: boolean }
+                        capabilities:
+                          type: object
+                          additionalProperties: { type: boolean }
+
+  /api/ai/settings:
+    get:
+      tags: [平台与AI]
+      summary: 读取完整 AI 配置（需登录；密钥绝不回传，只给掩码与是否设置）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current: { type: string, description: 当前实际生效 provider key }
+                  provider: { type: string, description: 已保存的 provider key }
+                  baseUrl: { type: string, description: 已保存的端点 }
+                  model: { type: string, description: 已保存的模型名 }
+                  enabled: { type: boolean }
+                  onlineAllowed: { type: boolean }
+                  apiKeySet: { type: boolean, description: 是否已配置密钥（不回传明文） }
+                  apiKeyMask: { type: string, description: 密钥后四位掩码 }
+                  apiKey: { type: string, description: 恒为空串（留空不改语义） }
+                  pendingRestart: { type: boolean }
+                  envOverride: { type: boolean, description: 部署侧环境变量是否覆盖 }
+        '401': { description: 未登录 }
+    post:
+      tags: [平台与AI]
+      summary: 保存完整 AI 配置（需登录；apiKey 留空不改，重启服务后生效）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider: { type: string, description: 注册表内的 provider key }
+                apiKey: { type: string, description: API 密钥；留空则保留原值 }
+                baseUrl: { type: string, description: OpenAI 兼容端点，http(s):// 开头 }
+                model: { type: string, description: 文本模型名 }
+                enabled: { type: boolean }
+                onlineAllowed: { type: boolean }
+                clearKey: { type: string, description: '"true" 清空已保存密钥（优先级高于 apiKey）' }
+      responses:
+        '200':
+          description: 已保存
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  provider: { type: string }
+                  current: { type: string }
+                  apiKeySet: { type: boolean }
+                  pendingRestart: { type: boolean }
+                  note: { type: string }
+        '400': { description: provider 未知 / 端点格式错误 / 字段含换行 }
+        '401': { description: 未登录 }
+
+  /api/crypto/capabilities:
+    get:
+      tags: [平台与AI]
+      summary: 国密能力声明（SM3/SM4）
+      responses:
+        '200': { description: OK }
+
+  /api/auth/register:
+    post:
+      tags: [认证]
+      summary: 注册（一个用户=一个租户；弱口令拒绝；重复用户名模糊提示）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, minLength: 6 }
+                tenant_name: { type: string }
+      responses:
+        '200':
+          description: 注册成功
+          content:
+            application/json:
+              example: { ok: true, token: "hex.sig.exp.ver.jti", username: alice }
+        '400': { description: 弱口令 / 参数错误 }
+
+  /api/auth/register-sm3:
+    post:
+      tags: [认证]
+      summary: 注册（PBKDF2-HMAC-SM3 国密口令哈希，存量 sha256 兼容）
+      requestBody:
+        $ref: '#/components/requestBodies/Register'
+      responses:
+        '200': { description: 注册成功，返回 token 与 hash_algo=sm3 }
+
+  /api/auth/login:
+    post:
+      tags: [认证]
+      summary: 登录（PBKDF2 校验、失败锁定、时序防护；返回 5 段 HMAC 令牌）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, example: demo }
+                password: { type: string, example: demo123 }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  token: { type: string, description: hex(username).sig.exp.ver.jti }
+                  refresh_token: { type: string, description: 30 天刷新令牌，仅轮换时使用 }
+                  username: { type: string }
+        '401': { description: 用户名或密码错误（统一文案，不枚举用户） }
+
+  /api/auth/refresh:
+    post:
+      tags: [认证]
+      summary: 一次性轮换 access+refresh；检测到重放即撤销该用户全部会话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: 轮换成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  token: { type: string }
+                  refresh_token: { type: string }
+        '401': { description: refresh 令牌无效或已使用（重放会触发全会话撤销） }
+
+  /api/auth/me:
+    get:
+      tags: [认证]
+      summary: 当前用户
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example: { ok: true, user: { username: demo, tenant_name: "ReturnGuard 演示租户" }, tenant: demo }
+        '401': { description: 未登录或令牌失效 }
+
+  /api/auth/logout:
+    post:
+      tags: [认证]
+      summary: 登出（自增 token_version + 撤销全部会话）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 已登出 }
+
+  /api/auth/totp/setup:
+    post:
+      tags: [认证]
+      summary: TOTP 绑定初始化（返回 Base32 密钥与 otpauth URI）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK，返回 secret }
+  /api/auth/totp/enable:
+    post:
+      tags: [认证]
+      summary: TOTP 绑定确认（带 6 位验证码）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 绑定成功 }
+  /api/auth/totp/verify:
+    post:
+      tags: [认证]
+      summary: TOTP 校验
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 校验结果（ok 布尔） }
+  /api/auth/totp/disable:
+    post:
+      tags: [认证]
+      summary: TOTP 解绑
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 已解绑 }
+  /api/auth/totp/status:
+    get:
+      tags: [认证]
+      summary: TOTP 绑定状态
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK，返回 enabled }
+
+  /api/auth/sessions:
+    get:
+      tags: [认证]
+      summary: 当前用户的会话列表（令牌仅存摘要）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /api/auth/sessions/revoke:
+    post:
+      tags: [认证]
+      summary: 远程踢出指定会话（sid）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: 已撤销 }
+
+  /api/insights:
+    get:
+      tags: [洞察]
+      summary: 群体洞察聚合（需登录；支持 category/platform/region/season/mode 过滤）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: mode, schema: { type: string, default: mock }, description: mock/live }
+        - { in: query, name: category, schema: { type: string } }
+        - { in: query, name: platform, schema: { type: string } }
+        - { in: query, name: region, schema: { type: string } }
+        - { in: query, name: season, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_cases: { type: integer }
+                  decided: { type: integer, description: 已判定数（win_rate 分母） }
+                  total_refund: { type: number }
+                  win_rate: { type: number, description: 0-1 }
+                  sourcing_advice: { type: array, items: { type: string } }
+                  supplier_blacklist: { type: array, items: { type: object } }
+                  sku_ranking: { type: array, items: { type: object } }
+                  sku_insights: { type: array, items: { type: object } }
+                  anomaly_alerts: { type: array, items: { type: object } }
+                  root_cause_dist: { type: object, additionalProperties: { type: integer } }
+                  platform_supplier_matrix: { type: array, items: { type: object } }
+                  region_view: { type: array, items: { type: object } }
+                  season_view: { type: array, items: { type: object } }
+                  supplier_scorecard: { type: array, items: { type: object } }
+                  category_heatmap: { type: array, items: { type: object } }
+                  platform_view: { type: array, items: { type: object } }
+                  tenant: { type: string }
+                  source: { type: string, enum: [unified] }
+        '401': { description: 未登录 }
+
+  /api/cases:
+    get:
+      tags: [案件]
+      summary: 当前租户最近案件（最多 50 条）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: "OK，返回 total 与 cases 字段" }
+    post:
+      tags: [案件]
+      summary: 手动录入一条案件
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sku]
+              properties:
+                sku: { type: string }
+                category: { type: string }
+                supplier: { type: string }
+                platform: { type: string }
+                region: { type: string }
+                season: { type: string }
+                amount: { type: number }
+                similarity: { type: number, minimum: 0, maximum: 1 }
+                outcome: { type: string, example: 待分析 }
+                defect: { type: string }
+      responses:
+        '200': { description: "OK，返回 ok 与 case_id 字段" }
+
+  /api/cases/{caseId}:
+    delete:
+      tags: [案件]
+      summary: 删除当前租户的一条案件（严格租户隔离）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: caseId, required: true, schema: { type: string } }
+      responses:
+        '200': { description: OK }
+        '404': { description: 案件不存在或无权删除 }
+
+  /api/cases/import:
+    post:
+      tags: [案件]
+      summary: 批量导入 CSV/XLSX（中英文列名兼容，SKU 必填；XLSX 读首个 sheet）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                csv: { type: string, description: CSV 文本；source=xlsx 时也可传 XLSX 的 base64 }
+                content: { type: string, description: XLSX base64（source=xlsx 时，与 csv 二选一） }
+                source: { type: string, enum: [csv, xlsx, excel], default: csv }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              example: { ok: true, imported: 12, skipped: 1, errors: ["第 5 行：SKU 为空"], tenant: demo }
+        '400': { description: CSV 为空或 XLSX 不支持 }
+
+  /api/analyze:
+    post:
+      tags: [洞察]
+      summary: 单案取证（有 AI 密钥走真实视觉模型；无密钥诚实回退 mock，capabilities 如实标注）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, enum: [mock, live], default: mock }
+                sku: { type: string }
+                platform: { type: string }
+                listing_text: { type: string }
+                returned_image_url: { type: string, description: 图片 URL 或 base64 data URI }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  similarity: { type: number }
+                  same_item: { type: boolean }
+                  dossier: { type: string }
+                  defect_tags: { type: array, items: { type: string } }
+                  defect_boxes: { type: array, items: { type: object } }
+                  priority_score: { type: number }
+                  case_id: { type: string }
+                  mode: { type: string, enum: [mock, live] }
+                  capabilities: { type: object, additionalProperties: { type: boolean } }
+
+  /api/export_pdf:
+    get:
+      tags: [洞察]
+      summary: 导出洞察报告 PDF（base64 编码在 JSON 内，调用方解码保存）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  format: { type: string, example: pdf }
+                  encoding: { type: string, example: base64 }
+                  filename: { type: string }
+                  content_base64: { type: string }
+
+  /api/audit/verify:
+    get:
+      tags: [审计]
+      summary: 审计链自证（SHA256 哈希链防篡改）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  events: { type: integer }
+                  first_bad_seq: { type: integer, nullable: true }
+                  head: { type: string }
+
+  /api/audit/list:
+    get:
+      tags: [审计]
+      summary: 审计事件分页检索（append-only，limit 默认 50；需登录）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+          description: 返回最近 N 条事件
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total: { type: integer }
+                  events: { type: array, items: { type: object } }
+
+  /api/oauth/register:
+    post:
+      tags: [认证]
+      summary: 注册 OAuth2 客户端（需登录；client_secret 仅返回一次）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                scope: { type: string, default: insights:read }
+      responses:
+        '200':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_id: { type: string, example: rgc_... }
+                  client_secret: { type: string, description: 仅本次返回 }
+                  scope: { type: string }
+        '401': { description: 未登录 }
+
+  /api/oauth/token:
+    post:
+      tags: [认证]
+      summary: OAuth2 client_credentials 换取 access_token（公开端点）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id, client_secret]
+              properties:
+                grant_type: { type: string, enum: [client_credentials], default: client_credentials }
+                client_id: { type: string }
+                client_secret: { type: string }
+      responses:
+        '200':
+          description: 签发成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, example: Bearer }
+                  expires_in: { type: integer }
+                  scope: { type: string }
+        '401': { description: 客户端凭据无效 }
+
+  /api/oauth/clients:
+    get:
+      tags: [认证]
+      summary: 列出已注册客户端（脱敏，需登录；注册表持久化，重启不丢）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients: { type: array, items: { type: object } }
+
+  /api/oauth/rotate:
+    post:
+      tags: [认证]
+      summary: 轮换客户端密钥（需登录；旧 secret 校验通过后立即失效，新密钥仅返回一次）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_id, client_secret]
+              properties:
+                client_id: { type: string }
+                client_secret: { type: string, description: 当前有效密钥 }
+      responses:
+        '200':
+          description: 已轮换
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_id: { type: string }
+                  client_secret: { type: string, description: 新明文密钥，仅此一次 }
+                  note: { type: string }
+        '400': { description: 客户端不存在或旧密钥错误 }
+        '401': { description: 未登录 }
+        '403': { description: OAuth 只读 scope 禁止轮换 }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: HMAC-SHA256 token
+  requestBodies:
+    Register:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [username, password]
+            properties:
+              username: { type: string }
+              password: { type: string, minLength: 6 }
+              tenant_name: { type: string }

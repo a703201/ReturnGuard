@@ -1,6 +1,9 @@
 # 多 AI 平台接口适配与兼容说明（AI_PROVIDERS）
 
-> 适用版本：2.1.2（仓库根 `VERSION` 为单一来源）
+> **🟢 仓颉主力侧**：14 平台注册表在 `backend/rg-ai/src/providers.cj`，运行时查 `GET /api/ai/providers`（公开、无密钥）与 `/api/config.provider`；
+> 密钥只从环境变量读、不进任何响应；含本地 Ollama（`127.0.0.1:11434/v1`，免密钥）。下表与 Python 版 `demo/providers.py` 的平台 key 一致，两侧守护测试断言相同集合。
+>
+> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
 > 代码单一来源：[`demo/providers.py`](../demo/providers.py)（平台声明）、[`demo/models_router.py`](../demo/models_router.py)（能力调用）
 > 关联文档：[`DECISION_LOGIC.md`](DECISION_LOGIC.md)、[`ARCHITECTURE.md`](ARCHITECTURE.md)、[`API.md`](API.md)
 

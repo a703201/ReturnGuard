@@ -172,6 +172,12 @@ class VersionedStaticFiles(StaticFiles):
 
 # 把 static 目录挂成 /static；版本化逻辑见 VersionedStaticFiles 文档字符串。
 app.mount("/static", VersionedStaticFiles(directory=os.path.join(BASE, "static")), name="static")
+
+# 新版 Vue 前端构建产物（demo/webapp/）：资产文件名自带内容 hash，天然版本化。
+# 页面入口由 routers/frontend.py 的 /new 路由提供；此处只挂载 assets。
+_new_webapp = os.path.join(BASE, "webapp")
+if os.path.isdir(_new_webapp):
+    app.mount("/new/assets", StaticFiles(directory=os.path.join(_new_webapp, "assets")), name="new-assets")
 # 上传目录不再公开静态挂载（SEC-8）：图片经签名 + 短期过期的 /api/file/{sig} 提供，
 # 杜绝退货图（PII）被匿名长期拉取。live 模式仍由 PUBLIC_IMAGE_BASE / 对象存储公网回源。
 

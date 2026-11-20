@@ -1,0 +1,97 @@
+/* ============================================================
+   ReturnGuard · 交互动效层（Apple Fluid Interfaces 的 Web 映射）
+   ------------------------------------------------------------
+   ① 反馈落在 pointer-down：按下瞬间即响应，不等 click 结束。
+   ② 过渡从「当前屏幕值」出发、可被新输入打断（CSS transition
+      从当前计算值续接，比固定 @keyframes 更自然）。
+   ③ 只动 transform / opacity / filter，不触发布局重排。
+   ④ 进出沿同一路径，保持空间一致性。
+   ⑤ 玻璃层「materialize」：blur + scale + opacity 同步抵达。
+   ⑥ 动效适量：微交互 100–160ms，转场 280–400ms；无循环摆动、
+      无漂浮、无全屏运动背景（避免 AI 味与眩动）。
+   ⑦ reduced-motion ≠ 无反馈：换成不引起前庭不适的短交叉淡入。
+   ============================================================ */
+
+@keyframes rg-rise {
+  from { opacity: 0; transform: translate3d(0, 12px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes rg-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes rg-materialize {
+  from { opacity: 0; transform: scale(0.96) translate3d(0, 8px, 0); filter: blur(8px); }
+  to   { opacity: 1; transform: scale(1) translate3d(0, 0, 0); filter: blur(0); }
+}
+@keyframes rg-scrim-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes rg-sheet-up {
+  from { opacity: 0; transform: translate3d(0, 24px, 0) scale(0.99); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes rg-spin { to { transform: rotate(360deg); } }
+@keyframes rg-bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+/* 微交互：按下即时反馈（可打断） */
+button:not(:disabled), [role='button'], .btn, .tab, .icon-btn {
+  transition: transform 100ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    background-color 160ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 160ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    color 160ms cubic-bezier(0.2, 0.7, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+button:not(:disabled):active, [role='button']:active, .btn:active, .tab:active { transform: scale(0.97); }
+
+/* 卡片只做极轻边框响应（Apple 卡片不做 hover 上浮） */
+.card { transition: border-color 220ms cubic-bezier(0.2, 0.7, 0.3, 1); }
+.card:hover { border-color: var(--border-strong); }
+
+/* 输入聚焦环平滑出现 */
+.field { transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
+.field:focus { outline: none; border-color: var(--accent); box-shadow: var(--field-ring); }
+
+/* 页面级：view 进入从下方 12px 淡入 */
+.view-enter-active { animation: rg-rise 320ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+/* 交错淡入（用于 KPI / 卡片，限量，避免逐元素乱跳） */
+.stagger > * { animation: rg-rise 380ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 45ms; }
+.stagger > *:nth-child(3) { animation-delay: 90ms; }
+.stagger > *:nth-child(4) { animation-delay: 135ms; }
+.stagger > *:nth-child(5) { animation-delay: 180ms; }
+.stagger > *:nth-child(6) { animation-delay: 225ms; }
+
+/* 弹层：遮罩淡入 + sheet 材质抵达 */
+.overlay-enter-active .overlay { animation: rg-scrim-in 220ms ease both; }
+.sheet { animation: rg-materialize 300ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.sheet-bottom { animation: rg-sheet-up 340ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+
+/* 数字/进度条：仅内容变化 */
+.bar-grow { transform-origin: left; animation: rg-bar-grow 480ms cubic-bezier(0.32, 0.72, 0, 1) both; }
+.spinner { animation: rg-spin 900ms linear infinite; }
+.skeleton-line { animation: rg-fade 1.2s ease-in-out infinite alternate; }
+
+/* 主题切换：颜色平滑过渡（ease dark↔light，避免亮度突变） */
+.app-shell, .topbar, .card, .kpi, .btn, .field {
+  transition: background-color 260ms ease, color 260ms ease, border-color 260ms ease;
+}
+
+/* 无障碍：降低动态效果 —— 去掉位移/缩放/弹性/循环，保留透明度与颜色 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  button:not(:disabled):active, [role='button']:active, .btn:active { transform: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .topbar, .sheet, .overlay { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .topbar { background: var(--bg-surface); }
+  .sheet { background: var(--bg-surface); }
+}

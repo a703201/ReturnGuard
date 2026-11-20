@@ -1,0 +1,11 @@
+# 仓颉编译产物（由 build.sh / build-linux.sh 生成，不入 git）
+build/
+build-linux/
+
+# 技术验证探针（一次性编译验证用，非工程源码）
+probe/
+probe_db/
+
+# 运行时数据
+data/
+*.db

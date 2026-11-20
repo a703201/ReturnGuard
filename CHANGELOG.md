@@ -4,6 +4,41 @@
 
 ---
 
+## [3.0.0] — 2026-11-20
+
+> **大版本：全栈重构落地**。后端从 Python/FastAPI 整体切换为仓颉原生 18 包、前端从原生 HTML/JS 切换为 Vue3+TS，
+> 主力部署为 3 容器单库自愈栈。Python/FastAPI 版保留兼容但不再是主力。业务数据契约与守卫规则保持一致。
+
+### 新增（Features）
+- **仓颉后端成为主力**：18 包原生实现 + Vue3+TS 前端；3 容器单库部署（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`，`127.0.0.1:58080`）。Python/FastAPI 版保留兼容。
+- **多 AI 服务商 + 本地 AI**：14 平台能力矩阵（含 Ollama 本地），`/api/ai/providers` 暴露矩阵，密钥只从环境变量读取。
+- **对外契约与 SDK**：OpenAPI 3.0（`docs/openapi.yaml`，29 path / 30 operation）+ Python / JavaScript / Go 三语言零依赖 SDK。
+- **批量导入**：`POST /api/cases/import` 同时支持 CSV 与 XLSX（轻量 ZIP/OpenXML 解析，中文表头/数据可用，首个 sheet）。
+- **PDF 双传输**：`/api/export_pdf` 默认 base64，`?format=binary` 返回真 `application/pdf` 字节流。
+- **令牌刷新轮换**：`POST /api/auth/refresh` 一次性轮换 + 重放检测（旧 refresh 复用即撤销全会话）。
+- **审计分页**：`GET /api/audit/list?limit=`。
+- **会话并发上限**：`RG_SESSION_MAX`（默认 5），登录签发前踢该用户最旧会话。
+- **OAuth2 开放平台**：`POST /api/oauth/register` / `POST /api/oauth/token`（client_credentials）/ `GET /api/oauth/clients`；令牌绑定注册者租户。客户端注册表为内存存储，重启失效。
+- **平台×供应商矩阵**：`insights.platform_supplier_matrix` 真实聚合；市场洞察 9→14 卡。
+- **界面配置 AI（免 .env）**：设置页 AMS 风格表单（提供商下拉 / 文本模型 / API 端点 / 密钥密码框），`GET/POST /api/ai/settings` 持久化到 `RG_AI_CONFIG_FILE`（容器卷持久化）；密钥脱敏回显（只给掩码，绝不进响应）、留空不改、`clearKey` 清空、端点/换行校验；重启后真正生效（环境变量仍可强制覆盖）。AiConfigForm 组件供设置页与引导复用。
+- **关于页 / 设置页 / 首次部署引导**：关于页展示版本与技术事实；设置页集中主题/语言/账户/AI；首次使用依次引导创建账户 → AI 配置 → 演示账户提示，标志位 localStorage，可从设置页重开。顶栏重复的主题/语言按钮精简为单一设置入口。
+- **会话空闲超时**：`rg_sessions.last_used_ms` 滑动窗口（配置 `RG_SESSION_IDLE_MS`，默认 24h，0=禁用）；每次令牌校验刷新、超时即撤销，与绝对有效期/并发上限叠加。
+- **OAuth2 加固**：客户端注册表与令牌 scope 落本地文件（容器卷持久化，重启不丢）；只读 scope 令牌经 Router 全局 guard 禁止写端点（403）；`POST /api/oauth/rotate` 密钥轮换（旧 secret 校验后立即失效，新密钥仅返回一次）。
+- **二次开发指南**：`docs/SECONDARY_DEV_GUIDE.md`（扩展点：AI 平台/洞察维度/路由/前端页、配置单一来源、升级兼容、构建验收）。
+
+### 修复（Fixes）
+- **登录卡住根治**：`parseIntEnv("0")` 误把合法的 0 当解析失败回退为 16，导致 `RG_DB_POOL=0` 从未生效、连接池一直建且并发 `dead lock`。修复后日志实证「数据库连接已建立（无池）」、DB 连接数归零。
+- **下钻弹层错位**：遮罩类名 `.sheet-mask` 与实际 `.overlay` 不符，改后居中遮罩。
+- **横向条长度一致**：洞察条宽改用胜诉率（原案件数各维度几乎相等），并按风险分色。
+- **XLSX/CSV 中文崩溃**：多处逐字节 `String.fromUtf8([byte])` 拆解中文多字节序列，改为字节累积后一次性 UTF-8 解码。
+
+### 工程化（Chore）
+- **构建工具链可自愈**：`ams-cj` 工具链镜像可从官网 SDK API 下载 + D 盘缓存自动重建；`build-cangjie-docker.sh` 内置该逻辑。
+- **文档守护扩展**：新增路由↔openapi 一致性、openapi 版本、SDK 核心方法断言（`test_docs_consistency.py` 21→24 例）。
+- **自愈加固**：healthcheck 3s×3 快速判死 + autoheal 自动重启（死锁时最多卡约 10s）。
+
+---
+
 ## [2.1.2] — 2026-09-25
 
 > 版权与许可收口：选用 **Apache License 2.0** 并落地「任何复制/二次分发都必须标注出处与作者」的机制。

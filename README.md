@@ -5,6 +5,12 @@
 
 > **命名约定**：全仓统一使用「**ReturnGuard 退货情报站**」。历史曾用名「退件法医 / 跨境退货举证官」偏「鉴定 / 追责」语义，已全部废弃，新代码与新文档一律不再使用。
 
+> **🟢 当前主力形态（2026-11-20）**：后端已切换为 **仓颉原生 18 包**（`backend/`），前端为 **Vue3 + TS**（`web/`），
+> 主力部署是 **3 容器**（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`，访问 `http://127.0.0.1:58080`），完整契约见
+> [`docs/openapi.yaml`](docs/openapi.yaml)、能力见 [`backend/README.md`](backend/README.md)。
+> 下文标有「Python 版」的章节描述**保留兼容**的 `demo/`（FastAPI）实现与原始产品口径，仍可本地 `uvicorn` 直跑；
+> 两套实现的业务规则一致，字段/路由事实以各自守护测试为准。
+
 ## 电梯陈述（一句话）
 
 > 跨境卖家 20%–30% 的退货率里，真正该赔的只是一部分，更多是因为「拿不出客观证据」而白白败诉。
@@ -12,14 +18,14 @@
 
 ## 一分钟速览
 
-- **当前版本**：2.1.2（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致）
-- **本机访问**：`http://127.0.0.1:65432`（容器）/ `http://127.0.0.1:8000`（直接 `uvicorn`）
+- **当前版本**：3.0.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致；**大版本重构**）
+- **本机访问**：`http://127.0.0.1:58080`（**仓颉主力** 3 容器）/ `http://127.0.0.1:65432`（Python 版容器）/ `http://127.0.0.1:8000`（Python 版 `uvicorn` 直跑）
 - **内置演示账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主）；Gitea / GitCode 为镜像
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
   - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
 - **图床**：**本地自持**（`local` 签名短链 / `self` 自托管反代 / `public_base` 自建反代，默认 `local`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭）
-- **AI 平台（多厂商可选）**：`tokenplan`（默认）/ `official` / `dashscope` / `openai` / `deepseek` / `moonshot` / `zhipu` / `siliconflow` / `openrouter` / `ollama`（本机）/ `azure_openai` / `custom`（任意 OpenAI 兼容自建端点）；
+- **AI 平台（多厂商可选，14 家）**：`tokenplan`（默认）/ `official` / `dashscope` / `openai` / `deepseek` / `moonshot` / `zhipu` / `siliconflow` / `openrouter` / `ollama`（本机）/ `azure_openai` / `anthropic` / `gemini` / `custom`（任意 OpenAI 兼容自建端点）；
   改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + 密钥 + 模型标识随平台声明联动，能力缺口如实标注回退。详见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)
 - **定位**：退货纠纷「只取证不裁决」——客观取证 + 群体退货数据 → 选品避坑 / 品控洞察
 
@@ -28,7 +34,7 @@
 ![系统架构](assets/arch.png)
 
 - **前端层**：单页应用（上传 / 卷宗 / 洞察看板 / 数据录入），demo-real 双源切换
-- **后端编排层**：FastAPI DAG（并行取证 + 洞察聚合 + 多租户）
+- **后端编排层**：仓颉原生 18 包（主力，`backend/`）；Python 版 FastAPI DAG（兼容，`demo/`，并行取证 + 洞察聚合 + 多租户）
 - **模型能力层**：阿里云百炼 Model Router（7 能力，live/mock 韧性切换）
 - **洞察层（产品核心）**：聚类归因 / 预测预警 / 选品避坑 / 供应商品控
 - **数据层**：demo 库（演示种子，openGauss `returnguard`）+ real 库（真实数据，独立库 `returnguard_real`），**双库物理隔离**；连接串未显式配置时由 demo 串**自动推导**出独立 real 库，任何部署形态都默认分库
@@ -80,7 +86,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  FE[前端层 上传/卷宗/洞察看板] --> BE[后端编排层 FastAPI 工作流]
+  FE[前端层 Vue3 上传/卷宗/洞察看板] --> BE[后端编排层 仓颉原生(主力)/FastAPI(兼容)]
   BE --> IN[洞察层 聚类归因/选品建议]
   BE --> M[模型能力层 Model Router 图向量/VL/OCR/LLM/Rerank/TTS]
   BE <--> D[数据层 openGauss 双库 + 签名短链图床]
@@ -228,6 +234,12 @@ docker compose -f docker/docker-compose.yml up -d --build app
 `python start_rg.py --build`（改代码后重建镜像）、`python stop_rg.py --down`（清理容器与网络，保留数据卷）。
 
 详见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 与 [`openGauss部署指南.md`](openGauss部署指南.md)。
+
+### 对外 API 契约与 SDK
+
+- **OpenAPI 3.0 契约**：[`docs/openapi.yaml`](docs/openapi.yaml)——33 个操作（系统/认证/洞察/案件/平台与 AI/审计/OAuth2），与仓颉后端真实路由逐条核对一致（守护测试断言）。
+- **多语言 SDK**：[`sdk/`](sdk/)——Python（`urllib`）、JavaScript（Fetch API）、Go（`net/http`）三种，均零第三方依赖，覆盖登录、refresh 轮换、洞察分析、CSV 批量导入、PDF 双传输（base64 / 二进制流）、审计分页；含调用示例。
+- **仓颉后端完整能力与端点表**：[`backend/README.md`](backend/README.md)；价值评估与缺口索引：[`docs/PROJECT_EVALUATION.md`](docs/PROJECT_EVALUATION.md)；**二次开发扩展点与升级兼容策略**：[`docs/SECONDARY_DEV_GUIDE.md`](docs/SECONDARY_DEV_GUIDE.md)。
 
 ## 配置（环境变量）
 

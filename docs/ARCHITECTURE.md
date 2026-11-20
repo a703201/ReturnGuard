@@ -1,6 +1,10 @@
 # ReturnGuard 功能实现逻辑（ARCHITECTURE）
 
-> 适用版本：2.1.2（仓库根 `VERSION` 为单一来源）
+> **🟢 主力实现（2026-11-20）**：后端 **仓颉原生 18 包**（`backend/`，`rg-kernel/data/security/api/ai/app` 分层）+ 前端 **Vue3+TS**（`web/`），
+> 单库多租户 + openGauss 持久化 + 14 平台 AI 适配 + OAuth2。仓颉侧分层与启动链见 [`backend/README.md`](../backend/README.md)。
+> 本文描述的是 **Python 版（`demo/`）** 的功能串联逻辑，保留兼容、业务口径与主力一致。
+>
+> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
 > 关联文档：[`DECISION_LOGIC.md`](DECISION_LOGIC.md)（判定规则与阈值）、[`AI_PROVIDERS.md`](AI_PROVIDERS.md)（多 AI 平台对接）、[`API.md`](API.md)（接口契约）、[`SCHEMA.md`](SCHEMA.md)（表结构）、[`DEPLOYMENT.md`](DEPLOYMENT.md)（部署运维）
 
 本文回答：**这些功能在代码里是怎么串起来的**——模块边界、两条主链路的执行顺序、

@@ -1,6 +1,12 @@
 # ReturnGuard 部署与运维指南
 
-> 适用版本：2.1.2（仓库根 `VERSION` 为单一来源）
+> **🟢 主力部署（2026-11-20）**：`docker/docker-compose.cangjie.yml` —— **3 容器单库**：
+> `rg_cj_app`（仓颉后端 + Vue3 前端，`127.0.0.1:58080`）/ `rg_cj_opengauss`（唯一 DB，`15433`）/ `rg_cj_autoheal`（unhealthy 自动重启）。
+> 构建：`bash docker/build-cangjie-docker.sh`（工具链镜像 `ams-cj:1.2.0-beta.03` 缺失时自动从 `D:/cangjie-sdk-cache` 重建）。
+> 关键点：`RG_DB_POOL=0` 禁用仓颉连接池（并发 dead lock）；启动日志应显示「数据库连接已建立（无池）」。
+> 下文 §2 起为 **Python 版（FastAPI）** 部署说明，保留兼容。
+>
+> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
 > 相关文档：[`openGauss部署指南.md`](../openGauss部署指南.md)（openGauss 细节与真实数据自动导入）、[`API.md`](API.md)、[`SCHEMA.md`](SCHEMA.md)
 
 ---
@@ -35,7 +41,7 @@ docker compose -f docker/docker-compose.yml up -d --build app
 
 # 3) 判活
 curl -s http://127.0.0.1:65432/health
-curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "2.1.2"
+curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "3.0.0"
 ```
 
 一键脚本等价封装：

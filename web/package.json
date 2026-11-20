@@ -1,0 +1,27 @@
+{
+  "name": "returnguard-web",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "description": "ReturnGuard 退货情报站 · 前端（Vue 3 + TypeScript + Vite）",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8",
+    "vue-tsc": "^2.2.0"
+  }
+}

@@ -1,0 +1,110 @@
+# ============================================================
+# ReturnGuard · 仓颉后端容器编排（与 Python 版 docker-compose.yml 并存）
+# ------------------------------------------------------------
+#   db  —— openGauss 5.0.0（独立卷 cjogdata，不碰 Python 版 ogdata）
+#   app —— 仓颉后端（returnguard-cj，同端口托管 Vue 前端）
+#
+# 构建前先：bash docker/build-cangjie-docker.sh
+# 启动：docker compose -f docker/docker-compose.cangjie.yml up -d --build
+# 说明：本文件 build context = 仓库根（..）相对 docker/ 目录。
+#
+# 容器结构（干净单库，无重复数据库）：
+#   rg_cj_opengauss —— 唯一的 openGauss 数据库
+#   rg_cj_app       —— 仓颉后端 + Vue 前端（/health 深探针含 DB）
+#   rg_cj_autoheal  —— 自愈守护：app 被判 unhealthy 时自动重启（连接池僵死兜底）
+# ============================================================
+name: returnguard-cj
+
+services:
+  db:
+    image: enmotech/opengauss:5.0.0
+    container_name: rg_cj_opengauss
+    privileged: true
+    environment:
+      GS_PASSWORD: ${GS_PASSWORD:?GS_PASSWORD 必须在 docker/.env 中显式设置}
+      GS_USERNAME: gaussdb
+      GS_DB: returnguard_cj
+      GS_PORT: 5432
+      TZ: Asia/Shanghai
+    ports:
+      # 宿主直连端口（应用走 compose 内网 db:5432，不受此端口影响）
+      - "127.0.0.1:${CJ_DB_PORT:-15433}:5432"
+    volumes:
+      - cjogdata:/var/lib/opengauss
+    shm_size: 2gb
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x gaussdb > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.cangjie
+    image: returnguard-cj:latest
+    container_name: rg_cj_app
+    volumes:
+      # AI 配置（含 API Key）持久化：设置页保存后重启不丢；容器重建仍在。
+      - cjappdata:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # 仓颉后端统一走 RG_DB_*（AppContext 读这些变量连 openGauss）
+      RG_DB_HOST: db
+      RG_DB_PORT: 5432
+      RG_DB_NAME: returnguard_cj
+      RG_DB_USER: gaussdb
+      RG_DB_PASSWORD: ${GS_PASSWORD}
+      # 🔴 禁用仓颉 PooledDatasource：实测并发下会内部 dead lock（日志 "dead lock"），
+      # 导致所有 DB 操作挂起、登录卡死。0 = 每次新建连接（连接串有 5s 超时兜底）。
+      # 单容器部署性能损失可忽略，换取稳定；如未来换用修复版驱动可再开启。
+      RG_DB_POOL: ${RG_DB_POOL:-0}
+      # 会话空闲超时（毫秒）：滑动窗口 last_used_ms，0=禁用；默认 24h
+      RG_SESSION_IDLE_MS: ${RG_SESSION_IDLE_MS:-86400000}
+      # 令牌签名密钥（生产必填，≥32 字节）
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET 必须在 docker/.env 中显式设置}
+      RG_VERSION: 3.0.0
+      # AI 网关（可选，无密钥时 /api/analyze 诚实回退 mock）
+      RG_AI_BASE_URL: ${RG_AI_BASE_URL:-}
+      RG_AI_KEY: ${RG_AI_KEY:-}
+      RG_AI_MODEL: ${RG_AI_MODEL:-qwen-plus}
+      TZ: Asia/Shanghai
+    ports:
+      # 仅绑定本机回环。默认 58080（本机 65xxx 段被 Windows 保留，改端口只需设 CJ_APP_PORT）。
+      - "127.0.0.1:${CJ_APP_PORT:-58080}:8000"
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - autoheal=true                 # autoheal 守护对象：unhealthy 时自动重启
+    # 快速判死：仓颉池偶发 dead lock 时，缩短探测周期让 autoheal 尽快重启（用户最多卡约 10s）。
+    # 真正的根治需重编（parseIntEnv 把 RG_DB_POOL=0 误当解析失败回退成 16，见 rg-app/src/app.cj）。
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf --noproxy '*' http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------- 自愈守护（可选但推荐）----------
+  # Docker 的 healthcheck 只标记 unhealthy，不会自动重启容器；
+  # autoheal 监听容器事件，发现 unhealthy 的 app 即重启，兜底连接池僵死等故障。
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: rg_cj_autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: 15s
+      # 该镜像用 AUTOHEAL_START_PERIOD（不是 START_GRACE_PERIOD）作启动宽限期
+      AUTOHEAL_START_PERIOD: 60
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  cjogdata:
+  cjappdata:

@@ -17,6 +17,7 @@ from calibration import get_active_threshold
 from common import (
     _NONCE_PLACEHOLDER,
     APP_VERSION,
+    BASE,
     INDEX,
     MINIFIED_INDEX,
     UPLOAD_DIR,
@@ -66,6 +67,36 @@ def index():
         f"style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{nonce}'; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     )
+    return HTMLResponse(content=html, headers={"Content-Security-Policy": csp})
+
+
+@router.get("/new", response_class=HTMLResponse)
+@router.get("/new/", response_class=HTMLResponse)
+def new_frontend():
+    """新版 Vue 3 前端入口（与旧原生前端并存，供灰度切换 / A-B 对照）。
+
+    产物位于 demo/webapp/（由 `web/` 下 `npm run build` 生成），资产用相对路径
+    ./assets/…，配合 hash 路由，无需服务端路径重写。后端同源托管 /new/assets。
+    每请求生成 nonce 注入 CSP；前端为构建产物（外部 JS/CSS），script-src 只需 'self'。
+    产物不存在时给出明确的中文提示页，而非 500。"""
+    import os
+    # BASE = demo/ 目录；构建产物在 demo/webapp/index.html。
+    index_path = os.path.join(BASE, "webapp", "index.html")
+    if not os.path.exists(index_path):
+        return HTMLResponse(
+            content="<h1>新版前端未构建</h1><p>请在 <code>web/</code> 目录执行 <code>npm run build</code> 生成 <code>demo/webapp/</code> 后重试。</p>",
+            status_code=503,
+        )
+    nonce = secrets.token_urlsafe(16)
+    with open(index_path, encoding="utf-8") as f:
+        html = f.read()
+    # 把 nonce 注入内联主题脚本的占位符，使其在严格 script-src 下可执行。
+    html = html.replace("__CSP_NONCE__", nonce)
+    csp = (
+        "default-src 'self'; img-src 'self' data: https:; media-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-{n}'; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    ).format(n=nonce)
     return HTMLResponse(content=html, headers={"Content-Security-Policy": csp})
 
 

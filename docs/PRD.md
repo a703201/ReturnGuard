@@ -1,7 +1,11 @@
 # ReturnGuard 跨境退货情报站 · 产品需求文档（PRD）
 
-> **文档版本**：v2.1
-> **最后更新**：2026-09-14（对应应用版本 1.1.5）
+> **🟢 实现现状（2026-11-20）**：产品定位不变（市场洞察为主、单案取证为辅）；技术栈已切换为 **仓颉后端 + Vue3 前端**，
+> 主力 3 容器部署见 [`backend/README.md`](../backend/README.md)，接口契约见 [`openapi.yaml`](openapi.yaml)，
+> 价值/缺口评估见 [`PROJECT_EVALUATION.md`](PROJECT_EVALUATION.md)。本文需求口径对两套实现均适用。
+>
+> **文档版本**：v3.0
+> **最后更新**：2026-11-20（对应应用版本 3.0.0；需求口径稳定，实现现状见顶部说明）
 > **负责人**：ReturnGuard 项目组
 > **关联文档**：`docs/API.md`（接口契约）、`docs/SCHEMA.md`（表结构）、`docs/AB_ROI_实证说明.md`（ROI / A/B 口径）、`docs/CODE_REVIEW.md`（审查记录）、`CHANGELOG.md`、`ModelRouter_API.docx`（模型能力参考）
 
@@ -116,7 +120,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 ## 7. 非功能性需求
 - **性能**：单案 mock < 500ms；live < 30s（受模型时延影响）。
 - **可用性**：live 逐能力回退，**失败结果不写缓存**（避免网关恢复后仍返回旧降级值）；数据库**统一 openGauss**（demo/auth → `returnguard`，real → 独立库 `returnguard_real`；业务代码零改动；仅离线 / CI 回退 SQLite）。
-- **部署**：Docker Compose（openGauss + FastAPI），build context 为仓库根（`..`）；应用与数据库均**仅绑宿主机回环**，对外发布由部署方在其前置反向代理 / CDN 并配置 HTTPS。
+- **部署**：主力 Docker Compose（仓颉 app + openGauss + autoheal，`docker/docker-compose.cangjie.yml`，app `127.0.0.1:58080`）；Python 版 Compose（openGauss + FastAPI）保留兼容。均**仅绑宿主机回环**，对外发布由部署方前置反向代理 / CDN 并配置 HTTPS。
 - **安全**：`MODEL_ROUTER_API_KEY`、`AUTH_SECRET` 等敏感值仅以环境变量注入，不入库、不进前端、不写入镜像。详见《接口文档》§6（SEC-1 ~ SEC-13）。
 - **可观测**：`GET /health` 探针 + `GET /metrics` 运行指标（需管理员）。
 - **前端交付**：静态资源 URL 版本化（`?v=<VERSION>`）+ `no-store`，保证发版即生效、不受浏览器 / CDN 缓存影响。
@@ -133,7 +137,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 前端（退货情报站 index.html · 5 Tab · zh/en/fr）
         │  HTTP /api/*   （静态资源带 ?v=<版本>，no-store）
         ▼
-FastAPI（demo/main.py 装配层 → routers/* 按域拆分）
+仓颉后端（backend/，主力：rg-api/routes → rg-app → rg-data）／FastAPI（demo/main.py，兼容）
    ├─ pipeline（取证 + 洞察业务逻辑 + ROI 回测）
    ├─ db（SQLAlchemy：openGauss；demo/auth=returnguard，real=returnguard_real）
    ├─ quota（SEC-13 live 配额闸）· shared_state（跨 worker 限流/登录锁）

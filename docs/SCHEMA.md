@@ -1,6 +1,9 @@
 # ReturnGuard 数据库表结构（SCHEMA）
 
-> 适用版本：2.1.2（仓库根 `VERSION` 为单一来源）
+> **🟢 仓颉主力侧**：`backend/` 使用同一 openGauss 实例，5 张表 `rg_users` / `rg_cases` / `rg_audit` / `rg_quota` / `rg_sessions`（+ refresh 字段、并发会话上限），建表幂等见 `backend/rg-data/src/db/db.cj`。
+> 本文正文描述 **Python 版（兼容）** 的 `Case` ORM 字段与 `demo/schema.sql`，二者互为镜像、受守护测试约束。
+>
+> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
 > 对应代码：`demo/db.py` 的 `Case` 模型（ORM 单一来源）
 > 本文件与 `demo/schema.sql` 互为镜像：本文档给人看，`.sql` 给数据库用。
 

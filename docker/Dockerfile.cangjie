@@ -1,0 +1,60 @@
+# ============================================================
+# ReturnGuard · 仓颉后端运行镜像（使用预编译 Linux 产物）
+# ------------------------------------------------------------
+# 后端由仓颉 Cangjie 1.2.0 编写，编译出 Linux ELF（rg-server）。
+# 仓颉不支持交叉编译，Windows 开发机必须先借 ams-cj 工具链镜像
+# 编出 Linux 二进制（见 docker/build-cangjie-docker.sh），把
+# 「编译」与「打包」拆开：打运行镜像只需几秒、无需在镜像里下 200MB SDK。
+#
+# 构建前置：
+#   bash docker/build-cangjie-docker.sh     # 产出 backend/build-linux/
+# 构建镜像（build context = 仓库根）：
+#   docker build -t returnguard-cj:latest -f docker/Dockerfile.cangjie .
+#
+# 说明：前端为平台无关的 Vite 产物（demo/webapp/），容器内不装 Node。
+# ============================================================
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 运行期依赖：
+#   curl        —— HEALTHCHECK 探针
+#   libstdc++6 / libgcc-s1 —— 仓颉运行时 C++ ABI 依赖
+#   tzdata      —— 审计时间戳时区
+# 换中科大源（直连 archive.ubuntu.com 在本机极慢）
+RUN set -eux; \
+    sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g; \
+            s|http://security.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' \
+        /etc/apt/sources.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl libstdc++6 libgcc-s1 tzdata; \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 仓颉 ELF + 全套运行时/stdx .so（编译脚本已拷齐到 build-linux/）
+COPY backend/build-linux/ /app/bin/
+
+# 前端 SPA（仓颉后端同端口托管静态资源）
+COPY demo/webapp/ /app/web/
+
+# 非 root 运行（大厂容器加固基线）
+RUN useradd -m -u 10001 appuser \
+    && mkdir -p /app/data \
+    && chown -R appuser:appuser /app
+USER appuser
+
+# 运行期默认：监听容器内 0.0.0.0:8000，前端目录 /app/web
+ENV RG_HTTP_HOST=0.0.0.0 \
+    RG_HTTP_PORT=8000 \
+    RG_WEB_DIR=/app/web \
+    RG_VERSION=3.0.0 \
+    LD_LIBRARY_PATH=/app/bin
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=10 --start-period=30s \
+    CMD curl -sf --noproxy '*' http://127.0.0.1:8000/health >/dev/null || exit 1
+
+ENTRYPOINT ["/app/bin/rg-server"]

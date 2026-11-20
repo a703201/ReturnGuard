@@ -1,7 +1,11 @@
 # ReturnGuard 接口文档（API.md）
 
-> **服务**：ReturnGuard Demo（FastAPI）
-> **最后更新**：2026-09-25（2.1.2）
+> **🟢 主力契约另见**：[`docs/openapi.yaml`](openapi.yaml)（仓颉后端 30 个操作的 OpenAPI 3.0 规范，路由↔契约有守护断言）与 [`backend/README.md`](../backend/README.md)（端点表）。
+> 本文记录的是 **Python 版（FastAPI，`demo/`）** 接口，仍可本地直跑、保持兼容；业务口径与仓颉版一致。
+> 仓颉主力端口 `http://127.0.0.1:58080`，Python 版容器 `http://127.0.0.1:65432` / 直跑 `http://127.0.0.1:8000`。
+
+> **服务**：ReturnGuard Demo（FastAPI，Python 兼容版）
+> **最后更新**：2026-11-20（3.0.0）
 > **关联文档**：`docs/PRD.md`、`docs/SCHEMA.md`、`docs/ARCHITECTURE.md`（功能实现逻辑）、`docs/DECISION_LOGIC.md`（判定逻辑）、`docs/AI_PROVIDERS.md`（多 AI 平台对接）、`docs/AB_ROI_实证说明.md`、`docs/CODE_REVIEW.md`、`CHANGELOG.md`、`docs/reference/ModelRouter_API.docx`（网关接口参考）
 
 ---

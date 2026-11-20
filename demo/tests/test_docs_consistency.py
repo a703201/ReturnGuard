@@ -355,3 +355,80 @@ def test_decision_logic_doc_covers_key_thresholds():
     doc = _read(DOCS / "DECISION_LOGIC.md")
     for token in ("0.82", "1.8", "0.95", "decided", "只取证，不裁决"):
         assert token in doc, f"DECISION_LOGIC.md 缺少关键口径：{token}"
+
+
+# ── 仓颉后端对外契约守护（openapi.yaml / SDK）────────────────────────────
+
+def _cj_routes() -> set[tuple[str, str]]:
+    """从仓颉路由注册区提取 (method, path) 集合，路径参数 :x 归一化为 {x}。"""
+    routes: set[tuple[str, str]] = set()
+    route_dir = ROOT / "backend" / "rg-api" / "src" / "routes"
+    if not route_dir.exists():
+        return routes
+    for f in route_dir.glob("*.cj"):
+        text = _read(f)
+        for m in re.finditer(r'router\.(get|post|put|delete|patch)\("([^"]+)"', text):
+            method, path = m.group(1).lower(), m.group(2)
+            path = re.sub(r":([A-Za-z_]\w*)", r"{\1}", path)  # :caseId -> {caseId}
+            routes.add((method, path))
+    return routes
+
+
+def _openapi_operations() -> set[tuple[str, str]]:
+    """从 openapi.yaml 的 paths 段提取 (method, path) 集合（缩进 2 空格为 path）。"""
+    text = _read(DOCS / "openapi.yaml")
+    ops: set[tuple[str, str]] = set()
+    in_paths = False
+    current: str | None = None
+    for line in text.splitlines():
+        if line == "paths:":
+            in_paths = True
+            continue
+        if not in_paths:
+            continue
+        if line and not line.startswith(" ") and not line.startswith("#"):
+            break  # 到达 components: 等顶层键
+        m_path = re.match(r"^  (/\S*):\s*$", line)
+        if m_path:
+            current = m_path.group(1)
+            continue
+        m_op = re.match(r"^    (get|post|put|delete|patch):\s*$", line)
+        if m_op and current:
+            ops.add((m_op.group(1), current))
+    return ops
+
+
+def test_cangjie_routes_match_openapi_contract():
+    """仓颉后端真实路由必须与 openapi.yaml 契约逐条一致（防契约漂移）。"""
+    cj = _cj_routes()
+    api = _openapi_operations()
+    assert cj, "未提取到仓颉路由（测试前提失效）"
+    assert api, "openapi.yaml 未解析到 operations（测试前提失效）"
+    assert cj == api, (
+        f"路由与 openapi.yaml 不一致：\n"
+        f"  仅仓颉有={sorted(cj - api)}\n  仅 openapi 有={sorted(api - cj)}"
+    )
+
+
+def test_openapi_version_matches_version_file():
+    """openapi.yaml 的 info.version 必须等于仓库根 VERSION。"""
+    version = _read(ROOT / "VERSION").strip()
+    text = _read(DOCS / "openapi.yaml")
+    info = text[: text.index("servers:")] if "servers:" in text else text[:500]
+    m = re.search(r"version:\s*(\d+\.\d+\.\d+)", info)
+    assert m, "openapi.yaml 的 info 段缺少 version"
+    assert m.group(1) == version, f"openapi version {m.group(1)} ≠ VERSION {version}"
+
+
+def test_python_sdk_covers_core_methods():
+    """Python SDK 必须覆盖对外契约的核心能力方法（防 SDK 退化）。"""
+    sdk = _read(ROOT / "sdk" / "python" / "returnguard_client.py")
+    required = (
+        "def login", "def refresh", "def logout", "def me", "def config",
+        "def ai_providers", "def insights", "def analyze", "def cases",
+        "def add_case", "def delete_case", "def import_csv",
+        "def export_pdf_base64", "def export_pdf_bytes",
+        "def audit_verify", "def audit_list",
+    )
+    missing = [name for name in required if name not in sdk]
+    assert not missing, f"Python SDK 缺少核心方法：{missing}"
