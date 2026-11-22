@@ -1,0 +1,29 @@
+# =============================================================================
+# 统一换行符：避免 Windows(CRLF) 与 CI Ubuntu(LF) 构建产物哈希漂移。
+# 前端源码必须以 LF 入库和 checkout，否则 Vite 产物逐字节不可复现，
+# CI 的「校验构建产物已入库同步」门禁会持续误报。
+# =============================================================================
+
+# 源码与配置：强制 LF
+*.ts        text eol=lf
+*.vue       text eol=lf
+*.css       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.json      text eol=lf
+*.html      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.md        text eol=lf
+*.toml      text eol=lf
+*.cj        text eol=lf
+*.sh        text eol=lf
+*.py        text eol=lf
+
+# 已有二进制产物/图片不做转换
+*.png       binary
+*.jpg       binary
+*.pdf       binary
+*.exe       binary
+*.dll       binary
+*.so        binary
