@@ -69,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           # 与本地构建环境一致：Node 20 与 22 下 Vite 产物哈希不同，
           # 会导致「产物已入库同步」门禁因哈希漂移而误报。
