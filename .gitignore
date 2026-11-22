@@ -17,9 +17,9 @@
 *.db-shm
 *.sqlite3
 
-# 前端依赖与本地 lock（构建锁在 web/package-lock.json）
+# 前端依赖（web/package-lock.json 是构建锁，必须入库以保证 CI 可重现构建）
 node_modules/
-package-lock.json
+/package-lock.json
 
 # Rust 启动器构建产物
 launcher/target/
