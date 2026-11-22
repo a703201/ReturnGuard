@@ -41,6 +41,8 @@ public func registerRoutes(router: Router, ctx: AppContext): Unit {
     router.post("/api/oauth/rotate", { req => oauthRotate(ctx, req) })
     router.post("/api/auth/refresh", { req => refreshToken(ctx, req) })
     router.get("/api/auth/me", { req => me(ctx, req) })
+    router.put("/api/auth/me", { req => updateProfile(ctx, req) })
+    router.post("/api/auth/password", { req => changePassword(ctx, req) })
     router.post("/api/auth/logout", { req => logout(ctx, req) })
     router.get("/api/insights", { req => insights(ctx, req) })
     router.get("/api/cases", { req => listCases(ctx, req) })
@@ -634,13 +636,18 @@ private func login(ctx: AppContext, req: ApiRequest): ApiResponse {
     let body = FlatJson.parse(req.bodyText())
     let username = body.getOr("username", "")
     let password = body.getOr("password", "")
+    let code = body.getOr("code", "")
     let r = ctx.auth.login(username, password, req.remoteAddr)
     if (!r.ok) { return ApiResponse.fail(ErrKind.Unauthorized, r.reason) }
+    // TOTP 可选：已绑定二次验证的账户登录必须提供正确 6 位验证码；未绑定用户不受影响（向后兼容）
+    if (ctx.auth.totpEnabled(username) && !ctx.auth.totpVerify(username, code)) {
+        return ApiResponse.fail(ErrKind.Unauthorized, "需要有效的二次验证验证码")
+    }
     // 登录成功后签发 access + refresh 令牌对（refresh 一次性轮换）
     let pair = ctx.auth.issueTokenPair(username, req.remoteAddr)
     return ApiResponse.ok(Obj()
         .boolean("ok", true).str("token", pair.access).str("refresh_token", pair.refresh)
-        .str("username", username).build())
+        .str("username", username).boolean("totpRequired", ctx.auth.totpEnabled(username)).build())
 }
 
 /** POST /api/auth/refresh：一次性轮换 access+refresh；重放检测触发全会话撤销。 */
@@ -714,8 +721,32 @@ private func me(ctx: AppContext, req: ApiRequest): ApiResponse {
     if (user.isEmpty()) { return ApiResponse.fail(ErrKind.Unauthorized, "未登录") }
     let u = ctx.auth.userOf(user)
     let tenantName = match (u) { case Some(rec) => rec.tenantName; case None => user }
-    let userObj = Obj().str("username", user).str("tenant_name", tenantName).build()
+    let displayName = match (u) { case Some(rec) => rec.displayName; case None => "" }
+    let email = match (u) { case Some(rec) => rec.email; case None => "" }
+    let userObj = Obj().str("username", user).str("tenant_name", tenantName)
+        .str("display_name", displayName).str("email", email).build()
     return ApiResponse.ok(Obj().boolean("ok", true).raw("user", userObj).str("tenant", user).build())
+}
+
+/** PUT /api/auth/me：修改个人资料（显示名 / 邮箱，需登录）。 */
+private func updateProfile(ctx: AppContext, req: ApiRequest): ApiResponse {
+    let user = currentUser(ctx, req)
+    if (user.isEmpty()) { return ApiResponse.fail(ErrKind.Unauthorized, "请先登录") }
+    let body = FlatJson.parse(req.bodyText())
+    let reason = ctx.auth.updateProfile(user, body.getOr("display_name", ""), body.getOr("email", ""))
+    if (!reason.isEmpty()) { return ApiResponse.fail(ErrKind.BadRequest, reason) }
+    return ApiResponse.ok(Obj().boolean("ok", true).build())
+}
+
+/** POST /api/auth/password：修改密码（需登录，校验旧密码；成功后其他会话失效需重新登录）。 */
+private func changePassword(ctx: AppContext, req: ApiRequest): ApiResponse {
+    let user = currentUser(ctx, req)
+    if (user.isEmpty()) { return ApiResponse.fail(ErrKind.Unauthorized, "请先登录") }
+    let body = FlatJson.parse(req.bodyText())
+    let reason = ctx.auth.changePassword(user, body.getOr("old_password", ""), body.getOr("new_password", ""))
+    if (!reason.isEmpty()) { return ApiResponse.fail(ErrKind.BadRequest, reason) }
+    return ApiResponse.ok(Obj().boolean("ok", true)
+        .str("note", "密码已修改，其他设备会话已失效；当前会话请使用新密码重新登录").build())
 }
 
 /** 数据录入：列出当前租户最近案件（新录入的在前，最多 50 条）。 */

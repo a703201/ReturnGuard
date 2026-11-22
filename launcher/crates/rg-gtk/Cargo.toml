@@ -1,0 +1,15 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rg-gtk"
+description = "ReturnGuard launcher for Linux, built on GTK4"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rg-core = { path = "../rg-core" }
+gtk4 = "0.9"

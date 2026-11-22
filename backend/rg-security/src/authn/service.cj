@@ -156,6 +156,52 @@ public class AuthService {
         return AuthResult(true, this.issueToken(username), "")
     }
 
+    /** 修改个人资料（显示名 / 邮箱）。返回错误原因，空串=成功。 */
+    public func updateProfile(username: String, displayName: String, email: String): String {
+        let u = match (this.store.getUser(username)) {
+            case Some(user) => user
+            case None => return "用户不存在"
+        }
+        if (displayName.size > 128) { return "显示名不能超过 128 字符" }
+        if (email.size > 160) { return "邮箱不能超过 160 字符" }
+        if (!email.isEmpty() && (!email.contains("@") || email.startsWith("@") || email.endsWith("@"))) {
+            return "邮箱格式不正确"
+        }
+        u.displayName = displayName
+        u.email = email
+        this.persist(u)
+        this.audit.append(username, "auth.profile", "", "updated", "")
+        return ""
+    }
+
+    /** 修改密码：校验旧密码 + 新密码强度；成功后自增 tokenVersion 吊销其他会话。返回错误原因，空串=成功。 */
+    public func changePassword(username: String, oldPassword: String, newPassword: String): String {
+        let u = match (this.store.getUser(username)) {
+            case Some(user) => user
+            case None => return "用户不存在"
+        }
+        if (newPassword.size < 8) { return "新密码至少 8 位" }
+        if (isWeakPassword(newPassword)) { return "密码强度不足：请勿使用常见弱口令" }
+        // 校验旧密码（与原登录同构）
+        let parts = u.passwordHash.split(":").toArray()
+        if (parts.size != 2) { return "旧密码校验失败" }
+        let salt = fromHex(parts[0])
+        let dk = if (u.hashAlgo == "sm3") { Pbkdf2.deriveSm3(oldPassword.toArray(), salt, 400000, 32) }
+                 else { pbkdf2(oldPassword.toArray(), salt, 400000, 32) }
+        if (!constantEq(toHex(dk), parts[1])) {
+            this.audit.append(username, "auth.password", "", "rejected_bad_old", "")
+            return "旧密码不正确"
+        }
+        let newSalt = randomBytes(16)
+        let newDk = if (u.hashAlgo == "sm3") { Pbkdf2.deriveSm3(newPassword.toArray(), newSalt, 400000, 32) }
+                    else { pbkdf2(newPassword.toArray(), newSalt, 400000, 32) }
+        u.passwordHash = toHex(newSalt) + ":" + toHex(newDk)
+        u.tokenVersion += 1   // 吊销其他所有会话；当前会话需重新登录（诚实提示）
+        this.persist(u)
+        this.audit.append(username, "auth.password", "", "changed", "")
+        return ""
+    }
+
     /** 登录：失败统一文案（不区分用户是否存在 / 是否锁定）。
      *  时序防护：用户不存在时仍跑一次等价 PBKDF2（AMS §5.3 防撞库）。 */
     public func login(username: String, password: String, ip: String): AuthResult {

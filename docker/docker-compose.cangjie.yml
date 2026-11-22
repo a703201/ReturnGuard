@@ -67,7 +67,7 @@ services:
       RG_SESSION_IDLE_MS: ${RG_SESSION_IDLE_MS:-86400000}
       # 令牌签名密钥（生产必填，≥32 字节）
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET 必须在 docker/.env 中显式设置}
-      RG_VERSION: 3.0.0
+      RG_VERSION: 3.1.0
       # AI 网关（可选，无密钥时 /api/analyze 诚实回退 mock）
       RG_AI_BASE_URL: ${RG_AI_BASE_URL:-}
       RG_AI_KEY: ${RG_AI_KEY:-}

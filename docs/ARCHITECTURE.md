@@ -1,14 +1,19 @@
 # ReturnGuard 功能实现逻辑（ARCHITECTURE）
 
-> **🟢 主力实现（2026-11-20）**：后端 **仓颉原生 18 包**（`backend/`，`rg-kernel/data/security/api/ai/app` 分层）+ 前端 **Vue3+TS**（`web/`），
-> 单库多租户 + openGauss 持久化 + 14 平台 AI 适配 + OAuth2。仓颉侧分层与启动链见 [`backend/README.md`](../backend/README.md)。
-> 本文描述的是 **Python 版（`demo/`）** 的功能串联逻辑，保留兼容、业务口径与主力一致。
+> **🟢 当前技术形态（2026-11-22）**：后端为 **仓颉原生 18 包**（`backend/`，`rg-kernel/data/security/api/ai/app` 分层），
+> 前端为 **Vue3 + TS**（`web/` → 产物 `demo/webapp/`），单库多租户（`returnguard_cj`）+ openGauss 持久化 +
+> 14 平台 AI 适配 + OAuth2；部署为 3 容器（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`），
+> 本机访问 `http://127.0.0.1:58080`。仓颉侧分层、启动链与端点表见 [`backend/README.md`](../backend/README.md)。
 >
-> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
+> **说明**：下文正文为 Python 兼容版（历史实现）的功能串联叙事，保留作为业务口径参考；**历史记录保留当时叙事，当前事实以 `backend/README.md` 与 `README.md` 为准**。
+> 当前仓颉实现的代码位置以 `backend/` 各包为准，平台/模型事实见 [`backend/rg-ai/src/providers.cj`](../backend/rg-ai/src/providers.cj)。
+>
+> 适用版本：3.1.0（仓库根 `VERSION` 为单一来源）
 > 关联文档：[`DECISION_LOGIC.md`](DECISION_LOGIC.md)（判定规则与阈值）、[`AI_PROVIDERS.md`](AI_PROVIDERS.md)（多 AI 平台对接）、[`API.md`](API.md)（接口契约）、[`SCHEMA.md`](SCHEMA.md)（表结构）、[`DEPLOYMENT.md`](DEPLOYMENT.md)（部署运维）
 
 本文回答：**这些功能在代码里是怎么串起来的**——模块边界、两条主链路的执行顺序、
 缓存与失效、韧性降级、隔离与安全收口。判定「算成什么」见 `DECISION_LOGIC.md`。
+下文 §1 ~ §10 为历史 Python 版实现叙事（模块名与文件名均为历史语境）；当前仓颉版分层与实现见 `backend/README.md`。
 
 ---
 
@@ -166,7 +171,7 @@ common._get_insights(request, mode, category, platform, region, season)
 
 | 目标 | 实现 |
 |---|---|
-| demo / real 物理隔离 | 两个独立库（`returnguard` / `returnguard_real`）；`REAL_DATABASE_URL` 未配置时由 demo 串**派生** `*_real`，杜绝默认同库 |
+| demo / real 物理隔离（历史实现） | 早期 Python 版为两个独立库（`returnguard` / `returnguard_real`）；当前仓颉版为**单库 `returnguard_cj` + `tenant_id` 隔离**，不再有双库 |
 | 多租户隔离 | real 源按 `tenant_id` 过滤（`本租户 OR public`）；demo 源为共享只读库；归属不明数据由 `_backfill_null_tenant` 回填为显式 `public` |
 | 写接口鉴权 | 统一 `_require_session`（登录会话）；管理端点 `_require_admin`（`ADMIN_API_KEY` 或登录） |
 | 令牌 | HMAC-SHA256 无状态签名，载荷 `b64(user)|token_version|exp`；登出/吊销即自增版本使旧令牌立刻失效；`AUTH_SECRET` 不设则退化为进程内随机密钥（启动打 `CRITICAL`） |
@@ -243,19 +248,19 @@ common._get_insights(request, mode, category, platform, region, season)
 ## 9. 质量门禁
 
 ```bash
-python -m pytest -q demo/tests                                  # 单元 + 集成 + 文档守护
-python scripts/check_i18n.py                                    # 三语键完整性
-ruff format --check demo && ruff check demo                     # 格式 / 静态检查
-mypy demo --config-file pyproject.toml                          # 类型检查（增量门禁）
+cd launcher && cargo test -p rg-core                       # Rust 核心引擎（9 项）
+RG_SKIP_WINAPP_STAGE=1 cargo check -p rg-win              # WinUI 3 类型检查（需 MSVC 工具链）
+cd web && npx vue-tsc --noEmit && npx vite build          # 前端类型与构建
 ```
 
-CI（`.github/workflows/ci.yml`）在 Python 3.11 / 3.12 上跑上述四项（`--cov-fail-under=75`），
-并附加 bandit 安全扫描与 pip-audit 依赖 CVE 扫描。
+CI（`.github/workflows/ci.yml`）并行跑版本一致性、核心引擎测试、前端构建校验与 WinUI 类型检查；
+三套 Release 流水线（GitHub / Gitea / GitCode）统一校验 tag 版本、跑核心测试并打包。
 
-**文档漂移守护**（`demo/tests/test_docs_consistency.py`）把「可机检的事实」固化成断言：
-`schema.sql` ↔ ORM 列一致、文档版本号 ↔ `VERSION`、全部路由已入档 `API.md`、
-`package.json` ↔ `VERSION`、`API.md` 的配额变量名 ↔ `quota.py`、`.env.example` 覆盖全部配额变量、
-全仓无历史项目语境与已退役公网地址。任一侧改动而另一侧未同步 → CI 直接失败。
+**版本一致性守护**：仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 保持一致；
+`docs/openapi.yaml` 的 35 个操作与仓颉后端真实路由逐条核对一致。仓颉后端的端到端验证脚本、
+端点表与环境变量清单见 [`backend/README.md`](../backend/README.md)。
+
+> 历史 Python 版的 `pytest` / `ruff` / `mypy` / `demo/tests/test_docs_consistency.py` 等门禁随技术栈切换归档，不再作为当前 CI 步骤。
 
 ---
 

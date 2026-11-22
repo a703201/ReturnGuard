@@ -1,9 +1,10 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
 # =============================================================================
-# ReturnGuard · GitHub Release 工作流
-# 触发：推送形如 v* 的 Git tag（如 v3.0.0）
-# 行为：检出 → 校验 tag 版本与 VERSION 一致 → 配环境(Python+Node) → 构建(前端) → 全量测试
-#       → 生成更新日志 → 打包 tarball+sha256（含仓颉后端+Vue3 前端+SDK）→ 发布 GitHub Release
-# 与 .gitea/workflows/release.yml 保持行为一致。
+# ReturnGuard · GitHub Release 工作流（仓颉后端 + Vue3 前端 + Rust 启动器）
+# 触发：推送形如 v* 的 Git tag
+# 行为：检出 → 校验版本 → 核心引擎测试 → 生成更新日志 → 打包 tarball+sha256 → 发布
+# 与 .gitea/workflows/release.yml、.gitcode/workflows/release.yml 行为一致。
 # =============================================================================
 name: Release
 
@@ -12,7 +13,6 @@ on:
     tags:
       - 'v*'
 
-# 创建 Release 需要写仓库内容（含 releases）的权限
 permissions:
   contents: write
 
@@ -25,27 +25,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r demo/requirements.txt -r demo/requirements-dev.txt
-          npm install
-
-      - name: Build（压缩前端静态资源）
-        run: node scripts/minify.mjs
-
-      - name: Test
-        run: pytest demo/tests -p no:cacheprovider -q
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Verify tag version matches VERSION（不一致则拒绝发布）
         run: |
@@ -53,9 +33,14 @@ jobs:
           FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
           echo "tag=${TAG_VERSION}  VERSION=${FILE_VERSION}"
           if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
-            echo "::error::tag v${TAG_VERSION} 与仓库 VERSION ${FILE_VERSION} 不一致；请先同步 VERSION/package.json/openapi.yaml/CHANGELOG 再打 tag"
+            echo "::error::tag v${TAG_VERSION} 与仓库 VERSION ${FILE_VERSION} 不一致；请先同步 VERSION/package.json/CHANGELOG 再打 tag"
             exit 1
           fi
+
+      - name: Test Rust launcher core
+        run: |
+          rm -f launcher/.cargo/config.toml   # CI 直连 crates.io
+          cd launcher && cargo test -p rg-core
 
       - name: Determine version from tag
         id: ver
@@ -81,19 +66,20 @@ jobs:
             fi
           } > CHANGELOG_GEN.md
 
-      - name: Package release artifact（含仓颉后端 + Vue3 前端 + SDK）
+      - name: Package release artifact（仓颉后端 + Vue3 前端 + Rust 启动器 + SDK）
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           mkdir -p dist
           tar -czf "dist/returnguard-${VERSION}.tar.gz" \
             --exclude='.git' \
-            --exclude='docker/wheels/*.whl' --exclude='*.whl' \
-            --exclude='node_modules' --exclude='__pycache__' \
+            --exclude='node_modules' --exclude='__pycache__' --exclude='target' \
             --exclude='backend/build' --exclude='backend/build-linux' \
             --exclude='backend/probe' --exclude='backend/probe_db' --exclude='backend/data' \
             --exclude='web/dist' --exclude='*.db' --exclude='Dataset' --exclude='.env' \
-            backend web sdk demo docker scripts LICENSE NOTICE README.md CHANGELOG.md \
-            VERSION package.json pyproject.toml docs "openGauss部署指南.md"
+            --exclude='*.whl' \
+            backend web sdk demo docker scripts launcher \
+            LICENSE NOTICE README.md CHANGELOG.md VERSION package.json \
+            docs "openGauss部署指南.md"
           ( cd dist && sha256sum "returnguard-${VERSION}.tar.gz" > "returnguard-${VERSION}.sha256" )
           echo "tarball size: $(du -h dist/returnguard-${VERSION}.tar.gz | cut -f1)"
 

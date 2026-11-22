@@ -16,6 +16,7 @@ const emit = defineEmits<{ close: []; loggedIn: [] }>()
 
 const user = ref('')
 const pass = ref('')
+const code = ref('')      // 可选：已开启 TOTP 的账户必填 6 位动态码
 const busy = ref(false)
 const error = ref('')
 
@@ -23,11 +24,15 @@ async function submit() {
   error.value = ''
   busy.value = true
   try {
-    const res = await apiPost<{ token: string; username: string }>('auth/login', { username: user.value, password: pass.value })
+    const res = await apiPost<{ token: string; username: string }>('auth/login', {
+      username: user.value, password: pass.value, code: code.value.trim(),
+    })
     setSession(res.token, res.username)
     emit('loggedIn')
-  } catch {
-    error.value = t('login.error')
+  } catch (e) {
+    const detail = (e as { detail?: string }).detail || ''
+    // 需要二验时保留已填用户名/密码，提示用户填验证码，不清空表单
+    error.value = detail.includes('二次验证') ? detail : t('login.error')
   } finally {
     busy.value = false
   }
@@ -67,6 +72,10 @@ async function enterDemo() {
           <input id="lg-user" v-model="user" class="field field-block" autocomplete="username" required />
           <label class="field-label" for="lg-pass">{{ t('login.password') }}</label>
           <input id="lg-pass" v-model="pass" class="field field-block" type="password" autocomplete="current-password" required />
+          <label class="field-label" for="lg-code">{{ t('login.totpCode') }}</label>
+          <input id="lg-code" v-model="code" class="field field-block" type="text" inputmode="numeric"
+                 autocomplete="one-time-code" maxlength="6" :placeholder="t('login.totpHint')" />
+          <p class="field-hint">{{ t('login.totpDesc') }}</p>
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <button class="btn btn-primary field-block" type="submit" style="margin-top:20px" :disabled="busy">
             {{ busy ? '…' : t('login.submit') }}
@@ -83,6 +92,7 @@ async function enterDemo() {
 </template>
 
 <style scoped>
+.field-hint { color: var(--text-muted); font-size: var(--fs-xs); margin-top: 4px; line-height: 1.5; }
 .divider {
   display: flex; align-items: center; gap: 12px;
   color: var(--text-muted); font-size: var(--fs-xs); margin: 22px 0 14px;

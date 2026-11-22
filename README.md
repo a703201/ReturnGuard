@@ -5,11 +5,11 @@
 
 > **命名约定**：全仓统一使用「**ReturnGuard 退货情报站**」。历史曾用名「退件法医 / 跨境退货举证官」偏「鉴定 / 追责」语义，已全部废弃，新代码与新文档一律不再使用。
 
-> **🟢 当前主力形态（2026-11-20）**：后端已切换为 **仓颉原生 18 包**（`backend/`），前端为 **Vue3 + TS**（`web/`），
-> 主力部署是 **3 容器**（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`，访问 `http://127.0.0.1:58080`），完整契约见
-> [`docs/openapi.yaml`](docs/openapi.yaml)、能力见 [`backend/README.md`](backend/README.md)。
-> 下文标有「Python 版」的章节描述**保留兼容**的 `demo/`（FastAPI）实现与原始产品口径，仍可本地 `uvicorn` 直跑；
-> 两套实现的业务规则一致，字段/路由事实以各自守护测试为准。
+> **🟢 当前技术形态（2026-11-22）**：后端为 **仓颉原生 18 包**（`backend/`），前端为 **Vue3 + TS**（`web/`），
+> 部署为 **3 容器**（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`，访问 `http://127.0.0.1:58080`）。
+> 另提供 **Rust 二进制启动器**（`launcher/`）：Windows 用 WinUI 3、Linux 用 GTK4，一键管理上述服务。
+> 完整契约见 [`docs/openapi.yaml`](docs/openapi.yaml)，后端能力见 [`backend/README.md`](backend/README.md)，
+> 启动器见 [`launcher/README.md`](launcher/README.md)。
 
 ## 电梯陈述（一句话）
 
@@ -18,12 +18,13 @@
 
 ## 一分钟速览
 
-- **当前版本**：3.0.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致；**大版本重构**）
-- **本机访问**：`http://127.0.0.1:58080`（**仓颉主力** 3 容器）/ `http://127.0.0.1:65432`（Python 版容器）/ `http://127.0.0.1:8000`（Python 版 `uvicorn` 直跑）
+- **当前版本**：3.1.0（仓库根 `VERSION` 为单一来源，与 `/api/config`、`package.json` 一致；**大版本重构**）
+- **本机访问**：`http://127.0.0.1:58080`（3 容器栈；端口由 `docker/.env` 的 `CJ_APP_PORT` 决定，默认 58080）
+- **桌面启动器**：`launcher/`（Rust + WinUI 3 / GTK4），可视化启停、健康探测、日志
 - **内置演示账号**：`demo` / `demo123`
 - **代码仓库**：GitHub `a703201/ReturnGuard`（主）；Gitea / GitCode 为镜像
 - **演示数据集**：1206 条退货案件 · 9 个平台 · 胜诉率 34.6%
-  - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。完整构建规则见 `demo/convert_datasets.py` 的 `DATASET_PLATFORM_RULES` 与模块 docstring。
+  - **来源口径（重要）**：由 **Amazon Returns / UCI Online Retail / TheLook** 三个**公开数据集融合加工**而成，非平台私有数据；其中**平台字段为按「品类 × 地区」规则重映射的演示渠道标签**（用于覆盖 9 个平台的举证规则演示），并非原始数据集自带的平台字段。原始数据集体积较大，已移至项目外归档（见「演示数据集」一节）。
 - **图床**：**本地自持**（`local` 签名短链 / `self` 自托管反代 / `public_base` 自建反代，默认 `local`），退货图不出境；**远端对象存储（七牛云）接口已预留**（`IMAGE_BED=qiniu` 显式开启，默认关闭）
 - **AI 平台（多厂商可选，14 家）**：`tokenplan`（默认）/ `official` / `dashscope` / `openai` / `deepseek` / `moonshot` / `zhipu` / `siliconflow` / `openrouter` / `ollama`（本机）/ `azure_openai` / `anthropic` / `gemini` / `custom`（任意 OpenAI 兼容自建端点）；
   改 `MODEL_ROUTER_PROFILE` 一键切换，`base_url` + 密钥 + 模型标识随平台声明联动，能力缺口如实标注回退。详见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)
@@ -33,11 +34,12 @@
 
 ![系统架构](assets/arch.png)
 
-- **前端层**：单页应用（上传 / 卷宗 / 洞察看板 / 数据录入），demo-real 双源切换
-- **后端编排层**：仓颉原生 18 包（主力，`backend/`）；Python 版 FastAPI DAG（兼容，`demo/`，并行取证 + 洞察聚合 + 多租户）
-- **模型能力层**：阿里云百炼 Model Router（7 能力，live/mock 韧性切换）
+- **前端层**：Vue3 + TS 单页应用（上传 / 卷宗 / 洞察看板 / 数据录入），`web/` → 产物 `demo/webapp/`
+- **后端编排层**：仓颉原生 18 包，`backend/`（单库 + 租户隔离）
+- **模型能力层**：多厂商 Model Router（7 能力，live/mock 韧性切换）
 - **洞察层（产品核心）**：聚类归因 / 预测预警 / 选品避坑 / 供应商品控
-- **数据层**：demo 库（演示种子，openGauss `returnguard`）+ real 库（真实数据，独立库 `returnguard_real`），**双库物理隔离**；连接串未显式配置时由 demo 串**自动推导**出独立 real 库，任何部署形态都默认分库
+- **数据层**：openGauss 5.0 单库 `returnguard_cj`，`rg_users` / `rg_cases` / `rg_audit` / `rg_sessions` / `rg_quota` 五表
+- **启动器层**：Rust 桌面应用 `launcher/`，WinUI 3（Windows）/ GTK4（Linux）共用 `rg-core` 引擎
 
 ## 项目简介
 
@@ -46,15 +48,15 @@ ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一
 ## 核心能力 → 模型映射
 
 > **平台无关设计**：业务代码只按「能力」调用（文本 / 视觉 / OCR / 图像向量 / 重排 / 语音），
-> 平台、端点、鉴权与模型标识全部声明在 [`demo/providers.py`](demo/providers.py)，
-> 调用时由 `demo/models_router.py` 通过能力闸校验。**新增平台不改调用代码。**
-> 完整平台矩阵与差异适配见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)（也可运行时查 `GET /api/providers`）。
+> 平台、端点、鉴权与模型标识全部声明在 [`backend/rg-ai/src/providers.cj`](backend/rg-ai/src/providers.cj)，
+> 调用时经能力闸校验，未声明能力如实标注回退。**新增平台不改调用代码。**
+> 完整平台矩阵与差异适配见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)（也可运行时查 `GET /api/ai/providers`）。
 
 > ⚠️ **不同平台的模型命名不同**：官方 Model Router 要求**全部模型带 `qwen/` 前缀**；
 > Token Plan 用无前缀旧名；Ollama 用 `模型:标签`；SiliconFlow / OpenRouter 用 `org/model`。
 > 切换平台时 base_url + 密钥 + 模型标识随声明一并切换，否则 404。
 
-下表以阿里云百炼系为例（其余平台见 `GET /api/providers`）：
+下表以阿里云百炼系为例（其余平台见 `GET /api/ai/providers`）：
 
 | 能力 | `official` | `tokenplan` |
 |---|---|---|
@@ -65,7 +67,7 @@ ReturnGuard 用多模态 AI 对跨境退货纠纷做**客观取证**（同款一
 | 排序（案件优先级） | `qwen/qwen3-rerank` | `qwen3-rerank` |
 | 语音合成（母语陈述） | `qwen/qwen3-tts-instruct-flash` | `qwen-audio-3.0-tts-plus` |
 
-> 洞察层（聚类归因 / 选品建议）**复用文本模型**，不单独调用 deepseek 系列；`demo/compare_models.py` 中的 `deepseek-v4-pro` / `kimi-k2.6` 等仅供模型对比实验，非线上链路。
+> 洞察层（聚类归因 / 选品建议）**复用文本模型**，不单独调用 deepseek 系列；`deepseek-v4-pro` / `kimi-k2.6` 等仅供模型对比实验，非线上链路。
 >
 > 同款一致性说明：百炼 OpenAI 兼容模式**不支持视觉向量模型**（`tongyi-embedding-vision-plus` 会返回 `Unsupported model ... for OpenAI compatibility mode`），故线上主路径为 **VL 模型同时看退回件与本店主图直接判同款**（`models_router.vl_similarity`）——更贴合「调包 / 同款」的业务判定；图像向量仅在通道开通后作备选，再不可用时回退到与 mock **同口径**的内容哈希（见 `demo/imghash.py`）。
 
@@ -86,7 +88,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-  FE[前端层 Vue3 上传/卷宗/洞察看板] --> BE[后端编排层 仓颉原生(主力)/FastAPI(兼容)]
+  FE[前端层 Vue3 上传/卷宗/洞察看板] --> BE[后端编排层 仓颉原生 18 包]
   BE --> IN[洞察层 聚类归因/选品建议]
   BE --> M[模型能力层 Model Router 图向量/VL/OCR/LLM/Rerank/TTS]
   BE <--> D[数据层 openGauss 双库 + 签名短链图床]
@@ -104,7 +106,7 @@ flowchart TB
 - 时间序列 + 次月预测预警；CSV / xlsx 批量导入真实退货数据（`POST /api/import_csv`、`POST /api/import_file`）+ 平台连接器位。
 - 相似度阈值**自标定**（Youden J 最优切点）；选品避坑**可执行清单**。
 - **ROI 真实回测**：基于真实聚合值的保守 / 基准 / 乐观三档 + 单因子敏感性，`method` / `disclaimer` 强制随结果下发（明确声明「模型回测，非 A/B 实测因果」）。
-- **A/B 台架** `demo/ab_experiment.py`：同批案件、同模型、同聚合输入下只改 prompt 变体，量化 JSON 可用率 / 幻觉对账 / 耗时。
+- **A/B 台架**：同批案件、同模型、同聚合输入下只改 prompt 变体，量化 JSON 可用率 / 幻觉对账 / 耗时。
 
 ### C 组 · 多租户 + 合规 + 国产化
 
@@ -122,9 +124,12 @@ flowchart TB
 ### 界面与本地化
 
 - 界面 **zh / en / fr** 三语，顶栏切换并持久化；静态文案走 `data-i18n`，动态渲染走 `t()`，词典键完整性由 `scripts/check_i18n.py` 强制对齐。
-- 母语语音陈述支持 8 个语种（`zh`/`en`/`es`/`pt`/`de`/`fr`/`ja`/`ko`），语言 → 音色映射为单一来源（`demo/constants.py`）。
+- 母语语音陈述支持 8 个语种（`zh`/`en`/`es`/`pt`/`de`/`fr`/`ja`/`ko`），语言 → 音色映射由后端常量表单一维护。
 - 数字与日期按语言格式化（`fr-FR` 为窄不换行空格千分位 + 逗号小数点）。
 - **边界声明**：后端返回的**数据值**（洞察正文、缺陷标签、供应商名）保持原始语言；表单 `value` 是入库枚举（`赢`/`部分退款`/`输`/`待分析`），不随翻译改变。
+
+> **历史章节说明**：以下 2.x 版本记录保留当时的实现叙事；文中提及的实现文件可能已随技术栈切换归档。
+> 当前工程事实以上文「当前技术形态」、`backend/README.md` 与 `launcher/README.md` 为准。
 
 ## 2.1.0 · 判定逻辑成文 · 多 AI 平台适配 · 首启引导（本次变更）
 
@@ -141,14 +146,14 @@ flowchart TB
 
 **多 AI 平台接口适配**
 
-- 新增 [`demo/providers.py`](demo/providers.py)：**平台注册表**（声明式）——14 个平台可选，
+- 平台注册表（声明式，现位于 `backend/rg-ai/src/providers.cj`）：14 个平台可选，
   每个平台声明 `base_url` / 鉴权风格 / 密钥变量 / 模型映射 / 能力矩阵；
   `models_router` 只按能力调用，新增平台**不改调用代码**。
 - 新增能力闸 `_require_capability()`：平台未声明该能力时直接抛错 → 由既有逐能力 try/except
   如实标记为「回退」，**不伪装成真实调用**。
 - 支持 URL 形状差异：OpenAI 兼容风格与 **Azure 部署风格**（`/openai/deployments/<部署名>/…?api-version=`）。
 - 支持逐能力模型覆盖（`RG_MODEL_*`）与各平台独立基地址覆盖，平台改版无需改代码。
-- 新增 `GET /api/providers`（公开目录，**不含**基地址/密钥/密钥状态）；
+- 新增 `GET /api/ai/providers`（公开目录，**不含**基地址/密钥/密钥状态）；
   `/api/config` 新增 `provider` 字段（当前平台展示名、协议风格、能力矩阵、模型映射），
   供前端如实呈现「哪些能力走真实模型」。
 - 明确声明**不做**原生协议（Anthropic / Gemini）的半成品适配：建议经 one-api / LiteLLM
@@ -200,152 +205,160 @@ flowchart TB
 
 ## 快速开始
 
-**方式一：本地直跑（开发）**
+**方式一：桌面启动器（推荐）**
 
-```bash
-cd returnguard/demo
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
-# 浏览器打开 http://127.0.0.1:8000
-```
+按 [`launcher/README.md`](launcher/README.md) 构建对应平台的启动器（Windows / WinUI 3，Linux / GTK4），
+运行后在界面点「启动服务」即可——它封装了镜像构建、容器启停、健康探测与日志查看。
+启动器只管理仓颉版三容器。
 
-> ⚠️ 本地直跑默认连 openGauss（需先 `docker-compose -f docker/docker-compose.yml up -d db`）。
-> 无 openGauss 的离线 / CI 环境请显式回退 SQLite：`DATABASE_URL=sqlite:///./cases.db`。
-> ⚠️ 非提权进程绑定 `0.0.0.0` 或低端口在 Windows 上可能报 `winerror 10013`，本地联调统一用 `127.0.0.1`。
-
-**方式二：容器部署（推荐）**
+**方式二：命令行（容器部署）**
 
 ```bash
 cd returnguard
-cp docker/.env.example docker/.env      # 填 GS_PASSWORD 等
-python scripts/fetch_wheels.py          # 可选但强烈建议：预下载依赖 wheel（构建期离线，不怕弱网）
-docker compose -f docker/docker-compose.yml up -d --build app
-# 应用映射到 http://127.0.0.1:65432（容器内 app 监听 8000；对外仅绑宿主机回环）
+cp docker/.env.example docker/.env       # 填 GS_PASSWORD / AUTH_SECRET
+bash docker/build-cangjie-docker.sh      # 构建仓颉后端镜像（复用工具链容器）
+docker compose -f docker/docker-compose.cangjie.yml up -d --build
+# 应用映射到 http://127.0.0.1:58080（容器内 8000，仅绑宿主机回环）
 ```
 
-> 构建期若报 `DO NOT MATCH THE HASHES` 或 `read timed out`，说明容器内下载依赖失败/损坏：
-> 先跑 `python scripts/fetch_wheels.py` 走离线构建（数秒完成），详见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §2.1。
-> 也可只把构建期 pip 源换成镜像：在 `docker/.env` 设 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple`。
+> 端口由 `docker/.env` 的 `CJ_APP_PORT` / `CJ_DB_PORT` 调整（本机 65xxx 段被 Windows 保留，默认 58080 / 15433）。
+> `docker/.env` 含密钥，切勿入库。`/health` 为含 DB 的深探针，DB 故障时返回 503，由 `rg_cj_autoheal` 兜底重启。
+> 公网部署需自行加反向代理 / CDN 并配置 HTTPS；反代场景设 `AUTH_TRUSTED_PROXIES`，使限流按真实客户端 IP 生效。
 
-> 需要发布到公网时，由部署方自行在其前面加反向代理 / CDN 并配置 HTTPS；
-> 反代场景下务必设 `AUTH_TRUSTED_PROXIES=<反代回环 IP>`，使限流与防爆破按真实客户端 IP 生效。
+**本地仓颉后端直跑（开发）**
 
-一键脚本：`python start_rg.py`（启动并等待就绪）、`python stop_rg.py`（停止）、
-`python start_rg.py --build`（改代码后重建镜像）、`python stop_rg.py --down`（清理容器与网络，保留数据卷）。
+```bash
+bash backend/build.sh                     # 生成 build/rg-server.exe
+RG_WEB_DIR=<绝对路径>/demo/webapp \
+RG_DB_HOST=127.0.0.1 RG_DB_PORT=15433 RG_DB_NAME=returnguard_cj \
+AUTH_SECRET=<≥32字节密钥> \
+./build/rg-server.exe                     # 默认 http://127.0.0.1:8001
+```
 
 详见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 与 [`openGauss部署指南.md`](openGauss部署指南.md)。
 
 ### 对外 API 契约与 SDK
 
-- **OpenAPI 3.0 契约**：[`docs/openapi.yaml`](docs/openapi.yaml)——33 个操作（系统/认证/洞察/案件/平台与 AI/审计/OAuth2），与仓颉后端真实路由逐条核对一致（守护测试断言）。
+- **OpenAPI 3.0 契约**：[`docs/openapi.yaml`](docs/openapi.yaml)——35 个操作（系统/认证/洞察/案件/平台与 AI/审计/OAuth2），与仓颉后端真实路由逐条核对一致（守护测试断言）。
 - **多语言 SDK**：[`sdk/`](sdk/)——Python（`urllib`）、JavaScript（Fetch API）、Go（`net/http`）三种，均零第三方依赖，覆盖登录、refresh 轮换、洞察分析、CSV 批量导入、PDF 双传输（base64 / 二进制流）、审计分页；含调用示例。
 - **仓颉后端完整能力与端点表**：[`backend/README.md`](backend/README.md)；价值评估与缺口索引：[`docs/PROJECT_EVALUATION.md`](docs/PROJECT_EVALUATION.md)；**二次开发扩展点与升级兼容策略**：[`docs/SECONDARY_DEV_GUIDE.md`](docs/SECONDARY_DEV_GUIDE.md)。
 
 ## 配置（环境变量）
 
-### 数据库
+仓颉后端变量分「服务运行 / 数据库 / 认证安全 / AI 能力」四组。容器部署写入 `docker/.env`；
+本地直跑直接 export。完整表见 [`backend/README.md`](backend/README.md)。
+
+### 服务与数据库
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `RG_HTTP_HOST` / `RG_HTTP_PORT` | `127.0.0.1` / `8001` | 监听地址与端口（容器内为 `0.0.0.0:8000`） |
+| `RG_WEB_DIR` | `../demo/webapp` | Vue 产物目录，空字符串 = 不托管 |
+| `RG_VERSION` | `3.1.0` | `/api/config` 返回值 |
+| `RG_THRESHOLD_PCT` | `82` | 同款一致性阈值（整数百分号） |
+| `RG_DB_HOST` | 空 | openGauss 主机；**非空即启用持久化**，空 = 内存回退（开发 / CI） |
+| `RG_DB_PORT` / `RG_DB_NAME` / `RG_DB_USER` / `RG_DB_PASSWORD` | `15432` / `returnguard_cj` / `gaussdb` / 空 | 连接参数 |
+| `RG_DB_POOL` | `0` | **保持 0**：仓颉池并发存在 dead lock；每次新建连接，连接串 5s 超时 |
+| `CJ_APP_PORT` / `CJ_DB_PORT` | `58080` / `15433` | compose 宿主映射端口（仅回环绑定） |
+| `GS_PASSWORD` | 必填 | openGauss 初始口令，来源与 compose 一致 |
+
+### 认证安全
 
 | 变量 | 说明 |
 |---|---|
-| `DATABASE_URL` | demo 源连接串（默认 openGauss `localhost:5432/returnguard`） |
-| `REAL_DATABASE_URL` | real 源连接串；**留空时由 `DATABASE_URL` 派生独立库**（`*_real`） |
-| `AUTH_DATABASE_URL` | 账户 / 令牌库；留空时与业务库同源 |
-| `STATE_DB_URL` | 跨 worker 限流 / 登录锁 / 配额计数库（**仅支持 SQLite**，4 个斜杠的绝对路径） |
-| `GS_PASSWORD` / `GS_HOST` / `GS_PORT` / `GS_USERNAME` | openGauss 连接参数（口令来源与 compose 同源） |
-| `FORCE_RESEED` | `1` = 启动时重建 demo 演示种子（real 源数据不动） |
-| `RG_AUTO_IMPORT_CSV` | 启动时自动导入该 CSV 到 real 源（幂等去重） |
-| `UPLOAD_MAX_AGE_HOURS` / `UPLOAD_URL_TTL` | 上传图清理阈值（默认 24h）/ 签名短链有效期（默认 3600s） |
+| `AUTH_SECRET` | 令牌签名密钥，**生产必填 ≥32 字节**；不设则服务拒绝启动 |
+| `RG_SESSION_IDLE_MS` | 会话空闲超时（毫秒，默认 24h，`0` = 禁用），滑动窗口刷新 |
+| `RG_SESSION_MAX` | 单账号并发会话上限（默认 5，`0` = 不限） |
+| `AUTH_TRUSTED_PROXIES` | 可信反代网段；仅直连客户端在列表内才采纳转发头 |
 
-### 安全（对外部署必设）
+### AI 能力
 
 | 变量 | 说明 |
 |---|---|
-| `AUTH_SECRET` | 令牌 HMAC 签名密钥（`secrets.token_hex(32)`），不设则重启令所有令牌失效 |
-| `ADMIN_API_KEY` | 管理端点（`/api/calibrate`、`/metrics`）密钥；不设则退化为「要求登录」 |
-| `AUTH_TRUSTED_PROXIES` | 可信反代网段（逗号分隔 IP/CIDR）；仅当直连客户端在列表内才采纳转发头 |
-| `REGISTRATION_ENABLED` / `REGISTRATION_INVITE_CODE` | 注册开关（默认关闭）/ 邀请码 |
-| `AUTH_REGISTER_LIMIT` / `AUTH_LOGIN_IP_LIMIT` | 每 IP 每分钟注册 / 登录上限 |
-| `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN` | 登录防爆破阈值与锁定时长（分钟） |
-| `ANALYZE_RATE_LIMIT` / `EXPORT_PDF_RATE_LIMIT` | 每客户端每分钟的分析 / 报告导出上限（`0` = 关闭该层） |
-| `CORS_ALLOW_ORIGINS` | 跨域白名单（逗号分隔具体域名，禁止 `*`）；留空 = 同源不挂 CORS |
+| `RG_AI_PROVIDER`（兼容别名 `MODEL_ROUTER_PROFILE`） | 选择 14 家平台之一，默认 `tokenplan`；见 `GET /api/ai/providers` |
+| `RG_AI_BASE_URL` / `RG_AI_KEY` / `RG_AI_MODEL` | 启动注入的网关配置；无密钥时 `/api/analyze` 诚实回退 mock |
+| 各平台密钥变量 | 见 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)；设置页保存后写入卷 `cjappdata`，重启生效 |
+| `RG_AI_CONFIG_FILE` | AI 配置持久化路径（默认 `/app/data/ai_config.env`） |
 
-### live 模型链路
-
-- `MODEL_ROUTER_PROFILE`（兼容别名 `RG_AI_PROVIDER`）：选择 AI 平台，默认 `tokenplan`；
-  可选值见 `GET /api/providers` 或 [`docs/AI_PROVIDERS.md`](docs/AI_PROVIDERS.md)。
-- 密钥：各平台独立变量（`MODEL_ROUTER_API_KEY` / `MODEL_ROUTER_OFFICIAL_KEY` / `DASHSCOPE_API_KEY` /
-  `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `ZHIPU_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` /
-  `MOONSHOT_API_KEY` / `AZURE_OPENAI_API_KEY` / `RG_CUSTOM_API_KEY` / `OLLAMA_API_KEY`(可空)）——**live 必需**。
-- `RG_MODEL_TEXT` / `RG_MODEL_VL` / `RG_MODEL_OCR` / `RG_MODEL_EMBED` / `RG_MODEL_RERANK` / `RG_MODEL_TTS`：**可选**，逐能力覆盖模型标识。
-- `PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED`：**可选**。视觉输入默认**内联 base64**，本机直跑即可，无需公网图床。
-- `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR`：SEC-13 三层配额（默认 300 / 60 / 20，`0` 关闭该层）。
-- `WAL_CHECKPOINT_INTERVAL_SEC`：SQLite WAL 巡检间隔（秒，`<=0` 关闭）。
+设置页的读写端点 `GET/POST /api/ai/settings` **需登录**，密钥永不回传（只有 `apiKeySet` / `apiKeyMask`）。
+视觉输入默认**内联 base64**，本机直跑无需公网图床。
 
 ## 验证脚本
 
-`verify_api.py`：纯标准库、零依赖，验证两项关键能力是否真能跑通——
-
-- **图像向量比对**：嵌入两张图 → 余弦相似度。
-  > 注：线上**同款判定主路径为 VL 双图直接判同款**；向量仅作通道开通后的备选，本脚本可用于验证向量端点本身是否可用。
-- **TTS → ASR 闭环**：用 API 自身 TTS 合成语音 → ASR 转写回来。
+服务启动后可直接用标准工具验证真实链路，无需额外依赖：
 
 ```bash
-export MODEL_ROUTER_API_KEY=sk-xxx   # Windows: set MODEL_ROUTER_API_KEY=sk-xxx
-python verify_api.py
+# 健康深探针（含 DB，故障返回 503）
+curl --noproxy '*' http://127.0.0.1:58080/health
+
+# 版本与 AI 能力矩阵（公开，无密钥）
+curl --noproxy '*' http://127.0.0.1:58080/api/config
+curl --noproxy '*' http://127.0.0.1:58080/api/ai/providers
+
+# 平台举证包目录 + 国密能力声明
+curl --noproxy '*' http://127.0.0.1:58080/api/platforms
+curl --noproxy '*' http://127.0.0.1:58080/api/crypto/capabilities
 ```
+
+> 沙箱环境有代理，不加拿 `--noproxy '*'` 会返回 502。
+> 需登录的端点（insights / cases / audit）先用 `POST /api/auth/login` 拿令牌。
 
 ## 测试与质量门禁
 
 ```bash
-# 从仓库根运行（coverage 路径与 pyproject 的 omit 规则据此匹配）
-python -m pytest -q demo/tests                    # 单元 + 集成
-python scripts/check_i18n.py                      # 三语键完整性
-ruff format --check demo && ruff check demo       # 格式 / 静态检查
-mypy demo --config-file pyproject.toml            # 类型检查（增量门禁）
+# 1) 静态门禁（无需服务，纯标准库，CI 必跑）
+python scripts/ci_checks.py
+#   7 项：版本一致性 / 路由↔OpenAPI 契约 / compose↔启动器常量 /
+#         内容红线 / 仓颉 catch 类型 / 文档死链 / 前端产物完整性
+
+# 2) 核心引擎与界面真实构建
+cd launcher && cargo test -p rg-core                       # Rust 核心引擎（15 项）
+RG_SKIP_WINAPP_STAGE=1 cargo build -p rg-win              # WinUI 3 构建（需 MSVC）
+cargo build -p rg-gtk                                      # GTK4 构建（需 libgtk-4-dev）
+cd ../web && npx vue-tsc --noEmit && npx vite build        # 前端类型与构建
+
+# 3) 端到端（需服务已启动，只读不写数据）
+python scripts/e2e_cangjie.py
+#   14 项：健康/版本/AI 矩阵/平台/国密/旧端点已移除/未登录 401/
+#          登录/当前用户/胜诉率 decided/案件/审计链/分页/密钥脱敏
 ```
 
-CI（`.github/workflows/ci.yml`）在 Python 3.11 / 3.12 上跑 ruff / mypy / pytest（`--cov-fail-under=75`），
-并附加 bandit 源码安全审计与 pip-audit 依赖 CVE 扫描。当前 **195 passed 全绿**。
+CI（`.github/workflows/ci.yml`）= 六路并行：静态门禁、版本一致性、`rg-core` 测试、前端构建校验、
+WinUI 真实构建（windows-latest + MSVC）、GTK4 真实构建（ubuntu-latest + libgtk-4-dev）。
+三套 Release 流水线（GitHub / Gitea / GitCode）统一校验 tag 版本、跑核心测试并打包。
+
+**边界（诚实标注）**：仓颉二进制依赖专用工具链镜像 `ams-cj:1.2.0-beta.03`，公共 CI 不编译仓颉源码，
+由静态门禁覆盖其契约与配置正确性；端到端脚本需真实服务，仅本地 / 自托管 runner 执行。
+详见 [`launcher/README.md`](launcher/README.md) 验证表与 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
 ## 目录
 
 ```
 returnguard/
-├── VERSION                     # 版本单一来源
-├── LICENSE                     # Apache License 2.0 全文
-├── NOTICE                      # 署名与第三方声明（衍生作品须附带，见 §许可与署名）
-├── CHANGELOG.md                # 版本变更记录
-├── README.md                   # 本文件
-├── openGauss部署指南.md         # openGauss 部署 + 真实数据自动导入
-├── start_rg.py / stop_rg.py    # 容器一键启动 / 停止
-├── package.json                # 前端可选压缩构建链路（terser）
+├── VERSION / LICENSE / NOTICE / CHANGELOG.md / README.md
+├── package.json                # 版本与工具链元数据
+├── openGauss部署指南.md
+├── backend/                    # 仓颉后端 18 包（主力）
+│   ├── build.sh / build-linux.sh
+│   ├── rg-api/ rg-kernel/ rg-data/ rg-security/ rg-ai/ rg-server/
+│   └── README.md               # 端点表 / 环境变量 / 踩坑
+├── web/                        # Vue3 + TS 前端源码
+│   └── src/{views,components,i18n,styles}/   → 构建产物 demo/webapp/
+├── demo/webapp/                # Vite 产物（仓颉容器 COPY 此目录，勿删）
+├── launcher/                   # Rust 二进制启动器
+│   ├── rg-core/                # 跨平台核心引擎（纯 std）
+│   ├── rg-win/                 # Windows / WinUI 3（windows-reactor）
+│   ├── rg-gtk/                 # Linux / GTK4（gtk-rs）
+│   └── README.md
+├── docker/                     # 仓颉版容器栈
+│   ├── docker-compose.cangjie.yml
+│   ├── Dockerfile.cangjie / build-cangjie-docker.sh
+│   └── .env / .env.example     # 密钥与端口（不入库）
+├── docs/                       # API / SCHEMA / PRD / ARCHITECTURE / ...
+├── sdk/                        # Python / JS / Go 对外 API 客户端
+├── scripts/og_cold_backup.sh   # openGauss 冷备演练
 ├── assets/                     # 架构图 / 流程图
-├── docs/
-│   ├── API.md                  # 接口契约
-│   ├── SCHEMA.md               # 表结构
-│   ├── PRD.md                  # 产品需求
-│   ├── ARCHITECTURE.md         # 功能实现逻辑（链路 / 缓存 / 韧性 / 前端）
-│   ├── DECISION_LOGIC.md       # 退货判定逻辑（阈值 / 规则 / 边界）
-│   ├── AI_PROVIDERS.md         # 多 AI 平台适配与接口兼容
-│   ├── DEPLOYMENT.md           # 部署与运维
-│   ├── AB_ROI_实证说明.md       # ROI 回测 / A-B 台架的口径与边界
-│   ├── CODE_REVIEW.md          # 工程审查记录
-│   └── reference/              # 网关接口参考（Model Router API）
-├── demo/                       # FastAPI 应用
-│   ├── main.py                 # 装配层（app / 中间件 / 路由聚合 / 静态资源版本化）
-│   ├── common.py               # 配置 / 依赖 / 限流 / 中间件 / 聚合辅助
-│   ├── routers/                # frontend · forensic · insights · auth · calibration · import_
-│   ├── pipeline.py             # 取证 + 洞察 + ROI 回测
-│   ├── models_router.py        # AI 能力调用（按能力，不按厂商）+ 逐能力回退
-│   ├── providers.py            # AI 平台注册表（多厂商声明式适配）
-│   ├── db.py / auth.py         # 仓储层 / 账户体系
-│   ├── cache.py / shared_state.py / quota.py / storage.py
-│   ├── schemas.py / constants.py / prompts.py / platforms.py / suppliers.py
-│   ├── static/                 # index.html + ESM 前端（app/render/store/api/i18n）
-│   └── tests/                  # 测试套件
-├── scripts/                    # check_i18n.py · fetch_wheels.py（离线依赖预下载）· minify.mjs · 端到端脚本
-└── docker/                     # Dockerfile · compose · entrypoint · systemd
-                                #   wheels/（离线 wheel 缓存，不入库，见 DEPLOYMENT.md §2.1）
+└── .github .gitea .gitcode     # CI / Release 流水线
 ```
 
 ## 许可与署名（License & Attribution）
@@ -373,7 +386,7 @@ returnguard/
 3. 最小合规示例 → 在你的衍生作品里保留 `LICENSE` + `NOTICE`，并注明「基于 ReturnGuard（https://github.com/a703201/ReturnGuard）修改」。
 
 > ⚠️ **第三方内容不受本项目许可覆盖**（详见 `NOTICE`）：
-> `demo/cases.json` 等演示数据派生自 UCI Online Retail / Kaggle Amazon Returns / Kaggle TheLook 等公开数据集；
+> 演示数据集派生自 UCI Online Retail / Kaggle Amazon Returns / Kaggle TheLook 等公开数据集，原始文件已移出仓库、存于项目外归档目录；
 > `docs/reference/ModelRouter_API.docx` 为第三方厂商接口文档；运行期依赖各自遵循其自身许可。
 > 复用这些内容时请同时保留其原始署名。
 
@@ -384,7 +397,7 @@ returnguard/
 
 - **live 需自备平台密钥**：无密钥时接口自动以 mock 运行，功能不中断，但结果不是真实模型输出（响应中已如实标注）。
 - **平台能力不齐**：多数平台只覆盖部分能力（如 OpenAI 无 rerank、DeepSeek 无视觉），
-  未覆盖的能力会如实回退；切换前请先看 `GET /api/providers` 的能力矩阵。
+  未覆盖的能力会如实回退；切换前请先看 `GET /api/ai/providers` 的能力矩阵。
   **原生协议平台（Anthropic / Gemini）不经本适配层直接对接**，建议经兼容网关后走 `custom`。
 - **数据出境**：选用国际平台意味着图片与文本会离开本地（内联 base64 只解决「可达性」，不改变数据边界）。
   合规要求高时选百炼国内站、`ollama` 或内网 `custom`。

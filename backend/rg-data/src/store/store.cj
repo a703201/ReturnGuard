@@ -22,6 +22,8 @@ public class UserRec {
     public var lockedUntilMs: Int64      // epoch ms，0 = 未锁定
     public var totpSecret: String        // TOTP 密钥（空=未绑定二次验证）
     public var hashAlgo: String          // 口令派生算法："sha256"（存量）/ "sm3"（国密）
+    public var displayName: String       // 个人资料：显示名
+    public var email: String             // 个人资料：邮箱
     public init(username: String, passwordHash: String, tenantName: String) {
         this.username = username
         this.passwordHash = passwordHash
@@ -31,6 +33,8 @@ public class UserRec {
         this.lockedUntilMs = 0
         this.totpSecret = ""
         this.hashAlgo = "sha256"
+        this.displayName = ""
+        this.email = ""
     }
 }
 

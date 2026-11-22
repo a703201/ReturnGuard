@@ -1,0 +1,14 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rg-core"
+description = "ReturnGuard launcher core: compose control, status and health probing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# 刻意只用标准库：核心引擎要在 Windows / Linux 两侧、以及无 GUI 环境都能编译自检。

@@ -1,0 +1,20 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "rg-win"
+description = "ReturnGuard launcher for Windows, built on WinUI 3 via windows-reactor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+rg-core = { path = "../rg-core" }
+windows-reactor = "0.100"
+
+# 仅在 Windows 构建 rg-win。setup 在 build.rs 中把 WinAppSDK Runtime
+# stage 到产物目录，应用因此自包含，不要求用户机器预装 Windows App SDK。
+[build-dependencies]
+windows-reactor-setup = "0.100"

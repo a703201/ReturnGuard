@@ -130,6 +130,13 @@ public class Database {
             if (!this.hasColumn("rg_users", "hash_algo")) {
                 c.prepareStatement("ALTER TABLE rg_users ADD COLUMN hash_algo VARCHAR(16) NOT NULL DEFAULT 'sha256'").update()
             }
+            // 个人资料字段（3.1.0）
+            if (!this.hasColumn("rg_users", "display_name")) {
+                c.prepareStatement("ALTER TABLE rg_users ADD COLUMN display_name VARCHAR(128) NOT NULL DEFAULT ''").update()
+            }
+            if (!this.hasColumn("rg_users", "email")) {
+                c.prepareStatement("ALTER TABLE rg_users ADD COLUMN email VARCHAR(160) NOT NULL DEFAULT ''").update()
+            }
             let st6 = c.prepareStatement(
                 "CREATE TABLE IF NOT EXISTS rg_quota (" +
                 "scope VARCHAR(32) NOT NULL, bucket VARCHAR(128) NOT NULL, cnt BIGINT NOT NULL DEFAULT 0, " +

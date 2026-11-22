@@ -1,7 +1,7 @@
 {
   "name": "returnguard-web",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.1.0",
   "type": "module",
   "description": "ReturnGuard 退货情报站 · 前端（Vue 3 + TypeScript + Vite）",
   "license": "Apache-2.0",

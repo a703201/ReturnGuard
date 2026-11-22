@@ -1,27 +1,27 @@
 # ReturnGuard 数据库表结构（SCHEMA）
 
-> **🟢 仓颉主力侧**：`backend/` 使用同一 openGauss 实例，5 张表 `rg_users` / `rg_cases` / `rg_audit` / `rg_quota` / `rg_sessions`（+ refresh 字段、并发会话上限），建表幂等见 `backend/rg-data/src/db/db.cj`。
-> 本文正文描述 **Python 版（兼容）** 的 `Case` ORM 字段与 `demo/schema.sql`，二者互为镜像、受守护测试约束。
+> **🟢 当前技术形态（2026-11-22）**：仓颉后端（`backend/`）使用 openGauss **单库 `returnguard_cj`**，
+> 5 张表 `rg_users` / `rg_cases` / `rg_audit` / `rg_quota` / `rg_sessions`（+ refresh 字段、并发会话上限），
+> 建表幂等见 `backend/rg-data/src/db/db.cj`；数据库仅监听回环（compose 见 [`docker/docker-compose.cangjie.yml`](../docker/docker-compose.cangjie.yml)）。
 >
-> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
-> 对应代码：`demo/db.py` 的 `Case` 模型（ORM 单一来源）
-> 本文件与 `demo/schema.sql` 互为镜像：本文档给人看，`.sql` 给数据库用。
+> **说明**：下文 §2 ~ §3 为 Python 兼容版（历史实现）的 `Case` ORM 字段叙事，保留作为字段口径参考；**历史记录保留当时叙事，当前事实以 `backend/README.md` 与 `README.md` 为准**。当前库 / 表事实以上方说明与 `backend/rg-data/src/db/db.cj` 为准，平台/模型事实见 [`backend/rg-ai/src/providers.cj`](../backend/rg-ai/src/providers.cj)。
+>
+> 适用版本：3.1.0（仓库根 `VERSION` 为单一来源）
+> 当前建表代码：`backend/rg-data/src/db/db.cj`（仓颉版单一来源）；完整能力与表说明见 [`backend/README.md`](../backend/README.md)。
 
 ## 1. 总览
 
 | 项 | 值 |
 |----|----|
-| 数据库 | **openGauss**（开发与部署统一）；demo 与 auth 落 `returnguard` 库，**real 落独立库 `returnguard_real`**（compose 内网 `db:5432`，本地经 `localhost:5432`）；仅离线 / CI 才显式回退 SQLite |
-| demo 源 | openGauss `returnguard` 库 `cases` 表（**1206 条**真实退货案件，由 `cases.json` 播种，共享只读演示库） |
-| real 源 | openGauss **`returnguard_real`** 库 `cases` 表（初始空库，供网页端录入 / 删除，按 `tenant_id` 隔离） |
-| 表名 | `cases`（两库表结构完全一致） |
-| 隔离方式 | demo / real **双源物理隔离**（**不同数据库**），各自独立引擎 + 独立代际计数，schema 完全一致 |
-| 字段数 | **28**（1 个自增主键 `id` + 27 个业务字段，含多租户键 `tenant_id`） |
-| 索引 | **6** 个：`case_id` / `sku` / `category` / `supplier` / `platform` / `tenant_id` |
+| 数据库 | **openGauss 5.0 单库 `returnguard_cj`**（开发与部署统一）；compose 内网 `db:5432`，宿主 `127.0.0.1:${CJ_DB_PORT:-15433}`，仅绑回环 |
+| 表 | **5 张**：`rg_users` / `rg_cases` / `rg_audit` / `rg_quota` / `rg_sessions`（建表幂等见 `backend/rg-data/src/db/db.cj`） |
+| 隔离方式 | 单库多租户：案件按 `tenant_id` 隔离，归属不明数据归入显式 `public` 桶；当前**不再有 demo / real 双库** |
+| 连接参数 | `RG_DB_HOST` / `RG_DB_PORT` / `RG_DB_NAME` / `RG_DB_USER` / `RG_DB_PASSWORD`（compose 见 `docker/docker-compose.cangjie.yml`）；`RG_DB_HOST` 为空 = 内存回退（开发 / CI）；`RG_DB_POOL=0`（连接池并发 dead lock，保持每次新建连接） |
 
-> ⚠️ 历史勘误：早期版本本表曾写作「demo/real/auth 三库均 `returnguard`」，与实际部署不符——**real 源使用独立库 `returnguard_real`**（见 `docker/docker-compose.yml` 的 `REAL_DATABASE_URL`），写库绝不污染演示库。
+> 下表 §2 的 28 字段为历史 Python 版 `cases` 表口径；当前 `rg_cases` 表结构以 `backend/rg-data/src/db/db.cj` 为准。
+> 历史勘误（已不适用）：早期 Python 版曾为 demo / real 双库（`returnguard` / `returnguard_real`），现已收敛为单库 `returnguard_cj`。
 
-## 2. 字段说明
+## 2. 字段说明（历史 Python 版口径）
 
 | # | 字段名 | 类型 | 索引 | 含义 | 来源 / 备注 |
 |---|--------|------|------|------|------------|
@@ -61,9 +61,9 @@
 - 列表接口 `/api/cases?slim=1`（默认）仅投影 `db._LIST_FIELDS` 的 **10 个列表展示字段**：`case_id` / `sku` / `sku_name` / `category` / `supplier` / `supplier_name` / `amount` / `outcome` / `date` / `platform`；**不含** `dossier`(24)、`voice_text`(25)、`voice_audio_b64`(26) 等大字段——详情卷宗页才读全量（`slim=0`）。
 - 洞察聚合另走 `load_filtered_cases`，在行→dict 后剔除 `voice_audio_b64` / `dossier`，避免 1206 行 × 大对象的无谓 IO 与内存放大（P1-12）。
 
-## 4. 重建 / 校验
+## 4. 建表 / 校验（当前仓颉版）
 
-- 重建表结构（openGauss 统一，离线回退 SQLite）：开发与部署均走 `create_all` + `_migrate_case_columns` 演进；如需全量重播设 `FORCE_RESEED=1` 并清 `ogdata` 卷。离线 SQLite 回退时可用 `sqlite3 cases.db < demo/schema.sql`（重置需先 `DROP TABLE IF EXISTS cases;`）。
-- 部署期（openGauss）：`docker compose -f docker/docker-compose.yml up -d` 会自动 `create_all` + `_migrate_case_columns` 演进；如需全量重播设 `FORCE_RESEED=1` 并清 `ogdata` 卷。
-- 模型与磁盘 schema 已核对一致（见 `docs/CODE_REVIEW.md` 六、及日常 `FORCE_RESEED=1` 重建流程）。
-- 新增 / 修改字段时：**先改 `db.py` 的 `Case` 模型 → 同步更新本文件与 `demo/schema.sql` → 旧库走 `FORCE_RESEED=1` 或写迁移**，避免 `create_all` 不 ALTER 旧表导致 `no such column`。
+- 仓颉后端启动时按 `backend/rg-data/src/db/db.cj` 幂等建表（5 张表），无需 Python 版 `create_all` / `_migrate_case_columns` / `FORCE_RESEED` 流程。
+- 容器部署：`docker compose -f docker/docker-compose.cangjie.yml up -d --build`，openGauss 数据落 `cjogdata` 卷；`AUTH_SECRET` / `GS_PASSWORD` 必填，应用绑回环（默认 `127.0.0.1:58080`）。
+- 本地直跑：设置 `RG_DB_HOST` 等连接参数指向 openGauss；留空则内存回退（开发 / CI）。详见 [`backend/README.md`](../backend/README.md) 与 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+- 新增 / 修改字段时：以 `backend/rg-data/src/db/db.cj` 的建表语句为单一来源，并同步更新 `docs/openapi.yaml` 契约与本文件字段口径。

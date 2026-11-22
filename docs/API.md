@@ -1,26 +1,30 @@
 # ReturnGuard 接口文档（API.md）
 
-> **🟢 主力契约另见**：[`docs/openapi.yaml`](openapi.yaml)（仓颉后端 30 个操作的 OpenAPI 3.0 规范，路由↔契约有守护断言）与 [`backend/README.md`](../backend/README.md)（端点表）。
-> 本文记录的是 **Python 版（FastAPI，`demo/`）** 接口，仍可本地直跑、保持兼容；业务口径与仓颉版一致。
-> 仓颉主力端口 `http://127.0.0.1:58080`，Python 版容器 `http://127.0.0.1:65432` / 直跑 `http://127.0.0.1:8000`。
+> **🟢 当前技术形态（2026-11-22）**：后端为**仓颉原生 18 包**（`backend/`），前端为 **Vue3 + TS**（`web/` → 产物 `demo/webapp/`），
+> 部署为 3 容器（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`），本机访问 `http://127.0.0.1:58080`（端口由 `docker/.env` 的 `CJ_APP_PORT` 决定）。
+> 对外契约以 [`docs/openapi.yaml`](openapi.yaml)（OpenAPI 3.0，35 个操作）与 [`backend/README.md`](../backend/README.md)（已实现端点表）为准；
+> 环境变量见 [`backend/README.md`](../backend/README.md) 与 [`docker/docker-compose.cangjie.yml`](../docker/docker-compose.cangjie.yml)，平台/模型事实见 [`backend/rg-ai/src/providers.cj`](../backend/rg-ai/src/providers.cj)。
+>
+> **说明**：下文 §2 起的接口明细为 Python 兼容版（历史实现）的叙事，保留作为业务口径参考；**历史记录保留当时叙事，当前事实以 `backend/README.md` 与 `README.md` 为准**。仓颉版端点名称与端口一律以上述当前契约为准（如平台目录为 `GET /api/ai/providers`），示例中的 `65432` / `8000` 等端口仅属历史语境。
 
-> **服务**：ReturnGuard Demo（FastAPI，Python 兼容版）
-> **最后更新**：2026-11-20（3.0.0）
+> **服务**：ReturnGuard（仓颉后端 + Vue3 前端）
+> **最后更新**：2026-11-22（3.1.0）
 > **关联文档**：`docs/PRD.md`、`docs/SCHEMA.md`、`docs/ARCHITECTURE.md`（功能实现逻辑）、`docs/DECISION_LOGIC.md`（判定逻辑）、`docs/AI_PROVIDERS.md`（多 AI 平台对接）、`docs/AB_ROI_实证说明.md`、`docs/CODE_REVIEW.md`、`CHANGELOG.md`、`docs/reference/ModelRouter_API.docx`（网关接口参考）
 
 ---
 
 ## 1. 概述
-- **本地 Base URL**：`http://127.0.0.1:8000`（直接 `uvicorn main:app` 时）
-- **容器 Base URL**：`http://127.0.0.1:65432`（compose 映射到宿主机回环）
+- **本机 Base URL**：`http://127.0.0.1:58080`（仓颉 3 容器栈，仅绑回环）；本地直跑仓颉后端为 `http://127.0.0.1:8001`（容器内 `8000`）。
   > 对外发布由部署方在其前置反向代理 / CDN 并配置 HTTPS；应用自身只绑回环，不直接暴露。
-- **前端页面**：`GET /` 返回「退货情报站」单页应用，**5 个 Tab**：市场洞察 / 平台举证包 / 供应商透视 / 单案取证 / 数据录入。
-- **数据格式**：JSON（`/api/analyze`、`/api/import_csv`、`/api/import_file` 为 `multipart/form-data`）。
-- **双模式**：多数接口支持 `mode=mock|live`，默认 `mock`。
-- **界面语言**：`zh` / `en` / `fr` 三语（`/api/config` 的 `languages` 为单一来源；后端语音支持 8 个语种，见 §5.4）。
-- **交互式文档**：运行后 `GET /docs` 可看 FastAPI 自动生成的 OpenAPI（多数端点已挂 `response_model`）。
+- **前端页面**：`GET /` 由仓颉后端托管 Vue3 + TS 产物（`demo/webapp/`），即「退货情报站」单页应用。
+- **数据格式**：JSON（单案取证、批量导入类端点为 `multipart/form-data`；导出 PDF 为 `application/pdf`）。
+- **双模式**：取证 / 洞察类接口支持 `mode=mock|live`，默认 `mock`；无平台密钥时诚实回退并在响应中标注。
+- **界面语言**：`zh` / `en` / `fr` 三语（以 `/api/config` 为单一来源；母语语音支持 8 个语种）。
+- **接口契约**：[`docs/openapi.yaml`](openapi.yaml)（OpenAPI 3.0，35 个操作：系统 / 认证 / 洞察 / 案件 / 平台与 AI / 审计 / OAuth2），端点全表见 [`backend/README.md`](../backend/README.md)；运行时可查 `GET /api/config` 与 `GET /api/ai/providers`（公开、无密钥）。
 
 ---
+
+> 以下 §2 ~ §6 为历史 Python 兼容版的接口明细（业务口径与当前仓颉版一致），仅作参考；当前端点、字段与环境变量以 `/api/config`、`docs/openapi.yaml`、`backend/README.md` 为准。
 
 ## 2. 通用约定
 - **金额**：单位 ¥（float）；**日期**：`YYYY-MM-DD`。
@@ -53,7 +57,7 @@
 | 3.13 | GET · POST | `/api/calibrate` | 相似度阈值自标定（读 / 写） | 读公开 / 写管理员 |
 | 3.14 | GET | `/metrics` | 运行指标 | 管理员 |
 | 3.15 | — | `/api/auth/*` | 注册 / 登录 / 当前用户 / 登出 | 见 §3.15 |
-| 3.16 | GET | `/api/providers` | AI 平台目录与能力矩阵（多厂商适配） | 公开 |
+| 3.16 | GET | `/api/ai/providers` | AI 平台目录与能力矩阵（多厂商适配） | 公开 |
 
 ---
 
@@ -152,17 +156,17 @@
 # mock（默认，零依赖）
 curl -F "returned_image=@ret.jpg" -F "product_image=@prod.jpg" \
      -F "sku=SKU-123" -F "amount=89.9" -F "mode=mock" \
-     http://127.0.0.1:65432/api/analyze
+     http://127.0.0.1:58080/api/analyze
 
 # live（需先登录拿令牌）
-TOK=$(curl -s -X POST http://127.0.0.1:65432/api/auth/login \
+TOK=$(curl -s -X POST http://127.0.0.1:58080/api/auth/login \
   -H "Content-Type: application/json" -d '{"username":"demo","password":"demo123"}' \
   | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
 curl -H "Authorization: Bearer $TOK" \
      -F "returned_image=@ret.jpg" -F "product_image=@prod.jpg" \
      -F "sku=SKU-123" -F "amount=89.9" -F "platform=Amazon" \
      -F "language=fr" -F "mode=live" \
-     http://127.0.0.1:65432/api/analyze
+     http://127.0.0.1:58080/api/analyze
 ```
 
 ---
@@ -229,7 +233,7 @@ curl -H "Authorization: Bearer $TOK" \
 
 **示例**
 ```bash
-curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&season=夏"
+curl "http://127.0.0.1:58080/api/insights?mode=mock&platform=SHEIN&season=夏"
 ```
 
 ---
@@ -253,7 +257,7 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 
 **示例**
 ```bash
-curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&season=夏"
+curl "http://127.0.0.1:58080/api/insights?mode=mock&platform=SHEIN&season=夏"
 ```
 
 ---
@@ -324,14 +328,14 @@ curl "http://127.0.0.1:65432/api/insights?source=demo&mode=mock&platform=SHEIN&s
 
 登录示例：
 ```bash
-curl -X POST http://127.0.0.1:65432/api/auth/login \
+curl -X POST http://127.0.0.1:58080/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"demo","password":"demo123"}'
 # → {"token":"<jwt-like>","username":"demo"}
 ```
 失败登录按 `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN` 触发滑动窗口封禁（返回 `429`，SEC-12 共享状态，多 worker 一致）。
 
-### 3.16 `GET /api/providers` —— AI 平台目录（多厂商适配）
+### 3.16 `GET /api/ai/providers` —— AI 平台目录（多厂商适配）
 返回所有**已声明**的 AI 平台及其能力矩阵，供部署方选择与前端说明。公开可读。
 
 **响应（200, application/json · `ProvidersResp`）**
@@ -358,7 +362,7 @@ curl -X POST http://127.0.0.1:65432/api/auth/login \
 
 **示例**
 ```bash
-curl -s http://127.0.0.1:65432/api/providers | python -m json.tool | head -30
+curl -s http://127.0.0.1:58080/api/ai/providers | python -m json.tool | head -30
 ```
 
 > 安全：**不返回**基地址、模型标识与「是否已配置密钥」——避免匿名访客探测服务端内网拓扑与凭据状态。
@@ -398,13 +402,13 @@ curl -s http://127.0.0.1:65432/api/providers | python -m json.tool | head -30
 
 ### 5.1 概述
 live 模式经**多家可选 AI 平台**调用（默认阿里云百炼，协议兼容 OpenAI）。
-业务代码只按「能力」调用，平台声明集中在 [`demo/providers.py`](../demo/providers.py)，
-调用与回退封装在 `demo/models_router.py`，由 `pipeline` 在 live 模式下编排。
+业务代码只按「能力」调用，平台声明集中在 `backend/rg-ai/src/providers.cj`，
+调用与逐能力回退由仓颉后端的 AI 能力层在 live 模式下编排。
 **完整的平台矩阵、差异适配与接入方式见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)。**
 
 ### 5.2 基础信息
 - **当前平台**：`MODEL_ROUTER_PROFILE`（兼容别名 `RG_AI_PROVIDER`）决定，默认 `tokenplan`；
-  可选值与能力矩阵见 `GET /api/providers`。
+  可选值与能力矩阵见 `GET /api/ai/providers`。
 - **Base URL / 鉴权**：随平台声明联动（`bearer` / `api-key` / 无鉴权），无需手工拼装。
 - **环境变量**：
   - 密钥：各平台各自的变量（如 `MODEL_ROUTER_API_KEY` / `OPENAI_API_KEY` / `DASHSCOPE_API_KEY` / `ZHIPU_API_KEY`…），见 §3.16 的 `key_env`。
@@ -416,7 +420,7 @@ live 模式经**多家可选 AI 平台**调用（默认阿里云百炼，协议�
 
 ### 5.3 模型能力映射表（以阿里云百炼系为例）
 `official`（官方网关，全部带 `qwen/` 前缀）与 `tokenplan`（Token Plan 网关）命名不同；
-其他平台（OpenAI / DeepSeek / 智谱 / SiliconFlow / OpenRouter / Ollama / Azure …）的模型标识与能力覆盖见 `GET /api/providers`。
+其他平台（OpenAI / DeepSeek / 智谱 / SiliconFlow / OpenRouter / Ollama / Azure …）的模型标识与能力覆盖见 `GET /api/ai/providers`。
 
 | 能力 | `official` | `tokenplan` | 调用端点 |
 |---|---|---|---|
@@ -507,7 +511,7 @@ build_insights_live(aggregated):
 ```
 
 ### 5.6 配置与开通
-- live 模式**必需**：当前平台声明的密钥变量（见 `GET /api/providers` 的 `key_env`；`ollama` 等本地端点不需要）。
+- live 模式**必需**：当前平台声明的密钥变量（见 `GET /api/ai/providers` 的 `key_env`；`ollama` 等本地端点不需要）。
 - **可选**：`PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED`——仅在希望走公网回源取图时才配置；默认内联 base64，无需对象存储。
 - **可选**：`RG_MODEL_*` 逐能力覆盖模型标识；各平台基地址覆盖变量互相独立。
 - 逐能力渐进开通：平台开通哪个模型，对应能力即自动变真，`capabilities` 会如实反映；未开通/不支持的 能力仅该步回退，其余不受影响。

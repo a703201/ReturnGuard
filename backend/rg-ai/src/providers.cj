@@ -1,6 +1,6 @@
 // Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
 // SPDX-License-Identifier: Apache-2.0
-// AI 平台注册表（仓颉版）：与 Python demo/providers.py 同一事实来源，14 平台 + 能力矩阵。
+// AI 平台注册表：仓颉实现的单一事实来源，14 平台 + 能力矩阵。
 // 设计原则（对齐 docs/AI_PROVIDERS.md）：
 //   - 按能力编程，不按厂商编程；新增平台 = 加一条声明，不改调用代码；
 //   - 能力缺口如实声明（supported=false 不伪装）；

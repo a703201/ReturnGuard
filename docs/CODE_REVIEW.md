@@ -1,8 +1,8 @@
 # ReturnGuard 代码与工程化审查（大厂对标）
 
-> **当前版本**：3.0.0（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致；**全栈重构大版本**）
-> **主力实现（2026-11-20）**：仓颉后端 18 包 + Vue3 前端，3 容器部署（`58080`），详见 `backend/README.md`；下方历次审查针对 Python 版（`demo/`），保留兼容。
-> **当前测试**：`pytest demo/tests -q` **198 passed**（含 `/api/export_pdf` 与 `/api/import_csv` 零覆盖链路补齐、`test_storage.py` 对齐当前存储层、`test_i18n.py` 多语言与静态资源版本化、`test_docs_consistency.py` 文档漂移守护【含 openapi 契约/SDK 守护 3 例】、`test_hardening.py` 边界与配额回归）
+> **当前版本**：3.1.0（仓库根 `VERSION` 为单一来源，与 `/api/config` 一致；**全栈重构大版本**）
+> **唯一实现**：仓颉后端 18 包 + Vue3 前端 + Rust 启动器，3 容器部署（`58080`），详见 `backend/README.md` 与 `launcher/README.md`；下方历次审查针对已归档的实现，仅作历史留档。
+> **当前测试**：`cd launcher && cargo test -p rg-core` **15 passed**；CI 另含版本一致性、前端构建、WinUI 与 GTK4 真实构建。
 > **安全项**：**SEC-1 ~ SEC-13 全清零**（另含 SEC-P0 系列）
 > **最新审查**：见第十一节「大厂标准审查结论摘要（2026-08-29）」；i18n / 静态资源版本化两次收口见 `CHANGELOG.md` 的 1.1.3、1.1.4 条目
 > 说明：第一~十节为**历次审查的历史记录**（按当时版本留档，不回溯改写，其中的测试数等数字为当时快照）；当前状态以上方四行与第十一节为准。

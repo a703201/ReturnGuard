@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 平台举证包：展示九大跨境平台的退货/纠纷举证规则对照表 + 可折叠举证模板。
- * 数据来自仓颉后端 /api/platforms（与 Python 版 platforms.py 同一事实来源）。
+ * 数据来自仓颉后端 /api/platforms（仓颉实现的单一事实来源）。
  * 只列客观政策要求与 ReturnGuard 可支撑能力，不做裁决结论（去 AI 味、守住边界）。
  */
 import { ref, onMounted } from 'vue'

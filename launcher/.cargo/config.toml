@@ -1,0 +1,7 @@
+# 本机 crates.io 镜像（crates.io 直连在当前网络环境被拦截）。
+# CI 中会显式删除本文件直连官方源，见 .github/workflows/ci.yml。
+[source.crates-io]
+replace-with = 'ustc'
+
+[source.ustc]
+registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"

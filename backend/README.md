@@ -1,7 +1,7 @@
 # ReturnGuard 仓颉后端（当前主力实现）
 
 > 技术栈与档案管理系统（AMS）对齐：**仓颉 Cangjie 1.2.0 + stdx.net.http**。
-> 本目录是后端**主力实现**（与旧 Python 后端 `demo/` 并存兼容），2026-11-20 收官。
+> 本目录是后端**唯一实现**（仓颉原生 18 包），2026-11-20 收官。
 > 编译产物 18 包 + exe（Windows `build/rg-server.exe` / Linux `build-linux/rg-server`），3 容器部署（`127.0.0.1:58080`）。
 > 覆盖：核心 API（30 操作）、**账户安全加固**（审计链/时序/枚举/弱口令/jti）、**单库+演示账户**、**openGauss 全量持久化**（重启不丢）、
 > **国密 SM3/SM4 + TOTP**、**配额跨 worker（DB 表）**、**服务端会话（即时吊销 + refresh 轮换 + 并发上限）**、
@@ -34,7 +34,7 @@ bash build.sh                 # 全量构建 -> build/rg-server.exe（自动拷 
 cd build
 RG_HTTP_PORT=8001 \
 RG_WEB_DIR=<绝对路径>/demo/webapp \
-RG_VERSION=3.0.0 \
+RG_VERSION=3.1.0 \
 AUTH_SECRET=<生产必填，≥32字节> \
 RG_DB_HOST=127.0.0.1 RG_DB_PORT=15432 \
 RG_DB_NAME=returnguard_cj RG_DB_USER=gaussdb RG_DB_PASSWORD=<口令> \
@@ -51,7 +51,7 @@ RG_DB_NAME=returnguard_cj RG_DB_USER=gaussdb RG_DB_PASSWORD=<口令> \
 | `RG_HTTP_HOST` | `127.0.0.1` | 监听地址 |
 | `RG_HTTP_PORT` | `8001` | 监听端口 |
 | `RG_WEB_DIR` | `../demo/webapp` | Vue 产物目录（空字符串=不托管） |
-| `RG_VERSION` | `3.0.0` | `/api/config` 返回版本 |
+| `RG_VERSION` | `3.1.0` | `/api/config` 返回版本 |
 | `RG_THRESHOLD_PCT` | `82` | 同款一致性阈值（百分号整数） |
 | `AUTH_SECRET` | 随机 | 令牌签名密钥；**生产必须显式提供**（失败关闭） |
 | `RG_DB_HOST` | 空 | openGauss 主机；**非空即启用持久化**，空=内存模式 |
@@ -122,9 +122,11 @@ AI+PDF 四套端到端全 PASS；Playwright 前端零 console 错误；容器重
 | POST | `/api/ai/settings` | 保存完整 AI 配置（需登录）：写入 `RG_AI_CONFIG_FILE`（默认 `/app/data/ai_config.env`，容器卷 `cjappdata` 持久化），apiKey 留空不改 / `clearKey=true` 清空；校验端点格式与换行注入；**重启服务后生效**，部署侧环境变量仍可强制覆盖 |
 | POST | `/api/auth/register` | 注册（一个用户=一个租户），返回 `{ok,token,refresh_token,username}`；弱口令拒绝 + 重复用户名模糊提示 |
 | POST | `/api/auth/register-sm3` | 国密 SM3 口令注册（存量 sha256 用户向前兼容） |
-| POST | `/api/auth/login` | 登录，PBKDF2/SM3 + 失败锁定 + 时序防护，返回 `{token,refresh_token}` |
+| POST | `/api/auth/login` | 登录，PBKDF2/SM3 + 失败锁定 + 时序防护；可选 `code`（已开启 TOTP 的账户必填），返回 `{token,refresh_token,totpRequired}` |
 | POST | `/api/auth/refresh` | **一次性轮换** access+refresh；重放检测触发全会话撤销 |
-| GET | `/api/auth/me` | 当前用户（需 Bearer 令牌） |
+| GET | `/api/auth/me` | 当前用户（含 display_name/email，需 Bearer 令牌） |
+| PUT | `/api/auth/me` | 修改个人资料（显示名/邮箱，需登录） |
+| POST | `/api/auth/password` | 修改密码（校验旧密码 + 强度；成功后其他会话失效，需重新登录） |
 | POST | `/api/auth/logout` | 登出（自增 token_version 使所有令牌失效 + 审计） |
 | GET | `/api/auth/totp/{setup,enable,verify,disable,status}` | TOTP 双因素（Base32 密钥、6 位码 30s ±1） |
 | GET | `/api/auth/sessions` · POST `/revoke` | 会话列表 / 远程踢出 |
@@ -199,12 +201,26 @@ AI+PDF 四套端到端全 PASS；Playwright 前端零 console 错误；容器重
 - **AI 未配密钥**：本机未配置外部服务商密钥，live 路径走"诚实回退 mock"；真实模型调用逻辑已实现但未在本机实跑验证（界面保存密钥后重启即可验证真模型）。
 - **付费/商业生态**：无计费订阅、无第三方真实用户实证、无 benchmark 固化（产品化决策，非技术债）。
 
-## 验证证据（2026-11-19 实际执行）
+## 验证证据
+
+**当前自动化（2026-11-22，可重复执行）**
+
+- 静态门禁：`python scripts/ci_checks.py` —— 7/7 PASS（版本、35 条路由↔OpenAPI 一一对应、
+  compose↔启动器常量、内容红线、仓颉 catch 类型、文档死链、前端产物）。
+- 端到端：`python scripts/e2e_cangjie.py` —— **14/14 PASS**（需服务运行在 58080，只读）。
+  覆盖健康深探针、版本、14 平台矩阵、9 平台举证包、国密声明、旧端点 404、未登录 401、
+  登录签发、当前用户、`decided` 口径、案件、审计链自证（369 事件）、分页与密钥脱敏。
+- 启动器核心：`cd launcher && cargo test -p rg-core` —— 15 passed。
+- CI 六路并行（`.github/workflows/ci.yml`）：上述静态门禁 + 核心测试 + 前端构建 +
+  WinUI 真实构建（windows-latest / MSVC）+ GTK4 真实构建（ubuntu-latest / libgtk-4-dev）。
+
+**历史实测（2026-11-19，一次性脚本，已随技术栈切换归档）**
 
 - `bash build.sh`：18 个包 + exe 全量编译成功，链接 opengauss 驱动 14 个 .a；
-- 核心 API（`verify_cj2.py`）**18 项全 PASS**；国密+TOTP（`verify_crypto.py`）**11 项全 PASS**；
-  会话即时吊销（`verify_session.py`）**10 项全 PASS**；analyze/PDF（`verify_ai.py`）全 PASS；
-- **重启验证**（`persist_step1/step2.py`）全 PASS：旧令牌重启后仍有效、审计链连续自证 ok、案件 1206 条仍在、租户隔离；
-- **PDF 实测**：base64 解码得 707 字节、头 `%PDF-1.4`、尾 `%%EOF` 的合法 PDF；
-- Playwright（`verify_ui2.py`）：未登录引导、演示账户登录、真实数据看板、零 console 错误；
-- Python 测试守护：`pytest demo/tests` 195 passed，零回归。
+- 核心 API 18 项 / 国密+TOTP 11 项 / 会话吊销 10 项 / analyze+PDF 全 PASS；
+- 重启验证全 PASS：旧令牌仍有效、审计链连续自证 ok、案件 1206 条仍在、租户隔离；
+- PDF 实测：base64 解码得 707 字节、头 `%PDF-1.4`、尾 `%%EOF` 的合法 PDF；
+- Playwright：未登录引导、演示账户登录、真实数据看板、零 console 错误。
+
+> 边界：仓颉二进制需专用工具链镜像 `ams-cj:1.2.0-beta.03`，公共 CI 不编译仓颉源码；
+> 上述契约正确性由静态门禁覆盖，端到端脚本需真实服务（本地 / 自托管 runner）。

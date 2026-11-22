@@ -1,0 +1,27 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
+#
+# ReturnGuard 二进制启动器 · workspace
+# 三套 crate 共用 rg-core：
+#   rg-core  —— 跨平台核心引擎（零外部依赖）
+#   rg-win   —— Windows / WinUI 3（windows-reactor，微软官方声明式绑定）
+#   rg-gtk   —— Linux / GTK4（gtk-rs）
+#
+# 注意：Windows 只构建 rg-win，Linux 只构建 rg-gtk。
+# default-members 只含 rg-core，便于在任一平台做核心逻辑自检。
+
+[workspace]
+members = ["crates/rg-core", "crates/rg-win", "crates/rg-gtk"]
+default-members = ["crates/rg-core"]
+resolver = "2"
+
+[workspace.package]
+version = "3.1.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["He Yuxiang <https://github.com/a703201>"]
+repository = "https://github.com/a703201/ReturnGuard"
+
+[workspace.metadata]
+# 与根 VERSION 保持一致；由 build 脚本校验。
+project-version-source = "../VERSION"

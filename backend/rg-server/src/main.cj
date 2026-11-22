@@ -20,7 +20,7 @@ main() {
     let portStr = getVariable("RG_HTTP_PORT") ?? "8001"
     let port = parseIntOr(portStr, 8001)
     let webDir = getVariable("RG_WEB_DIR") ?? "../demo/webapp"
-    let version = getVariable("RG_VERSION") ?? "3.0.0"
+    let version = getVariable("RG_VERSION") ?? "3.1.0"
     let threshold = Float64(parseIntOr(getVariable("RG_THRESHOLD_PCT") ?? "82", 82)) / 100.0
 
     // 令牌签名密钥：生产必须显式提供（失败关闭），本地开发用程序内随机值。

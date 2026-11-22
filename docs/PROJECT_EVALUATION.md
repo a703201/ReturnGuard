@@ -2,12 +2,14 @@
 
 > **文档定位**：按《项目》思维导图（XMind `项目.xmind`）提出的 **4 大类 13 问**逐项评估，
 > 对标档案管理系统（AMS）的成熟实现，作为评审、立项与后续批次规划的事实核查索引。
-> **评估基线**：v3.0.0（本仓实际代码与文档），评估日期 2026-11-19。
+> **评估基线**：v3.1.0（本仓实际代码与文档），评估日期 2026-11-19。
 > **判定口径**：✅ 已落地 / 🟡 部分具备但有明确缺口 / 🔴 未做。
 > **三段式**：判定 → 证据（文件 : 行 / 事实）→ 如实边界 / 补齐方向。
 >
 > 三条红线：① 不把「规划 / 候选」写成「已实现」；② 不把「算法对齐」写成「通过认证」；
 > ③ 本文只做评估与索引，不新增功能声明，不改动既有文档与 `CHANGELOG.md`。
+>
+> **历史记录说明**：文中「初版基线」与历史复核保留当时叙事；当前事实以 [`backend/README.md`](../backend/README.md) 与根 [`README.md`](../README.md) 为准。
 
 ---
 
@@ -15,7 +17,7 @@
 
 | 维度 | 已有基础 | 最关键缺口 |
 | --- | --- | --- |
-| 复用价值 | Apache-2.0 + 仓颉 18 包拆分 + 27 个 API 操作 + OpenAPI 契约 + Python SDK | 无独立框架包 / 二次开发专章 |
+| 复用价值 | Apache-2.0 + 仓颉 18 包拆分 + 35 个 API 操作 + OpenAPI 契约 + Python SDK | 无独立框架包 / 二次开发专章 |
 | 商业价值 | 多租户隔离底座、SEC-13 配额闸、账户安全全套 | 无商业/社区版分层、无 SaaS 计费、缺真实用户度量 |
 | 技术栈 | 仓颉原生后端 + Vue3+TS 前端 + openGauss + 容器化自愈 + 国密 SM3/SM4 + TOTP + OAuth2（含 scope 校验/密钥轮换） | 会话空闲超时已做（并发上限 + 滑动窗口）；无等保国标符合性矩阵（对齐国密 ≠ 通过密评） |
 | 创新点 | 群体洞察为主的产品叙事、14 平台多模型能力闸、诚实回退 | 缺第三方实证、缺专利/论文/ benchmark 固化 |
@@ -34,7 +36,7 @@
 证据：
 - 根 `LICENSE` = Apache-2.0，`NOTICE` 随包；`README.md` 明确「允许个人/商业/闭源衍生」并给出最小合规示例。
 - 后端仓颉 18 包拆分（`rg-common/data/security/api/ai/app/...`），契约稳定。
-- **对外契约 `docs/openapi.yaml`（26 path / 27 operation）+ 零依赖 Python SDK `sdk/python/`（含 refresh / CSV 导入 / PDF 二进制 / 审计分页）**。
+- **对外契约 `docs/openapi.yaml`（32 path / 35 operation）+ 零依赖 Python SDK `sdk/python/`（含 refresh / CSV 导入 / PDF 二进制 / 审计分页）**。
 
 如实边界 / 补齐方向：
 - 已有 `docs/SECONDARY_DEV_GUIDE.md`（扩展点/配置单一来源/升级兼容/构建验收）；缺「衍生版本命名约定 / 版本分支策略」细则。
@@ -47,7 +49,7 @@
 证据：当前是单一应用，无独立框架包；`README.md` 中「通用框架」仅出现在许可语境。
 
 如实边界 / 补齐方向：
-- 已具备可提炼的候选内核：多模型能力闸（`providers.py` / `models_router.py`）、配额闸（`quota.py`）、双源存储层（`db.py`）。
+- 已具备可提炼的候选内核：多模型能力闸（`backend/rg-ai/src/providers.cj`）、配额闸（`rg-security`）、单库存储层（`rg-data`）。
 - 补齐方向：先把「AI 平台适配层」按 AMS `ams-kit` 模式抽成独立可复用包，附带接入示例与一致性校验脚本。
 
 ### 1.3 是否能够提供 API 给外部应用接入
@@ -55,13 +57,13 @@
 **判定：✅ 有对外契约 + 三语言 SDK + OAuth2 开放平台，第三方接入条件具备。**
 
 证据：
-- 仓颉后端路由声明 **27 个操作**（`rg-api/src/routes/*.cj`）；`docs/openapi.yaml` 为独立 OpenAPI 3.0.3 契约，26 path / 27 operation，两者已核对一致。
+- 仓颉后端路由声明 **35 个操作**（`rg-api/src/routes/*.cj`）；`docs/openapi.yaml` 为独立 OpenAPI 3.0 契约，32 path / 35 operation，两者已核对一致。
 - `sdk/python/returnguard_client.py` 零依赖 SDK（std urllib），覆盖登录/refresh/洞察/导入/删除/PDF 双传输/审计分页。
 - 鉴权为 Bearer Token（`/api/auth/login`，返回 access + refresh），单用户=单租户。
 
 如实边界 / 补齐方向：
 - 已有 OAuth2 client_credentials（`/api/oauth/{register,token,clients,rotate}`，注册表持久化重启不丢、只读 scope 写端点 403、密钥轮换）；SDK 覆盖 Python/JS/Go。
-- 已有 CI 断言「路由 ↔ openapi.yaml」全覆盖 + SDK 核心方法守护（`test_docs_consistency.py` 24 例）。
+- 已有 CI 断言「路由 ↔ openapi.yaml」全覆盖 + SDK 核心方法守护（见根 `README.md`「测试与质量门禁」）。
 - 补齐方向：OAuth2 scope 强制校验 / 密钥轮换 / 客户端持久化；OAuth2 开放平台运营（应用审核、配额）。
 
 ---
@@ -85,7 +87,7 @@
 
 证据：
 - 多租户隔离已落地（一个用户=一个租户，real 源案件按租户隔离，`public` 公共基准）。
-- SEC-13 三层配额闸（`demo/quota.py`：全局日 300 / 租户日 60 / IP 小时 20）。
+- SEC-13 三层配额闸（全局日 / 租户日 / IP 小时，覆盖 `/api/analyze`、`/api/insights?mode=live`、`/api/export_pdf?mode=live`）。
 
 如实边界 / 补齐方向：
 - 仍是单体单进程单端口（新版 Vue 前端同端口托管）；无服务拆分。
@@ -97,7 +99,7 @@
 **判定：🟡 功能闭环完整，证据为开发方自证。**
 
 证据：
-- 195 个自动化测试通过；`test_docs_consistency.py` 守护 schema / 路由 / 版本 / i18n 一致性。
+- 仓颉核心引擎测试 + 前端类型/构建校验 + 版本与契约守护测试通过（见根 `README.md`「测试与质量门禁」）。
 - 产品叙事闭环：单案取证（数据管道）→ 群体洞察（核心产品）→ ROI 回测。
 
 如实边界 / 补齐方向：
@@ -145,7 +147,7 @@
 
 #### 3.2.2 使用 Web 还是独立客户端
 
-**判定：✅ Web（已明确）。** 仓颉原生后端 + 前端 Vue3+TS，同源托管，无独立客户端包袱。Python/FastAPI 仅保留为早期兼容实现。
+**判定：✅ Web（已明确）。** 仓颉原生后端 + 前端 Vue3+TS，同源托管，无独立客户端包袱。
 
 #### 3.2.3 部署方式是二进制还是容器
 
@@ -166,11 +168,11 @@
 证据（叙事与实现对应）：
 - 「把售后成本中心变成市场洞察数据源」——`pipeline.build_insights` 把退货负面信号聚合为选品 / 品控建议（核心产品）。
 - 「只取证不裁决」——结果区逐能力如实标注真实 / 回退，不替平台下结论。
-- 多模型能力闸（`providers.py` 14 平台声明 + `_require_capability`）——未声明能力不伪装成功。
+- 多模型能力闸（`backend/rg-ai/src/providers.cj` 14 平台声明 + 能力闸）——未声明能力不伪装成功。
 
 如实边界 / 补齐方向：
 - 命题均为开发方自述，无对照实验 / 客户案例。
-- 补齐方向：把 A/B 台架（`ab_experiment.py`）的结论固化为可引用 benchmark，补真实商家试点数据。
+- 补齐方向：把 A/B 台架方法学（见 [`AB_ROI_实证说明.md`](AB_ROI_实证说明.md)）的结论固化为可引用 benchmark，补真实商家试点数据。
 
 ### 4.2 有什么现存方案没有的优势
 
@@ -191,9 +193,9 @@
 | 项 | 初版基线 | 现状 |
 | --- | --- | --- |
 | 前端技术栈（3.2） | 原生 HTML/CSS/JS | Vue3.5 + TS + Vite6（`web/`）+ Apple 风格零投影设计系统；左侧栏导航、14 张洞察卡片、响应式 desktop/TV/mobile |
-| 后端语言 | Python/FastAPI | **仓颉原生 18 包**（`rg-common/data/security/api/ai/app/...`），Python 版保留兼容 |
+| 后端语言 | Python/FastAPI | **仓颉原生 18 包**（`rg-common/data/security/api/ai/app/...`） |
 | 账户安全 | 基础令牌 | PBKDF2/SM3 + 弱口令拒绝 + 失败锁定 + 时序防护 + 枚举防护 + TOTP + 国密 SM3/SM4 + 审计哈希链 + 服务端会话即时吊销 + **refresh 一次性轮换/重放检测** |
-| 对外契约（1.3） | 无 OpenAPI / SDK | `docs/openapi.yaml`（29 path / 30 op）+ **三语言零依赖 SDK**（Python/JS/Go）+ OAuth2 开放平台 |
+| 对外契约（1.3） | 无 OpenAPI / SDK | `docs/openapi.yaml`（32 path / 35 operation）+ **三语言零依赖 SDK**（Python/JS/Go）+ OAuth2 开放平台 |
 | AI 服务商（4.1） | 单一模型绑定 | **14 平台能力矩阵 + 本地 Ollama**，能力闸诚实回退；含 `/api/ai/providers` |
 | 批量导入 | 无 | `POST /api/cases/import` CSV + XLSX（轻量 ZIP/OpenXML 解析，中文表头可用） |
 | PDF 传输 | base64 only | base64 + `?format=binary` 真 `application/pdf` 字节流 |

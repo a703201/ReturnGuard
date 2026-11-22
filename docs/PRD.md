@@ -1,11 +1,13 @@
 # ReturnGuard 跨境退货情报站 · 产品需求文档（PRD）
 
-> **🟢 实现现状（2026-11-20）**：产品定位不变（市场洞察为主、单案取证为辅）；技术栈已切换为 **仓颉后端 + Vue3 前端**，
-> 主力 3 容器部署见 [`backend/README.md`](../backend/README.md)，接口契约见 [`openapi.yaml`](openapi.yaml)，
-> 价值/缺口评估见 [`PROJECT_EVALUATION.md`](PROJECT_EVALUATION.md)。本文需求口径对两套实现均适用。
+> **🟢 实现现状（2026-11-22）**：产品定位不变（市场洞察为主、单案取证为辅）；技术栈为 **仓颉原生后端 18 包 + Vue3/TS 前端**，
+> 3 容器部署（`rg_cj_app` / `rg_cj_opengauss` / `rg_cj_autoheal`，`http://127.0.0.1:58080`）见 [`backend/README.md`](../backend/README.md)，
+> 接口契约见 [`openapi.yaml`](openapi.yaml)，价值/缺口评估见 [`PROJECT_EVALUATION.md`](PROJECT_EVALUATION.md)。本文需求口径对应当前仓颉单一实现。
+>
+> **历史章节说明**：文末里程碑保留当时叙事；当前事实以 [`backend/README.md`](../backend/README.md) 与根 [`README.md`](../README.md) 为准。
 >
 > **文档版本**：v3.0
-> **最后更新**：2026-11-20（对应应用版本 3.0.0；需求口径稳定，实现现状见顶部说明）
+> **最后更新**：2026-11-22（对应应用版本 3.1.0；需求口径稳定，实现现状见顶部说明）
 > **负责人**：ReturnGuard 项目组
 > **关联文档**：`docs/API.md`（接口契约）、`docs/SCHEMA.md`（表结构）、`docs/AB_ROI_实证说明.md`（ROI / A/B 口径）、`docs/CODE_REVIEW.md`（审查记录）、`CHANGELOG.md`、`ModelRouter_API.docx`（模型能力参考）
 
@@ -73,7 +75,7 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 | ④ | 证据卷宗 + 母语语音 | 生成举证报告文本 + 60 字口头陈述 + 可播放语音 | `qwen/qwen3.7-max` + `qwen/qwen3-tts-instruct-flash` |
 | ⑤ | 案件优先级排序 | 相似度低 / 缺陷重 / 金额高 → 优先处理；rerank 相关性 50% + 本地可解释公式 50% 融合 | `qwen/qwen3-rerank`（未开通/超时即回退本地确定性公式） |
 
-> 上表为 **official（官方 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。详见 `demo/models_router.py` 的 `_MODEL_ROUTER_PROFILES`。
+> 上表为 **official（官方 Model Router）** 口径，全部模型带 `qwen/` 前缀；tokenplan 自测网关下文本为 `qwen3.7-max`、TTS 为 `qwen-audio-3.0-tts-plus`（无前缀）。平台与模型声明的单一来源是 `backend/rg-ai/src/providers.cj`，OpenAI 兼容调用层为 `backend/rg-ai/src/ai.cj`。
 
 ### 5.2 阶段 B · 群体洞察（功能⑥，产品核心）
 聚合维度：
@@ -94,13 +96,13 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 覆盖九大平台（Amazon / AliExpress / Temu / SHEIN / eBay / Shopee / Lazada / Walmart / TikTok Shop）的退货纠纷举证规则与 ReturnGuard 取证能力映射；单案取证时选定平台即自动带出**必备举证材料清单**（只列客观要求，不做裁决结论）。
 
 ### 5.4 多租户与账户体系
-- 一个用户 = 一个租户；`real` 源案件按 `tenant_id` 隔离（数据库层面独立库 `returnguard_real`）。
+- 一个用户 = 一个租户；案件在 **openGauss 单库 `returnguard_cj`** 内按 `tenant_id` 严格隔离（库 `returnguard_cj`，表 `rg_users` / `rg_cases` / `rg_audit` / `rg_sessions` 等，无 demo/real 双库）。
 - 注册 / 登录 / 令牌（无状态 HMAC 签名，7 天过期）/ 登出（令牌版本自增即时失效）。
 - 归属不明的历史数据归入显式 `public` 桶，**不再隐式共享给任意登录用户**（SEC-P0）。
 
 ### 5.5 界面本地化（i18n）
 - 界面支持 **zh / en / fr** 三语，顶栏切换并持久化（`localStorage.rg_lang`）。
-- 静态文案走 `data-i18n` / `data-i18n-label`，动态渲染走 `t()`；三语键集合由 `scripts/check_i18n.py` 强制对齐。
+- 静态文案走 `data-i18n` / `data-i18n-label`，动态渲染走 `t()`；三语键集合须在三份 catalog 间保持一致，新增文案同步补齐三语。
 - 数字与日期按语言格式化（`locale` 键：`zh-CN` / `en-US` / `fr-FR`）。
 - 后端数据值（洞察正文、缺陷标签、供应商名）保持原始语言；表单 `value` 为入库枚举，不随翻译改变。
 - 母语语音陈述支持 8 个语种（`zh`/`en`/`es`/`pt`/`de`/`fr`/`ja`/`ko`），前端界面语言与语音语种相互独立。
@@ -112,17 +114,17 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 ---
 
 ## 6. 关键流程
-- **单案取证**：`上传双图 → 落盘 uploads（签名短链访问）→ pipeline.analyze_case → 图片内联 base64 送模型（live）→ 沉淀案件库(real 源, save_case) → 返回前端`。
-- **群体洞察**：`load_cases → _aggregate 多维统计 → (live) build_insights_live LLM 归因 + 数值一致性校验(_reconcile_insights) → 附加 roi_backtest → 返回看板`。
+- **单案取证**：`上传双图 → 图片内联 base64 → POST /api/analyze 取证编排（图向量 / VL / OCR / rerank / TTS 逐能力）→ 沉淀案件库（单库 returnguard_cj，按 tenant_id 隔离）→ 返回前端`。
+- **群体洞察**：`GET /api/insights → 多维聚合统计 → (live) LLM 归因 + 数值一致性校验 → 附加 roi_backtest → 返回看板`。
 
 ---
 
 ## 7. 非功能性需求
 - **性能**：单案 mock < 500ms；live < 30s（受模型时延影响）。
-- **可用性**：live 逐能力回退，**失败结果不写缓存**（避免网关恢复后仍返回旧降级值）；数据库**统一 openGauss**（demo/auth → `returnguard`，real → 独立库 `returnguard_real`；业务代码零改动；仅离线 / CI 回退 SQLite）。
-- **部署**：主力 Docker Compose（仓颉 app + openGauss + autoheal，`docker/docker-compose.cangjie.yml`，app `127.0.0.1:58080`）；Python 版 Compose（openGauss + FastAPI）保留兼容。均**仅绑宿主机回环**，对外发布由部署方前置反向代理 / CDN 并配置 HTTPS。
+- **可用性**：live 逐能力回退，**失败结果不写缓存**（避免网关恢复后仍返回旧降级值）；数据库**统一 openGauss 单库 `returnguard_cj`**（容器 `rg_cj_opengauss`，宿主 `127.0.0.1:15433`，卷 `cjogdata`；无 demo/real 双库）。
+- **部署**：Docker Compose（`docker/docker-compose.cangjie.yml`）——仓颉 app + openGauss + autoheal 共 3 容器，app `127.0.0.1:58080`，均**仅绑宿主机回环**；对外发布由部署方前置反向代理 / CDN 并配置 HTTPS。另提供 Rust 桌面启动器 `launcher/`（Windows / WinUI 3，Linux / GTK4）一键管理上述服务。
 - **安全**：`MODEL_ROUTER_API_KEY`、`AUTH_SECRET` 等敏感值仅以环境变量注入，不入库、不进前端、不写入镜像。详见《接口文档》§6（SEC-1 ~ SEC-13）。
-- **可观测**：`GET /health` 探针 + `GET /metrics` 运行指标（需管理员）。
+- **可观测**：`GET /health` 深探针（含 DB，故障返回 503，由 `rg_cj_autoheal` 兜底重启）；`GET /api/config` 与 `GET /api/ai/providers` 公开当前版本与 AI 能力矩阵。
 - **前端交付**：静态资源 URL 版本化（`?v=<VERSION>`）+ `no-store`，保证发版即生效、不受浏览器 / CDN 缓存影响。
 
 ---
@@ -134,17 +136,17 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 
 ## 9. 系统集成架构
 ```
-前端（退货情报站 index.html · 5 Tab · zh/en/fr）
+前端（Vue3 + TS · web/ · 7 页 · zh/en/fr）
         │  HTTP /api/*   （静态资源带 ?v=<版本>，no-store）
         ▼
-仓颉后端（backend/，主力：rg-api/routes → rg-app → rg-data）／FastAPI（demo/main.py，兼容）
-   ├─ pipeline（取证 + 洞察业务逻辑 + ROI 回测）
-   ├─ db（SQLAlchemy：openGauss；demo/auth=returnguard，real=returnguard_real）
-   ├─ quota（SEC-13 live 配额闸）· shared_state（跨 worker 限流/登录锁）
-   └─ models_router ──HTTPS(OpenAI 兼容)──► 阿里云百炼 Model Router
-                                          （official: model-router.edu-aliyun.com/v1）
+仓颉原生后端（backend/ 18 包：rg-api/routes → rg-app → rg-data）
+   ├─ 取证 / 洞察业务逻辑 + ROI 回测（rg-api/src/routes）
+   ├─ db（openGauss 单库 returnguard_cj，租户隔离；无 demo/real 双库）
+   ├─ quota（SEC-13 live 配额闸）· session（滑动窗口会话、并发上限）
+   └─ rg-ai ──HTTPS(OpenAI 兼容)──► 多 AI 平台（14 家可选，默认 tokenplan 网关）
+                                  （声明见 backend/rg-ai/src/providers.cj）
 ```
-> Model Router 集成细节（模型映射、端点、请求/响应、回退策略）见《接口文档》§5。
+> Model Router 集成细节（模型映射、端点、请求/响应、回退策略）见《接口文档》§5 与 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)。
 
 ---
 
@@ -156,9 +158,9 @@ ReturnGuard 是面向跨境电商卖家的**「退货情报站」**：把每一�
 ---
 
 ## 11. 风险与依赖
-- 依赖网关侧发放的 **Model Router Key**（live 模式）。**图床不再是必需项**——视觉输入默认内联 base64，无需公网图床或对象存储同步（`PUBLIC_IMAGE_BASE` 降为可选增强）。
-- 相似度阈值 0.82 为经验初值，已提供 Youden J 自标定（`/api/calibrate`）。
-- openGauss 容器在 Windows + WSL2 下内存敏感，已备 PostgreSQL 兜底 compose（`docker-compose.pg.yml`）。
+- 依赖网关侧发放的 **Model Router Key**（live 模式）。**图床不再是必需项**——视觉输入默认内联 base64，无需公网图床或对象存储同步；远端对象存储接口预留但默认关闭。
+- 相似度阈值 0.82 为经验初值，口径上支持 Youden J 自标定。
+- openGauss 容器（`rg_cj_opengauss`，卷 `cjogdata`）在 Windows + WSL2 下内存敏感，compose 已设 `shm_size: 2gb` 并配 `rg_cj_autoheal` 自愈兜底。
 - live 模式真实消耗付费 Key，已加三层配额闸（SEC-13）防公网滥用；超限明确返回 `429`，**不静默降级**。
 - 演示数据集的**平台字段**为按「品类 × 地区」规则重映射的演示渠道标签（非原始数据集自带），文档与界面均如实标注。
 

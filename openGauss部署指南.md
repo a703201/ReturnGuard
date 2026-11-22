@@ -1,94 +1,97 @@
-# ReturnGuard · openGauss 部署与真实数据自动导入指南
+# ReturnGuard · openGauss 部署与数据导入指南
 
-> **🟢 仓颉主力**：主力 compose（`docker/docker-compose.cangjie.yml`）使用 openGauss 容器 `rg_cj_opengauss`（宿主 `127.0.0.1:15433` → 容器 `5432`，库 `returnguard_cj`），
-> app 通过 `RG_DB_HOST=db` 连接，`RG_DB_POOL=0`（仓颉池并发 dead lock，禁用）。下文 Python 版口径（单库 `returnguard` / 独立 real 库）保留兼容。
+> **🟢 当前实现（仓颉单一栈）**：compose（`docker/docker-compose.cangjie.yml`）为 **3 容器单库结构**——openGauss 容器 `rg_cj_opengauss`
+>（宿主 `127.0.0.1:15433` → 容器 `5432`，库 `returnguard_cj`，卷 `cjogdata`）、仓颉 app `rg_cj_app`（`127.0.0.1:58080`）、自愈守护 `rg_cj_autoheal`。
+> app 通过 `RG_DB_HOST=db` 连接，`RG_DB_POOL=0`（仓颉池并发 dead lock，禁用）。
 >
-> 适用：生产部署期使用国产数据库 openGauss 承载**全部业务数据**——demo / real / auth 三库均落在 openGauss（`db:5432/returnguard`），用户库不再落容器 SQLite、跨重启不丢。
-> **开发与部署统一使用 openGauss**：本地先 `docker compose -f docker/docker-compose.yml up -d db` 获得 `localhost:5432/returnguard`，`db.py` 默认即连 openGauss；仅在无 openGauss 的离线 / CI 环境才显式回退 SQLite（`DATABASE_URL=sqlite:///...`），**业务代码零改动**。
+> **历史记录说明**：历史版本记录保留当时叙事，当前事实以 [`backend/README.md`](backend/README.md)、根 [`README.md`](README.md) 与
+> [`docker/docker-compose.cangjie.yml`](docker/docker-compose.cangjie.yml) 为准。
+>
+> 适用：生产部署期使用国产数据库 openGauss 承载**全部业务数据**——仓颉后端连接单库 `returnguard_cj`（`rg_users` / `rg_cases` / `rg_audit` / `rg_sessions` 等表），
+> 按 `tenant_id` 做租户隔离，**不再有 demo/real 双库**。
 
 ---
 
 ## 1. 前置条件
 
-- Docker 中已启动 openGauss（用户环境已就绪）。示例连接信息：
-  - 主机：`localhost`（或容器映射端口 `5432`）
-  - 库：`postgres` / 自建 `returnguard`
-  - 用户：`gaussdb` / 密码：`<你的密码>`
-- 部署依赖已装：`pip install -r requirements.txt`（含 `psycopg2-binary` 连接驱动）
+- Docker 已就绪，并按 `docker/.env.example` 准备 `docker/.env`（`GS_PASSWORD` / `AUTH_SECRET` 必填）。
+- openGauss 由 compose 的 `rg_cj_opengauss` 容器提供（镜像 `enmotech/opengauss:5.0.0`）。示例连接信息：
+  - 主机：`127.0.0.1`，端口 `15433`（`CJ_DB_PORT`，容器内 `5432`）
+  - 库：`returnguard_cj`（`GS_DB`），卷 `cjogdata`
+  - 用户：`gaussdb`（`GS_USERNAME`）/ 密码：`GS_PASSWORD`
+- 仓颉镜像已内置连接驱动，无需额外语言依赖。
 
-> openGauss 兼容 PostgreSQL 协议，ReturnGuard 用 `postgresql+psycopg2://` 方言即可连接，无需官方方言包。
+> openGauss 兼容 PostgreSQL 协议，仓颉后端通过 `RG_DB_HOST` / `RG_DB_PORT` / `RG_DB_NAME` / `RG_DB_USER` / `RG_DB_PASSWORD` 连接，无需官方方言包。
 
 ---
 
 ## 2. 切到 openGauss（Docker Compose 一键部署，推荐）
 
-仓库 `docker/docker-compose.yml` 已内置 openGauss 服务（`rg_opengauss`）与应用服务（`rg_app`），**三库全部指向 openGauss**：
+仓库 `docker/docker-compose.cangjie.yml` 内置 **3 容器单库结构**：`rg_cj_opengauss`（唯一 DB）/ `rg_cj_app`（仓颉后端 + Vue 前端）/ `rg_cj_autoheal`（unhealthy 自动重启）：
 
 ```bash
-cd returnguard/docker
-docker compose up -d --build
-# 应用映射 127.0.0.1:65432:8000（仅绑宿主机回环；对外发布由部署方自行加反向代理 / CDN）
+cd returnguard
+cp docker/.env.example docker/.env       # 填 GS_PASSWORD / AUTH_SECRET
+bash docker/build-cangjie-docker.sh      # 构建仓颉后端镜像
+docker compose -f docker/docker-compose.cangjie.yml up -d --build
+# 应用映射 127.0.0.1:58080:8000，DB 映射 127.0.0.1:15433:5432（仅绑宿主机回环）
 ```
 
 compose 中已设：
 
 ```yaml
 environment:
-  DATABASE_URL:        postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
-  AUTH_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard
-  # P0 物理隔离：real 源使用独立库 returnguard_real（由 compose 的 realdb-init 一次性服务创建），
-  # 与 demo/认证库（returnguard）分库，杜绝「写入 real 却污染 demo 看板」的部署态缺陷。
-  REAL_DATABASE_URL:   postgresql+psycopg2://gaussdb:${GS_PASSWORD}@db:5432/returnguard_real
+  RG_DB_HOST: db
+  RG_DB_PORT: 5432
+  RG_DB_NAME: returnguard_cj
+  RG_DB_USER: gaussdb
+  RG_DB_PASSWORD: ${GS_PASSWORD}
+  RG_DB_POOL: ${RG_DB_POOL:-0}    # 禁用仓颉连接池（并发 dead lock），每次新建连接
+  AUTH_SECRET: ${AUTH_SECRET:?必须在 docker/.env 显式设置}
 ```
 
-> 关键：demo 与 auth 同库 `returnguard`（按 `source`/`tenant_id` 隔离），而 **real 源独立库 `returnguard_real`**——二者为 openGauss 上的两个数据库，实现真正的物理隔离：real 写入不会进入 demo 看板、demo 种子数字恒定不被污染。用户库不再落容器 SQLite，跨容器重启不丢账号与令牌。`returnguard_real` 由 compose 的 `realdb-init` 服务幂等创建（全新 `docker compose up` 自动就绪）。
+> 关键：**单库 `returnguard_cj`，按 `tenant_id` 做租户隔离**，不再有 demo/real 双库，也不落容器 SQLite。数据库卷 `cjogdata` 持久化，容器重建数据不丢；`/health` 为含 DB 的深探针（DB 故障返回 503），由 `rg_cj_autoheal` 兜底重启。
 
-### 2.1 手动环境变量方式（非容器，可选）
+### 2.1 本地仓颉后端直跑（非容器，可选）
 
 ```bash
-# 三库全部指向 openGauss（real 用独立库 returnguard_real）
-export DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
-export AUTH_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard"
-export REAL_DATABASE_URL="postgresql+psycopg2://gaussdb:你的密码@localhost:5432/returnguard_real"
-
-# 写接口鉴权：免登录 API Key 通道已移除，统一走登录会话（内置 demo/demo123 账户；
-# 公网演示建议 REGISTRATION_ENABLED=false）。无需再设 ANALYZE_API_KEY。
-# 可选：重置演示种子（仅 demo 库，real 实际库不动）
-export FORCE_RESEED=
-# 可选：上传图清理阈值（小时）
-export UPLOAD_MAX_AGE_HOURS=24
+cd returnguard
+bash backend/build.sh                     # 生成 build/rg-server.exe
+RG_WEB_DIR=$PWD/demo/webapp \
+RG_DB_HOST=127.0.0.1 RG_DB_PORT=15433 RG_DB_NAME=returnguard_cj \
+RG_DB_USER=gaussdb RG_DB_PASSWORD='<GS_PASSWORD>' \
+AUTH_SECRET='<≥32字节密钥>' \
+./build/rg-server.exe                     # 默认 http://127.0.0.1:8001
 ```
 
-启动后 `db.py` 的 `get_engine` 会自动建表（`Base.metadata.create_all`）+ 列迁移（`_migrate_case_columns`），无需手动建表。
+> 写接口须登录会话（`Authorization: Bearer` / `X-Token`），内置演示账号 `demo` / `demo123`；管理端点须 `AUTH_SECRET` 或登录令牌。
+> 端口由 `RG_HTTP_HOST` / `RG_HTTP_PORT` 调整（本机直跑默认 `8001`，容器内 `8000`）；非提权进程绑低端口在 Windows 上会报 `winerror 10013`。
 
-> **real 源独立库的默认行为（2.0.0 修正）**：`REAL_DATABASE_URL` 未显式配置时，`db.py` 会**由 `DATABASE_URL` 自动推导**独立库名（`returnguard` → `returnguard_real`，SQLite 的 `cases.db` → `cases_real.db`），因此任何部署形态都默认分库，不会静默把 real 写进 demo 库。若连接串形态特殊导致无法推导，日志会打 `CRITICAL` 提示显式配置。
-> openGauss 连接串中的口令与 `GS_PASSWORD` 同源（`DEFAULT_OG` 不再硬编码示例口令）。
-> 更完整的部署 / 环境变量 / 故障排查说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
-
-> 兼容性补丁：openGauss 的 `SELECT version()` 返回 `(openGauss 5.0.0 ...)`，SQLAlchemy PG 方言会误判；`db.py` 已内置 `_patch_opengauss_dialect`，仅在连接 openGauss/PostgreSQL 时挂接，提取主版本号，导入期无副作用。
+> 表结构由仓颉持久层初始化时建好（`backend/rg-data/src/db/db.cj`，含 `CREATE TABLE`），无需手动建表。
+> 更完整的部署 / 环境变量 / 故障排查说明见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) 与 [`backend/README.md`](backend/README.md)。
 
 ---
 
-## 3. 真实数据自动导入（开机即回流）
+## 3. 真实数据导入（CSV / XLSX）
 
-部署期设置 `RG_AUTO_IMPORT_CSV` 指向一份真实退货 CSV，服务启动即批量导入 **real 源**（即 openGauss）：
+仓颉后端通过 `POST /api/cases/import` 批量导入真实退货数据，落到单库 `returnguard_cj` 并按 `tenant_id` 隔离：
 
 ```bash
-export RG_AUTO_IMPORT_CSV="/path/to/returnguard/demo/seed_real.csv"
-uvicorn main:app --host 127.0.0.1 --port 8000
+curl --noproxy '*' -X POST http://127.0.0.1:58080/api/cases/import \
+  -H "Authorization: Bearer <你的令牌>" -H "Content-Type: application/json" \
+  -d '{"csv":"sku,category,supplier,platform,amount,date,similarity,outcome\nSKU-001,3C数码,S1,Amazon,299,2026-01-15,0.91,赢"}'
 ```
-> 本地直跑用 `127.0.0.1`：非提权进程绑 `0.0.0.0` 低端口在 Windows 上会报 `winerror 10013`。容器部署由 compose 映射到 `127.0.0.1:65432`。
 
-仓库已附 `demo/seed_real.csv`（20 条样例，覆盖 US/UK/DE/FR/ES/RU/BR 与 5–9 月，便于验证时间序列+预测与地区维度）。
+> `POST /api/cases/import` 的 JSON 体用 `csv` 传 CSV 文本；XLSX 用 `content` 传 base64 并设 `source=xlsx`（读首个 sheet）。写接口须登录会话。
+> 演示数据集共 1206 条案件 · 9 平台，原始文件已移出仓库存于项目外归档目录；可按下列列映射整理后导入验证。
 
-### 自动导入特性
+### 导入特性
 
-- **幂等**：`dedupe=True` 按自然键 `(sku, 日期, 相似度)` 跳过 real 源中已存在的行，容器重启重复挂载同一份 CSV **不会重复堆积**。
-- **案件号补齐**：导入行自动生成 `RG-XXXXXXXX` 案件号（原链路缺 case_id → NULL，导致无法按 ID 删除/去重；现已与 `/api/cases` 手动录入一致）。
-- **失败不阻断启动**：导入异常仅记日志，服务照常启动。
-- **仅落 real 源**：CSV 导入强制落到 real（真实业务库），绝不污染 demo 种子库。
+- **幂等**：按自然键 `(sku, 日期, 相似度)` 跳过已存在的行，重复导入同一份文件**不会重复堆积**。
+- **案件号补齐**：导入行自动生成 `RG-XXXXXXXX` 案件号，与 `/api/cases` 手动录入一致。
+- **租户隔离**：导入数据落 `returnguard_cj` 并归属当前租户，不污染其它租户数据；无 demo/real 双库。
 
-### CSV 列映射（`importer._COL_MAP`，大小写/下划线/中文不敏感）
+### CSV 列映射（大小写 / 下划线 / 中文不敏感）
 
 | CSV 列名 | 含义 | 备注 |
 |---|---|---|
@@ -108,32 +111,33 @@ uvicorn main:app --host 127.0.0.1 --port 8000
 ## 4. 验证部署
 
 ```bash
-# 健康检查（容器映射 127.0.0.1:65432 → 容器 8000；如需公网访问，自行前置反向代理 / CDN）
-curl http://127.0.0.1:65432/health
-curl http://127.0.0.1:65432/api/config        # 应返回 "version": "3.0.0"
+# 健康深探针（含 DB，故障返回 503；如需公网访问，自行前置反向代理 / CDN）
+curl --noproxy '*' http://127.0.0.1:58080/health
+curl --noproxy '*' http://127.0.0.1:58080/api/config        # 应返回 "version": "3.1.0"
+curl --noproxy '*' http://127.0.0.1:58080/api/ai/providers  # 14 平台能力矩阵（公开、无密钥）
 
-# 看板应基于 real 源、含自动导入的数据
-curl "http://127.0.0.1:65432/api/insights?source=real&mode=mock" | python -m json.tool | head -20
-
-# 确认 demo 源已重播 1206 条
-curl "http://127.0.0.1:65432/api/cases?source=demo&slim=1" | python -c "import sys,json;print('demo 源案件数:',len(json.load(sys.stdin)))"
+# 登录后查询案件与洞察（单库 returnguard_cj，按 tenant_id 隔离）
+curl --noproxy '*' -H "Authorization: Bearer <你的令牌>" \
+  "http://127.0.0.1:58080/api/insights?mode=mock"
+curl --noproxy '*' -H "Authorization: Bearer <你的令牌>" \
+  "http://127.0.0.1:58080/api/cases"
 ```
 
-重启服务再次确认：real 源案件数**不翻倍**（幂等生效）。
+重启服务再次确认：导入的案件数**不翻倍**（幂等生效）。
 
 ---
 
 ## 5. 平台连接器（进阶，可选）
 
-待 Amazon SP-API / AliExpress 凭证就绪，`importer.import_from_connector(connector)` 可直接把平台退货数据落库，接口已预留，不改变 CSV 导入主链路。
+平台连接器位已预留（见根 `README.md`「主要能力」），待 Amazon SP-API / AliExpress 凭证就绪后可接入，不改变 CSV / XLSX 导入主链路。
 
 ---
 
 ## 6. 注意事项
 
-- **物理隔离（P0 修正）**：demo 与 auth 同库 `returnguard`，real 源独立库 `returnguard_real`（`realdb-init` 创建）。demo 永远来自种子、real 来自录入/导入、auth 存账号/令牌；三者切换零代码（`?source=demo|real` 或前端顶栏）。因 real 为独立库，`init_db('real', force=True)` 重置实际库时**不会**误清 demo 种子（旧设计共享同库时会，已根治）。
-- **`sku_name` 长度**：模型定义为 `VARCHAR(256)`；cases.json 中有商品名长达 145 字符，openGauss 严格长度校验会在 `VARCHAR(128)` 下批量插入报 `DataError`，已扩列规避。
-- **Docker 绑挂载与 WAL**：历史上曾用 SQLite + 宿主目录绑挂载的编排（`docker-compose.local.yml`），在 Windows/macOS 挂载点上会触发 `PRAGMA journal_mode=WAL` 的 `disk I/O error`（该编排已于 2.0.0 移除）。如需在绑定挂载场景临时回退，可用 `SQLITE_NO_WAL=1` 改走 DELETE 日志模式；**部署请统一用 `docker-compose.yml`（openGauss）或 `docker-compose.pg.yml`（PostgreSQL 兜底）**。
-- 多 worker 部署（gunicorn -w N）下：聚合代际计数与限流/登录锁已外置为独立 SQLite（`rg_kv` / `shared_state.py`，SEC-12），状态跨 worker 一致；其余运行指标仍为进程内，openGauss 生产多实例建议上层加 Redis 共享（后续优化项，非阻断）。
-- 上传图（客户 PII）已改为 HMAC 签名短链 `/api/file/{sig}`（SEC-8），不再经 `/uploads` 公开挂载；对外部署无需再处理静态可读问题。
-- **版本号读取**：容器镜像已确保 `main.py` 能读到 `/app/VERSION`（Dockerfile `COPY demo/ ./demo/` + entrypoint `cd demo`），`/api/config.version` 返回 `3.0.0`；若误显示 `unknown`，检查镜像构建是否把 `demo/` 拍平到了 `/app`。
+- **租户隔离**：单库 `returnguard_cj` 内按 `tenant_id` 严格隔离（一个用户 = 一个租户）；不再有 `?source=demo|real` 切换，也无 demo/real 双库。
+- **字段长度**：`sku` / `category` / `supplier` / `listing_text` 等字段按表结构长度约束，超长值需在写入前截断或校验（参见 `backend/README.md`）。
+- **统一容器编排**：部署请统一用 `docker/docker-compose.cangjie.yml`（3 容器单库）。仓颉连接池并发有 dead lock，compose 默认 `RG_DB_POOL=0`（每次新建连接，连接串 5s 超时兜底），勿擅自开启。
+- **卷与自愈**：`cjogdata` 持久化数据库，`cjappdata` 持久化 AI 配置（含 API Key）；`/health` 深探针含 DB `SELECT 1`，DB 故障返回 503，`rg_cj_autoheal` 发现 unhealthy 即重启 app。
+- **上传图（客户 PII）**：默认内联 base64 送模型，退货图不出境；远端对象存储接口预留但默认关闭。
+- **版本号读取**：`/api/config.version` 返回 `3.1.0`（与仓库根 `VERSION` 一致）；若误显示 `unknown`，检查 `RG_VERSION` 与镜像构建（见 `backend/README.md`）。

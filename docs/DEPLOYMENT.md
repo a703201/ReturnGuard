@@ -1,13 +1,14 @@
 # ReturnGuard 部署与运维指南
 
-> **🟢 主力部署（2026-11-20）**：`docker/docker-compose.cangjie.yml` —— **3 容器单库**：
-> `rg_cj_app`（仓颉后端 + Vue3 前端，`127.0.0.1:58080`）/ `rg_cj_opengauss`（唯一 DB，`15433`）/ `rg_cj_autoheal`（unhealthy 自动重启）。
+> **当前形态（2026-11-22）**：仓颉后端 18 包 + Vue3 前端 + Rust 二进制启动器，openGauss 单库。
+> 主力部署：`docker/docker-compose.cangjie.yml` —— 3 容器：
+> `rg_cj_app`（仓颉后端 + Vue 前端，`127.0.0.1:58080`）/ `rg_cj_opengauss`（唯一 DB，`15433`）/ `rg_cj_autoheal`（unhealthy 自动重启）。
 > 构建：`bash docker/build-cangjie-docker.sh`（工具链镜像 `ams-cj:1.2.0-beta.03` 缺失时自动从 `D:/cangjie-sdk-cache` 重建）。
 > 关键点：`RG_DB_POOL=0` 禁用仓颉连接池（并发 dead lock）；启动日志应显示「数据库连接已建立（无池）」。
-> 下文 §2 起为 **Python 版（FastAPI）** 部署说明，保留兼容。
 >
-> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
-> 相关文档：[`openGauss部署指南.md`](../openGauss部署指南.md)（openGauss 细节与真实数据自动导入）、[`API.md`](API.md)、[`SCHEMA.md`](SCHEMA.md)
+> 适用版本：3.1.0（仓库根 `VERSION` 为单一来源）
+> 相关文档：[`README.md`](../README.md)、[`backend/README.md`](../backend/README.md)、
+> [`launcher/README.md`](../launcher/README.md)、[`openGauss部署指南.md`](../openGauss部署指南.md)
 
 ---
 
@@ -15,11 +16,12 @@
 
 | 维度 | 说明 |
 |---|---|
-| 运行形态 | Docker Compose：`db`（openGauss）+ `app`（FastAPI）+ `realdb-init`（一次性建 real 库） |
-| 数据库 | **openGauss 5.0.0**（兼容 PostgreSQL 协议），demo / auth 落 `returnguard`，**real 落独立库 `returnguard_real`** |
-| 对外暴露 | 应用与数据库**均只绑宿主机回环**（`127.0.0.1:65432` / `127.0.0.1:5432`）；公网发布由部署方前置反向代理 / CDN 并配置 HTTPS |
-| 兜底形态 | 无 openGauss 环境时用 `docker-compose.pg.yml`（PostgreSQL 版，含同样的 real 库初始化与端口收敛） |
-| 非容器形态 | 直接 `uvicorn main:app`（开发 / 联调），见 §5 |
+| 运行形态 | Docker Compose：`db`（openGauss 5.0）+ `app`（仓颉后端，同端口托管 Vue 前端）+ `autoheal`（自愈守护） |
+| 数据库 | **openGauss 5.0.0**（兼容 PG 协议），单库 `returnguard_cj`，五表 `rg_users` / `rg_cases` / `rg_audit` / `rg_sessions` / `rg_quota` |
+| 对外暴露 | 应用与数据库**均只绑宿主机回环**（`127.0.0.1:58080` / `127.0.0.1:15433`）；公网发布由部署方前置反向代理 / CDN 并配置 HTTPS |
+| 持久卷 | `cjogdata`（数据库）/ `cjappdata`（AI 配置 `/app/data`，设置页保存后重启不丢） |
+| 非容器形态 | 本地 `rg-server.exe`（开发 / 联调），见 §5 |
+| 桌面启动器 | `launcher/`：Windows WinUI 3 / Linux GTK4，可视化启停、状态、日志，见 [`launcher/README.md`](../launcher/README.md) |
 
 > **为什么默认只绑回环**：非提权进程绑定 `0.0.0.0` 或低端口在 Windows 上会报 `winerror 10013`；
 > 且应用与数据库直接暴露到局域网是常见事故源。需要公网访问时，正确做法是在前面加一层
@@ -32,223 +34,169 @@
 ```bash
 cd returnguard
 
-# 1) 准备环境变量（必填 GS_PASSWORD；缺失时 compose 直接报错中止）
+# 1) 准备环境变量（GS_PASSWORD、AUTH_SECRET 必填；缺失时 compose 直接中止）
 cp docker/.env.example docker/.env
 vi docker/.env
 
-# 2) 构建并启动
-docker compose -f docker/docker-compose.yml up -d --build app
+# 2) 构建仓颉后端镜像（Linux ELF，工具链容器内编译，非交叉编译）
+bash docker/build-cangjie-docker.sh
 
-# 3) 判活
-curl -s http://127.0.0.1:65432/health
-curl -s http://127.0.0.1:65432/api/config      # 应含 "version": "3.0.0"
+# 3) 启动三容器
+docker compose -f docker/docker-compose.cangjie.yml up -d --build
+
+# 4) 判活（/health 为含 DB 的深探针，DB 故障返回 503）
+curl --noproxy '*' http://127.0.0.1:58080/health
+curl --noproxy '*' http://127.0.0.1:58080/api/config      # 应含 "version": "3.1.0"
 ```
 
-一键脚本等价封装：
+也可以直接用桌面启动器（推荐日常使用）：构建后运行，界面点「启动服务」；
+它封装了上述构建、启停、健康探测与日志查看，并会提示失败原因。
 
-```bash
-python start_rg.py            # 启动容器并等待 /health 就绪（首次含 openGauss 初始化，最多等 3 分钟）
-python start_rg.py --build    # 改完代码后重建镜像再启动
-python stop_rg.py             # 停止容器（保留容器，下次可 docker start 秒起）
-python stop_rg.py --down      # 移除容器与网络（named volume 保留，数据不丢）
-```
+> ⚠️ 本机 `docker compose` 插件不可用时，改用独立 `docker-compose -f docker/docker-compose.cangjie.yml ...`。
+> 服务名是 `db` / `app` / `autoheal`，容器名是 `rg_cj_opengauss` / `rg_cj_app` / `rg_cj_autoheal`。
+> 本机 65xxx 段被 Windows 保留，故端口默认为 58080 / 15433；如需调整，改 `docker/.env` 的 `CJ_APP_PORT` / `CJ_DB_PORT`。
 
-> ⚠️ 本机旧版 `docker compose` 插件不可用时，改用独立 `docker-compose -f docker/docker-compose.yml ...`。
-> **服务名是 `db` / `app`**，重建要写 `--build app`。
+### 2.1 仓颉镜像构建说明
 
-### 2.1 离线构建（网络受限 / 不稳定时**强烈建议**）
+仓颉 SDK **不支持交叉编译**，本机 SDK 也没有 Linux 目标（PE32+ exe 跑不了 Linux 容器）。
+构建复用本机已有的工具链镜像 `ams-cj:1.2.0-beta.03`（含 Linux cjc + stdx，免下 200MB SDK）
+与 AMS Linux 备份的 openGauss 驱动 / FFI 库。要点：
 
-**症状**：构建在 `pip wheel` 阶段失败，报
-`THESE PACKAGES DO NOT MATCH THE HASHES FROM THE REQUIREMENTS FILE`（本质是 wheel 下载损坏）
-或 `TimeoutError: The read operation timed out`。原因是容器内直连 PyPI / 镜像下载慢且易中断。
+- Linux 链接用裸 `--start-group`（无 `-Wl,`），stdx 排除 `syntax` / `unittest` / `plugin.manager` / `aspect*` / `fuzz`，补 `opensslFFI.so`。
+- `build.sh` 的驱动 import-path 必须用 Windows 风格路径（cjc 会把中文路径乱码）。
+- 驱动复用 AMS `backend/drv/`（14 cjo + 14 a），必须 `import cangjie_tpc::opengauss.driver.*` 触发顶层注册。
 
-**对策**：在本机把依赖 wheel 一次性下好，随构建上下文带进镜像，构建期**完全不联网**。
-
-```bash
-python scripts/fetch_wheels.py            # 默认 linux/amd64 + CPython 3.11（对齐 Docker 镜像）
-# ARM 服务器：python scripts/fetch_wheels.py --arch arm64
-
-docker compose -f docker/docker-compose.yml build app     # 命中离线缓存，数秒完成
-docker compose -f docker/docker-compose.yml up -d
-```
-
-- 缓存位于 `docker/wheels/*.whl`（约 20MB），**已在 `.gitignore` 中忽略**，只保留 `.gitkeep` 占位；
-  Dockerfile 会先 `COPY docker/wheels/`，若目录内含 `*.whl` 就走 `--no-index` 离线解析，否则回退联网。
-- 构建日志出现 `[build] 使用离线 wheel 缓存：N 个 wheel` 即表示命中。
-- ⚠️ 已知坑：`uvloop` 带环境标记 `sys_platform != "win32"`，在 Windows 上 `pip download` 会**静默跳过**，
-  但 Linux 容器必需 → 离线解析会报 `No matching distribution found for uvloop`。
-  `scripts/fetch_wheels.py` 已内置这一步补齐（见脚本 docstring），
-  **不要手工只用一条 `pip download -r requirements.txt` 生成缓存**。
-- 依赖版本变更后需重新生成缓存（建议加 `--clean`）。
-
-**备选**：若不想用离线缓存，可只把构建期 pip 源换成国内镜像（在 `docker/.env` 设 `PIP_INDEX_URL`）——
-能提速但仍受容器网络质量影响，不如离线缓存稳。
-
-## 3. 兜底部署（PostgreSQL）
-
-openGauss 镜像在部分 Docker Desktop / WSL2 环境下不稳定时，可用官方 PostgreSQL 做本地全链路验证：
-
-```bash
-docker compose -f docker/docker-compose.pg.yml up -d --build
-```
-
-该编排与主 compose **口径对齐**：口令强制必填（`GS_PASSWORD`）、数据库与应用端口仅绑回环、
-独立的 `realdb-init` 创建 `returnguard_real` 保持 demo/real 物理隔离、透传 `AUTH_SECRET` /
-`ADMIN_API_KEY` / `STATE_DB_URL`，并挂载 `pgdata` / `pg_uploads` / `pg_state` 三个持久卷。
-
-> 仅用于验证，不作为生产形态；生产请用 openGauss 编排。
+镜像构建脚本已封装这些细节，通常无需手工干预；失败时先看脚本输出与 `backend/README.md`「踩坑」章节。
 
 ---
 
-## 4. 环境变量清单
+## 3. 环境变量清单
 
-### 4.1 数据库与存储
+### 3.1 服务与数据库
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | openGauss `localhost:5432/returnguard` | demo 源（共享只读演示库） |
-| `REAL_DATABASE_URL` | **由 `DATABASE_URL` 推导 `*_real`** | real 源（真实数据，按租户隔离） |
-| `AUTH_DATABASE_URL` | 同 `DATABASE_URL` | 账户 / 令牌库 |
-| `STATE_DB_URL` | `demo/rg_state.db` | 限流 / 登录锁 / live 配额计数；**仅支持 SQLite**（依赖 `ON CONFLICT` upsert），容器内建议 `sqlite:////app/demo/state/rg_state.db` |
-| `GS_PASSWORD` / `GS_HOST` / `GS_PORT` / `GS_USERNAME` | `Gauss-2026` / `localhost` / `5432` / `gaussdb` | openGauss 连接参数（compose 中 `GS_PASSWORD` 必填） |
-| `FORCE_RESEED` | 空 | `1` = 启动时重建 demo 演示种子（real 源数据不动） |
-| `RG_AUTO_IMPORT_CSV` | 空 | 启动时把该 CSV 导入 real 源（`dedupe` 幂等） |
-| `UPLOAD_MAX_AGE_HOURS` | `24` | 上传图清理阈值 |
-| `UPLOAD_URL_TTL` | `3600` | 上传图签名短链有效期（秒） |
+| `RG_HTTP_HOST` / `RG_HTTP_PORT` | `127.0.0.1`（容器 `0.0.0.0`）/ `8001`（容器 `8000`） | 监听地址与端口 |
+| `RG_WEB_DIR` | `../demo/webapp` | Vue 产物目录（空字符串 = 不托管） |
+| `RG_VERSION` | `3.1.0` | `/api/config` 返回值 |
+| `RG_THRESHOLD_PCT` | `82` | 同款一致性阈值（整数百分号） |
+| `RG_DB_HOST` | 空 | openGauss 主机；**非空即启用持久化**，空 = 内存回退（开发 / CI） |
+| `RG_DB_PORT` / `RG_DB_NAME` / `RG_DB_USER` / `RG_DB_PASSWORD` | `15432` / `returnguard_cj` / `gaussdb` / 空 | 连接参数 |
+| `RG_DB_POOL` | `0` | **保持 0**：仓颉池并发存在 dead lock；每次新建连接，连接串 `connection_timeout=5000` |
+| `CJ_APP_PORT` / `CJ_DB_PORT` | `58080` / `15433` | compose 宿主机映射端口（仅回环绑定） |
+| `GS_PASSWORD` | 必填 | openGauss 初始口令 |
 
-> **real 源不会误写进 demo 库**：`REAL_DATABASE_URL` 留空时由 `DATABASE_URL` 派生独立库名；
-> 若连接串形态导致无法派生，启动日志会打 `CRITICAL`，请显式配置。
-
-### 4.2 安全（对外部署必设）
+### 3.2 认证安全
 
 | 变量 | 说明 |
 |---|---|
-| `AUTH_SECRET` | 令牌 HMAC 签名密钥。**不设则每次重启进程内随机**，所有已签发令牌失效（应用启动打 `CRITICAL`） |
-| `ADMIN_API_KEY` | `/api/calibrate`、`/metrics` 管理端点密钥；不设则退化为「要求登录」 |
-| `AUTH_TRUSTED_PROXIES` | 可信反代网段（逗号分隔 IP/CIDR）。反代场景必设，否则限流/防爆破按 `127.0.0.1` 单桶计数而失效 |
-| `REGISTRATION_ENABLED` | 注册开关，默认 `false`（secure-by-default） |
-| `REGISTRATION_INVITE_CODE` | 邀请码；非空则注册须匹配 |
-| `AUTH_REGISTER_LIMIT` / `AUTH_LOGIN_IP_LIMIT` | 每 IP 每分钟注册 / 登录上限（默认 10 / 30） |
-| `LOGIN_MAX_FAILS` / `LOGIN_LOCK_MIN` | 单用户名连续失败上限与锁定时长（默认 5 次 / 15 分钟） |
-| `ANALYZE_RATE_LIMIT` | 分析接口每客户端每分钟上限（默认 60，`0` 关闭） |
-| `EXPORT_PDF_RATE_LIMIT` | 报告导出每客户端每分钟上限（默认 20，`0` 关闭） |
-| `CORS_ALLOW_ORIGINS` | 跨域白名单（逗号分隔具体域名，**禁止 `*`**）；留空 = 不挂 CORS |
+| `AUTH_SECRET` | 令牌签名密钥，**生产必填 ≥32 字节**；不设则服务拒绝启动 |
+| `RG_SESSION_IDLE_MS` | 会话空闲超时（毫秒，默认 24h，`0` = 禁用），滑动窗口刷新 `rg_sessions.last_used_ms` |
+| `RG_SESSION_MAX` | 单账号并发会话上限（默认 5，`0` = 不限） |
+| `AUTH_TRUSTED_PROXIES` | 可信反代网段（逗号分隔 IP/CIDR）。反代场景必设，否则限流 / 防爆破按 `127.0.0.1` 单桶计数而失效 |
 
-生成密钥：
+生成密钥（任选一种）：
 
 ```bash
-python -c "import secrets;print(secrets.token_hex(32))"   # AUTH_SECRET
-python -c "import secrets;print(secrets.token_hex(24))"   # ADMIN_API_KEY
+openssl rand -hex 32
+# 或：python -c "import secrets;print(secrets.token_hex(32))"
 ```
 
-### 4.3 AI 平台（多厂商可选）
+### 3.3 AI 平台
 
 | 变量 | 说明 |
 |---|---|
-| `MODEL_ROUTER_PROFILE` | 选择 AI 平台，默认 `tokenplan`；可选值见 `GET /api/providers` 或 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)（兼容别名 `RG_AI_PROVIDER`） |
-| 平台密钥 | 各平台独立变量：`MODEL_ROUTER_API_KEY`(tokenplan) / `MODEL_ROUTER_OFFICIAL_KEY`(official) / `DASHSCOPE_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `MOONSHOT_API_KEY` / `ZHIPU_API_KEY` / `SILICONFLOW_API_KEY` / `OPENROUTER_API_KEY` / `AZURE_OPENAI_API_KEY` / `RG_CUSTOM_API_KEY` / `OLLAMA_API_KEY`（本地可空）——**live 必需**（本地端点除外） |
-| 基地址覆盖 | 各平台独立：`MODEL_ROUTER_BASE_URL` / `MODEL_ROUTER_OFFICIAL_BASE_URL` / `DASHSCOPE_BASE_URL` / `OPENAI_BASE_URL` / `OLLAMA_BASE_URL` / `RG_CUSTOM_BASE_URL` … |
-| `RG_MODEL_TEXT` `RG_MODEL_VL` `RG_MODEL_OCR` `RG_MODEL_EMBED` `RG_MODEL_RERANK` `RG_MODEL_TTS` | 逐能力覆盖模型标识（平台改版 / 自建端点用） |
-| `MODEL_ROUTER_TEXT_MODEL` | 仅覆盖文本模型（历史变量，向后兼容） |
-| `AZURE_OPENAI_API_VERSION` | Azure OpenAI 的 API 版本（默认 `2024-10-21`） |
-| `PUBLIC_IMAGE_BASE` / `RG_SELF_IMAGE_BASE` / `IMAGE_BED` | **可选**：仅在希望视觉能力走「公网 URL 回源」时配置；默认内联 base64，无需公网图床 |
-| `LIVE_QUOTA_GLOBAL_DAY` / `LIVE_QUOTA_TENANT_DAY` / `LIVE_QUOTA_IP_HOUR` | SEC-13 三层 live 配额（默认 300 / 60 / 20，`0` 关闭该层） |
-| `LLM_MAX_RETRIES` / `LLM_BACKOFF_BASE` / `LLM_CB_THRESHOLD` / `LLM_CB_COOLDOWN` | 重试次数 / 退避基数（秒）/ 熔断阈值 / 熔断冷却（秒） |
-| `LLM_HTTP_TIMEOUT` / `LLM_TOTAL_BUDGET` | 单次外部调用超时（默认 60s）/ 单请求 live 链路总预算（默认 120s） |
+| `RG_AI_PROVIDER`（兼容别名 `MODEL_ROUTER_PROFILE`） | 选择平台，默认 `tokenplan`；可选值见 `GET /api/ai/providers` 或 [`AI_PROVIDERS.md`](AI_PROVIDERS.md) |
+| `RG_AI_BASE_URL` / `RG_AI_KEY` / `RG_AI_MODEL` | 启动注入的网关配置；无密钥时 `/api/analyze` 诚实回退 mock，不伪装成功 |
+| 各平台密钥变量 | 见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md)；设置页保存后写入卷 `cjappdata`，重启生效 |
+| `RG_AI_CONFIG_FILE` | AI 配置持久化路径（默认 `/app/data/ai_config.env`） |
 
-> **切换平台时无需手工对齐三处**：`base_url` + 密钥 + 模型标识已随平台声明固化在
-> `demo/providers.py`，只改 `MODEL_ROUTER_PROFILE` 即可。
-> 平台能力缺口（如 OpenAI 无 rerank、DeepSeek 无视觉）会在运行期如实回退并在响应中标注；
-> 切换前建议先查 `GET /api/providers` 的能力矩阵。
-> 数据出境与合规提示见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md) §8。
-
-### 4.4 其他
-
-| 变量 | 说明 |
-|---|---|
-| `SERVE_MINIFIED` | `1` = 改发 `demo/static/dist/` 的压缩产物（需先 `npm run build`）；默认发未压缩源 |
-| `SQLITE_NO_WAL` | `1` = SQLite 改用 DELETE 日志模式（绑挂载场景兜底） |
-| `WAL_CHECKPOINT_INTERVAL_SEC` | SQLite WAL 巡检间隔（秒，`<=0` 关闭） |
-| `RG_COMPOSE_FILE` | `start_rg.py` / `stop_rg.py` 使用的 compose 文件路径覆盖 |
-| `RG_LOCAL_URL` | `start_rg.py` 判活与打开页面使用的本地地址 |
-| `PIP_INDEX_URL` | **构建期**（非运行期）pip 源，默认 `https://pypi.org/simple`；国内建议设为镜像（如 `https://pypi.tuna.tsinghua.edu.cn/simple`）以提速。仅在**未提供离线 wheel 缓存**时生效，见 §2.1 |
-
-> `PIP_INDEX_URL` 由 `docker-compose.yml` 的 `build.args` 传入，作用范围只在构建阶段，不会进入运行期镜像环境。
+> 设置页读写端点 `GET/POST /api/ai/settings` **需登录**，密钥永不回传（只有 `apiKeySet` / `apiKeyMask`）。
+> 平台能力缺口（如 OpenAI 无 rerank、DeepSeek 无视觉）在运行期如实回退并在响应中标注；
+> 切换前建议先查 `GET /api/ai/providers` 的能力矩阵。数据出境与合规提示见 [`AI_PROVIDERS.md`](AI_PROVIDERS.md) §8。
 
 ---
 
-## 5. 非容器部署（开发 / 联调）
+## 4. 非容器部署（开发 / 联调）
 
 ```bash
-cd returnguard/demo
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
+cd returnguard
+bash backend/build.sh                     # 生成 build/rg-server.exe
+RG_HTTP_PORT=8001 \
+RG_WEB_DIR=<绝对路径>/demo/webapp \
+RG_DB_HOST=127.0.0.1 RG_DB_PORT=15433 \
+RG_DB_NAME=returnguard_cj RG_DB_USER=gaussdb RG_DB_PASSWORD=<口令> \
+AUTH_SECRET=<≥32字节密钥> \
+./build/rg-server.exe
 ```
 
-- 默认连 openGauss；无 openGauss 时显式回退 SQLite：`DATABASE_URL=sqlite:///./cases.db`。
-- `real` 源会按 `_derive_real_url` 推导出 `cases_real.db`，与 demo 分库。
+- 不设 `RG_DB_HOST` 时自动回退内存模式（离线 / CI），`/api/config.persistence` 如实返回。
 - 用 `127.0.0.1` 而非 `0.0.0.0`：非提权进程绑低端口 / 通配地址在 Windows 上可能报 `winerror 10013`。
+- 内存 Store 与 DB 是两层：直接删 DB 记录不会同步内存，需重启应用重载。
 
 ---
 
-## 6. 系统服务化（systemd，可选）
+## 5. 系统服务化
 
-仓库提供 `docker/returnguard.service`（把 compose 栈注册为系统服务）：
+仓库不再内置 systemd unit（原 unit 指向已归档的旧栈）。生产环境请按实际路径自建 unit，
+核心 `ExecStart` 为：
 
-```bash
-sudo cp docker/returnguard.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now returnguard
-systemctl status returnguard          # 判活
-journalctl -u returnguard -f          # 日志
+```ini
+ExecStart=/usr/bin/docker compose -f /opt/returnguard/docker/docker-compose.cangjie.yml up -d
+WorkingDirectory=/opt/returnguard
+Restart=on-failure
 ```
 
-前提：仓库放在 `/opt/returnguard` 且同目录存在 `.env`（含 `GS_PASSWORD` / `AUTH_SECRET` 等，**切勿入库**）。
+前提：仓库放在 `/opt/returnguard` 且 `docker/.env` 含 `GS_PASSWORD` / `AUTH_SECRET`（**切勿入库**）。
 
 ---
 
-## 7. 验证部署
+## 6. 验证部署
 
 ```bash
-# 健康探针
-curl -s http://127.0.0.1:65432/health
+# 健康探针（含 DB 深探针）
+curl --noproxy '*' http://127.0.0.1:58080/health
 
-# 版本与运行态（图床后端、网关 profile、语种清单）
-curl -s http://127.0.0.1:65432/api/config
+# 版本 / 运行态
+curl --noproxy '*' http://127.0.0.1:58080/api/config
 
-# demo 源案件数（应稳定为 1206，不随 real 写入变化）
-curl -s "http://127.0.0.1:65432/api/cases?source=demo&slim=1" \
-  | python -c "import sys,json;print('demo 案件数:',len(json.load(sys.stdin)['items']))"
+# 公开能力矩阵、平台举证包、国密能力
+curl --noproxy '*' http://127.0.0.1:58080/api/ai/providers
+curl --noproxy '*' http://127.0.0.1:58080/api/platforms
+curl --noproxy '*' http://127.0.0.1:58080/api/crypto/capabilities
 
-# real 源：须登录（匿名应 401）
-TOK=$(curl -s -X POST http://127.0.0.1:65432/api/auth/login \
+# 需登录的洞察接口：先登录拿令牌
+TOK=$(curl --noproxy '*' -s -X POST http://127.0.0.1:58080/api/auth/login \
   -H "Content-Type: application/json" -d '{"username":"demo","password":"demo123"}' \
-  | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
-curl -s -H "Authorization: Bearer $TOK" \
-  "http://127.0.0.1:65432/api/insights?source=real&mode=mock" | head -c 300
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+curl --noproxy '*' -s -H "Authorization: Bearer $TOK" \
+  http://127.0.0.1:58080/api/insights | head -c 300
 ```
+
+> 沙箱环境有代理，不加拿 `--noproxy '*'` 会返回 502。
 
 ---
 
-## 8. 故障排查
+## 7. 故障排查
 
 | 现象 | 排查与处置 |
 |---|---|
-| 容器起不来 / 应用连不上库 | `docker logs rg_opengauss`、`docker logs rg_app`；确认 `docker/.env` 里 `GS_PASSWORD` 已填（缺失时 compose 直接中止） |
-| `DataError: value too long` | 理论上已被持久层 `_clamp_values` 按列长截断；若仍出现，检查是否绕过 `save_case` 直接写库 |
-| `no such table: cases` | 表未初始化：确认 `entrypoint.sh` 正常执行（`init_db()`）；离线 SQLite 场景确认 `DATABASE_URL` 指向可写路径 |
-| 重启后需重新登录 | `AUTH_SECRET` 未固化（进程内随机密钥）→ 设置高熵 `AUTH_SECRET` |
-| 限流「所有人共用一个桶」 | 反代场景未设 `AUTH_TRUSTED_PROXIES` → 直连 IP 恒为 `127.0.0.1`，需把反代回环 IP 加入白名单 |
-| 前端「升级后不生效」 | 静态资源已 URL 版本化（`?v=<VERSION>` + `no-store`）；若仍异常，用 `curl -D -` 对比 origin 与公网链路的 `Cache-Control` |
-| 数据库连接被局域网访问 | 确认 compose 端口为 `127.0.0.1:5432:5432`（而非 `5432:5432`）；需本机直连时用 `127.0.0.1` 或进容器执行 |
-| `SERVE_MINIFIED=1` 后前端报 404 | 未先生成压缩产物 → `npm run build`，或改回 `SERVE_MINIFIED=0` |
+| 容器起不来 / 应用连不上库 | `docker logs rg_cj_opengauss`、`docker logs rg_cj_app`；确认 `docker/.env` 的 `GS_PASSWORD` 已填 |
+| 登录间歇卡死、`Exception: dead lock` | 仓颉连接池内部死锁 → 确认 `RG_DB_POOL=0`（compose 已默认）；重启 app 容器临时恢复，`autoheal` 会兜底 |
+| `/health` 返回 503 | DB 深探针失败 → 查 DB 容器状态与卷 `cjogdata`；`autoheal` 发现 unhealthy 会自动重启 app |
+| openGauss 初始化失败 | 启动必须 `--privileged --user omm -e LD_LIBRARY_PATH=/usr/local/opengauss/lib`，且**只设 `GS_PASSWORD`**（设 `GS_DBNAME` 会触发初始化 bug） |
+| 查询挂起 / 连接耗尽 | openGauss 5.0 不支持 `ON CONFLICT` / `ADD COLUMN IF NOT EXISTS`；查询必须 `while(rs.next())` 读到 EOF，否则连接泄漏 |
+| 重启后需重新登录 | `AUTH_SECRET` 未固化；设置后令牌才可跨重启有效 |
+| 限流「所有人共用一个桶」 | 反代场景未设 `AUTH_TRUSTED_PROXIES` → 直连 IP 恒为 `127.0.0.1` |
+| 前端「升级后不生效」 | 静态资源已 URL 版本化（`?v=<VERSION>` + `no-store`）；确认改前端后已 `cd web && npx vite build` 更新 `demo/webapp/` |
+| 启动器显示「未创建」 | `docker` / `docker compose` 不在 PATH，或 compose 文件路径变更；检查启动器日志提示 |
 
 ---
 
-## 9. 备份与恢复
+## 8. 备份与恢复
 
-- **业务数据**：openGauss 数据在 named volume `ogdata`。备份建议在容器内用 `gs_dump`（或 `pg_dump` 兼容模式）导出，而非直接复制卷文件。
-- **上传图 / 状态库**：分别是 `rg_uploads`、`rg_state` 两个 named volume。
-  - `rg_state` 丢了的后果是限流与 live 配额计数清零（不影响业务数据），可接受；
-  - `rg_uploads` 丢了会导致历史 case 的退货图打不开（签名短链 404）。
+- **业务数据**：openGauss 数据在 named volume `cjogdata`。备份建议在容器内用 `gs_dump`（或 `pg_dump` 兼容模式）导出，而非直接复制卷文件。
+- **AI 配置**：卷 `cjappdata`（`/app/data/ai_config.env`，含设置页保存的端点与模型配置）。丢失后需重新在设置页填写。
 - **配置**：`docker/.env`（gitignored）与 `AUTH_SECRET` 是「基础设施即代码」的一部分，请纳入密钥管理；`AUTH_SECRET` 变更会让所有已签发令牌失效。
-- `docker compose -f docker/docker-compose.yml down` **不会**删除 named volume；只有显式 `docker volume rm` 才清数据。
+- `docker compose -f docker/docker-compose.cangjie.yml down` **不会**删除 named volume；只有显式 `docker volume rm` 才清数据。
+- openGauss 冷备演练脚本：`scripts/og_cold_backup.sh`。

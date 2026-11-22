@@ -12,6 +12,7 @@ import { isLoggedIn, isDemo, username, clearSession } from '../composables/useAu
 import { openLoginSheet } from '../composables/useLoginSheet'
 import { openOnboarding } from '../composables/useOnboarding'
 import AiConfigForm from '../components/AiConfigForm.vue'
+import AccountPanel from '../components/AccountPanel.vue'
 
 const router = useRouter()
 
@@ -94,6 +95,13 @@ function onLogout() {
       <div class="card-heading"><AppIcon name="spark" :size="18" /><h3 class="card-title">{{ t('set.aiTitle') }}</h3></div>
       <p class="card-desc">{{ t('set.aiDesc') }}</p>
       <AiConfigForm />
+    </div>
+
+    <!-- 账户管理：个人资料 / 修改密码 / TOTP 二次验证（可选） -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-heading"><AppIcon name="user" :size="18" /><h3 class="card-title">{{ t('acct.title') }}</h3></div>
+      <p class="card-desc">{{ t('acct.intro') }}</p>
+      <AccountPanel />
     </div>
 
     <!-- 引导入口：可重新查看首次部署引导（创建账户 / AI 配置 / 演示账户） -->

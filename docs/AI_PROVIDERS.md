@@ -1,10 +1,12 @@
 # 多 AI 平台接口适配与兼容说明（AI_PROVIDERS）
 
-> **🟢 仓颉主力侧**：14 平台注册表在 `backend/rg-ai/src/providers.cj`，运行时查 `GET /api/ai/providers`（公开、无密钥）与 `/api/config.provider`；
-> 密钥只从环境变量读、不进任何响应；含本地 Ollama（`127.0.0.1:11434/v1`，免密钥）。下表与 Python 版 `demo/providers.py` 的平台 key 一致，两侧守护测试断言相同集合。
+> **🟢 当前实现（仓颉单一栈）**：14 平台注册表是 `backend/rg-ai/src/providers.cj`，运行时查 `GET /api/ai/providers`（公开、无密钥）与 `/api/config.provider`；
+> 密钥只从环境变量读、不进任何响应；含本地 Ollama（`127.0.0.1:11434/v1`，免密钥）。下表平台 key 与注册表声明逐一对应。
 >
-> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
-> 代码单一来源：[`demo/providers.py`](../demo/providers.py)（平台声明）、[`demo/models_router.py`](../demo/models_router.py)（能力调用）
+> **历史记录说明**：文中涉及早期实现的时间性描述保留当时叙事；当前事实以 `backend/rg-ai/src/providers.cj`、根 `README.md` 与 `backend/README.md` 为准。
+>
+> 适用版本：3.1.0（仓库根 `VERSION` 为单一来源）
+> 代码单一来源：[`backend/rg-ai/src/providers.cj`](../backend/rg-ai/src/providers.cj)（平台声明）、[`backend/rg-ai/src/ai.cj`](../backend/rg-ai/src/ai.cj)（OpenAI 兼容调用）
 > 关联文档：[`DECISION_LOGIC.md`](DECISION_LOGIC.md)、[`ARCHITECTURE.md`](ARCHITECTURE.md)、[`API.md`](API.md)
 
 ---
@@ -13,7 +15,7 @@
 
 | 原则 | 说明 |
 |---|---|
-| **按能力编程，不按厂商编程** | 业务代码只声明「我要做视觉理解 / 语音合成」，不关心是谁提供的。厂商差异全部收敛在 `providers.py` 的声明里 |
+| **按能力编程，不按厂商编程** | 业务代码只声明「我要做视觉理解 / 语音合成」，不关心是谁提供的。厂商差异全部收敛在 `providers.cj` 的声明里 |
 | **配置即接口契约** | 新增一个平台 = 在注册表加一条声明（地址 / 鉴权 / 模型 / 能力），**不改任何调用代码** |
 | **能力缺口如实声明** | 平台不提供某项能力时标记为不支持，运行期由「能力闸」拦下并标记回退——绝不配一个必然 404 的模型名来假装支持 |
 | **密钥只来自环境变量** | 注册表不含任何凭据；公开接口不泄露基地址、模型标识与密钥状态 |
@@ -32,12 +34,12 @@
 | `rerank` | 单案优先级（与本地公式 5:5 融合） | `POST {base}/rerank`，`{model, query, documents}` | 需返回 `results[].relevance_score` |
 | `tts` | 母语语音陈述 | `POST {base}/audio/speech`，`{model, input, voice}` | 需返回音频二进制（服务端 base64 编码后回传） |
 
-> 图像入参统一由 `models_router._img_source()` 归一化为 **base64 data URI 内联**（本地路径 → 内联；
+> 图像入参统一由仓颉侧能力调用层归一化为 **base64 data URI 内联**（本地路径 → 内联；
 > `http(s)://` 原样透传）。因此**本机直跑也能跑通视觉能力**，不依赖公网图床。
 
 ---
 
-## 3. 支持矩阵（由 `providers.py` 实测导出）
+## 3. 支持矩阵（与 `backend/rg-ai/src/providers.cj` 注册表声明一致）
 
 | 平台 (`MODEL_ROUTER_PROFILE`) | 展示名 | 协议 | 密钥变量 | text | vl | ocr | embed | rerank | tts | 本仓已验证 |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -47,11 +49,11 @@
 | `openai` | OpenAI | `openai` | `OPENAI_API_KEY` | ✅ | ✅ | ✅ | — | — | ✅ | — |
 | `deepseek` | DeepSeek | `openai` | `DEEPSEEK_API_KEY` | ✅ | — | — | — | — | — | — |
 | `moonshot` | Moonshot AI（Kimi） | `openai` | `MOONSHOT_API_KEY` | ✅ | ✅ | ✅ | — | — | — | — |
-| `zhipu` | 智谱 AI（GLM） | `openai` | `ZHIPU_API_KEY` | ✅ | ✅ | ✅ | — | ✅ | — | — |
-| `siliconflow` | SiliconFlow（硅基流动） | `openai` | `SILICONFLOW_API_KEY` | ✅ | ✅ | ✅ | — | ✅ | ✅ | — |
+| `zhipu` | 智谱 AI（GLM） | `openai` | `ZHIPU_API_KEY` | ✅ | ✅ | ✅ | — | — | — | — |
+| `siliconflow` | SiliconFlow（硅基流动） | `openai` | `SILICONFLOW_API_KEY` | ✅ | ✅ | ✅ | — | — | — | — |
 | `openrouter` | OpenRouter（多模型聚合） | `openai` | `OPENROUTER_API_KEY` | ✅ | ✅ | ✅ | — | — | — | — |
 | `ollama` | Ollama（本机 / 内网自托管） | `openai` | `OLLAMA_API_KEY`（**可留空**） | ✅ | ✅ | ✅ | — | — | — | — |
-| `azure_openai` | Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY` | ✅ | ✅ | ✅ | — | — | ✅ | — |
+| `azure_openai` | Azure OpenAI | `azure` | `AZURE_OPENAI_API_KEY` | — | — | — | — | — | — | — |
 | `anthropic` | Anthropic Claude（原生 Messages API） | `native` | `ANTHROPIC_API_KEY` | — | — | — | — | — | — | — |
 | `gemini` | Google Gemini（原生 generateContent） | `native` | `GEMINI_API_KEY` | — | — | — | — | — | — | — |
 | `custom` | 自建 / 其他 OpenAI 兼容端点 | `openai` | `RG_CUSTOM_API_KEY` | 需自配 | 需自配 | 需自配 | 需自配 | 需自配 | 需自配 | — |
@@ -63,6 +65,8 @@
 - `custom` 六个能力默认留空 = 未配置 → 运行期判为「不支持」并如实回退；用 `RG_MODEL_*` 声明后才生效。
 - `ollama` 的 `key_env` 仅用于一致的结构，实际 `key_required=false`（本地推理无需密钥）。
 - `anthropic` / `gemini` 的原生协议与 OpenAI 形状不同，本适配层**不直接对接**（见 §4.4）。
+- `azure_openai` 在注册表中 `supported=false`（原生 `api-key` 风格），运行时 `GET /api/ai/providers` 将上述能力一律报 `false`，故矩阵同样记为不支持；如需使用请经兼容网关后走 `custom`。
+- 上表能力列以 `providers.cj` 的 `capabilities` / `supported` 声明为准（它是注册表唯一事实来源）。
 
 ---
 
@@ -100,9 +104,8 @@ POST {base}/audio/speech
 → 音频二进制（服务端转 base64）
 ```
 
-**响应解析的兼容处理**：文本类调用统一兼容 `choices[0].message.content` 与
-`message.reasoning_content`（部分推理模型把思考放在后者、`content` 为空）；
-JSON 抽取（`_extract_json`）兼容 markdown 围栏、`<think>` 思考链、截断与多段 JSON。
+**响应解析**：仓颉调用层 `AiClient.extractContent` 从 `choices[0].message.content` 提取文本并还原转义；
+非 2xx / 无 content 一律返回失败原因码，由上层逐能力诚实回退，不伪装成功（见 `backend/rg-ai/src/ai.cj`）。
 
 ### 4.2 鉴权差异
 
@@ -159,7 +162,7 @@ export RG_MODEL_VL=qwen2.5-vl-7b
 只改一个变量，`base_url` + 密钥 + 模型标识三者随平台声明联动：
 
 ```bash
-export MODEL_ROUTER_PROFILE=dashscope     # 值 = /api/providers 返回的 key
+export MODEL_ROUTER_PROFILE=dashscope     # 值 = /api/ai/providers 返回的 key
 # 兼容别名（等价，优先级低于 MODEL_ROUTER_PROFILE）：
 export RG_AI_PROVIDER=dashscope
 ```
@@ -172,7 +175,7 @@ export RG_AI_PROVIDER=dashscope
 |---|---|---|
 | 基地址 | 各平台独立变量（`OPENAI_BASE_URL` / `DASHSCOPE_BASE_URL` / `RG_CUSTOM_BASE_URL` / `OLLAMA_BASE_URL` …） | **每个平台用各自的覆盖变量**，避免某平台的地址污染其它平台（历史踩坑：tokenplan 的 `MODEL_ROUTER_BASE_URL` 曾把 official/dashscope 端点改错） |
 | 模型 | `RG_MODEL_TEXT` / `RG_MODEL_VL` / `RG_MODEL_OCR` / `RG_MODEL_EMBED` / `RG_MODEL_RERANK` / `RG_MODEL_TTS` | 逐能力覆盖，优先级最高 |
-| 模型（历史变量） | `MODEL_ROUTER_TEXT_MODEL` | 仅覆盖文本模型，保留向后兼容 |
+| 模型（全局） | `RG_AI_MODEL` | 启动注入的全局文本模型覆盖；未设时用平台声明的默认模型 |
 | 密钥 | 平台声明的 `key_env` | 例如 `OPENAI_API_KEY`、`ZHIPU_API_KEY` |
 
 覆盖技巧：某平台只差一个模型名时**不必新增平台**，用 `RG_MODEL_*` 覆盖即可。
@@ -184,9 +187,9 @@ export RG_AI_PROVIDER=dashscope
 ```
 能力调用
   ├─ 平台未声明该能力 → 能力闸抛错 ─┐
-  ├─ 网关 4xx          → 直接抛错  ├─→ live_analyze 逐能力 try/except
+  ├─ 网关 4xx          → 直接抛错  ├─→ 能力调用层逐能力 try/except
   ├─ 网关 429 / 5xx    → 重试后退避┘   → capabilities[cap] = false（前端显示「回退」）
-  ├─ 网络瞬断 / 超总预算 → 抛 TimeoutError     → mode 按比例给 live(partial) / mock(fallback)
+  ├─ 网络瞬断 / 超时    → 失败原因码          → mode 如实标注 live(partial) / mock(fallback)
   └─ 连续失败达阈值     → 熔断，冷却期内快速失败  → 避免持续冲击故障网关
 ```
 
@@ -198,7 +201,7 @@ export RG_AI_PROVIDER=dashscope
 
 可观测入口：
 
-- `GET /api/providers` —— 平台目录与能力矩阵（**不含**基地址 / 密钥 / 密钥状态，避免匿名探测）；
+- `GET /api/ai/providers` —— 平台目录与能力矩阵（**不含**基地址 / 密钥 / 密钥状态，避免匿名探测）；
 - `GET /api/config` → `provider` —— 当前平台的展示名、协议风格、能力矩阵、模型映射（供前端如实呈现）；
 - `GET /metrics`（需管理员）—— AI 网关调用量 / 错误数 / 平均时延 / token 用量 / 最近错误；
 - 启动日志 —— 打印当前平台、端点、密钥是否已配置、可用能力清单。
@@ -207,23 +210,23 @@ export RG_AI_PROVIDER=dashscope
 
 ## 7. 新增一个平台：改动清单
 
-1. 在 `demo/providers.py` 的 `PROVIDERS` 增一条 `_p(...)` 声明：
-   `label` / `api_style` / `base_url` / `base_url_env` / `key_env` / `auth` / `key_required` / `models` / `doc` / `note`。
+1. 在 `backend/rg-ai/src/providers.cj` 的 `ProviderRegistry.init()` 里 `add(ProviderSpec(...))`：
+   `key` / `label` / `baseUrl` / `baseUrlEnv` / `keyEnv` / `keyRequired` / `authStyle` / `textModel` / `vlModel` / `capabilities` / `supported`。
    - **只声明平台真正具备的能力**（拿不准就先不声明，运行期会如实回退）；
-   - `verified` 保持 `False`，直到你用真实 Key 跑通。
-2. 在 `demo/.env.example` 与 `docker/.env.example` 补充该平台的密钥（与覆盖）变量说明。
+   - 非 OpenAI 兼容协议设 `supported=false`，并把 key 按插入顺序登记进 `keys` 数组。
+2. 在 `docker/.env.example` 补充该平台的密钥（与覆盖）变量说明。
 3. 在本文档 §3 矩阵与 `docs/DEPLOYMENT.md` 的环境变量表各加一行。
-4. 跑 `pytest demo/tests/test_providers.py`（注册表完整性 / 能力矩阵 / URL 形状 / 信息泄露收敛会自动校验）。
-5. 若要让它成为「已验证」，用真实 Key 跑一次 `live` 取证与 `live` 洞察，并把 `verified` 改为 `True`。
+4. 启动服务后 `curl --noproxy '*' http://127.0.0.1:58080/api/ai/providers` 核对 key 集合与能力矩阵（公开接口，不含密钥）。
+5. 若要标注为「已验证」，用真实 Key 跑一次 `live` 取证与 `live` 洞察，并在本文 §3 的「本仓已验证」列打勾。
 
-> 不需要改 `models_router.py`、不需要改路由、不需要改前端——这是本层设计的核心收益。
+> 不需要改能力调用层 `backend/rg-ai/src/ai.cj`、不需要改路由、不需要改前端——这是本层设计的核心收益。
 
 ---
 
 ## 8. 密钥与合规注意
 
 - **密钥永不入库、永不入前端、永不入镜像**：只经环境变量注入（`.env` 已 gitignore；`.dockerignore` 已排除）。
-- **公开接口不泄露拓扑**：`/api/providers` 只说明「有哪些平台、支持哪些能力」，不返回地址与密钥状态。
+- **公开接口不泄露拓扑**：`/api/ai/providers` 只说明「有哪些平台、支持哪些能力」，不返回地址与密钥状态。
 - **数据出境**：选用国际平台意味着图片/文本会离开本地。
   视觉输入默认内联 base64，因此「内联」不等于「不出境」——真正决定数据边界的是**平台所在区域**。
   合规要求高时请选百炼国内站、`ollama` 或内网 `custom`。

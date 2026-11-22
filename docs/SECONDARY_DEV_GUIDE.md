@@ -1,6 +1,6 @@
 # ReturnGuard 二次开发指南
 
-> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
+> 适用版本：3.1.0（仓库根 `VERSION` 为单一来源）
 > 关联文档：[`ARCHITECTURE.md`](ARCHITECTURE.md)（功能串联）、[`API.md`](API.md)（接口契约）、[`openapi.yaml`](openapi.yaml)（机器可读契约）、[`../backend/README.md`](../backend/README.md)（仓颉后端能力）、[`../sdk/README.md`](../sdk/README.md)（客户端 SDK）
 
 本文说明**在现有工程上扩展**的入口、约束与升级兼容策略。目标是不改核心链路即可加平台、加洞察维度、加页面，且能被守护测试拦住回归。
@@ -11,12 +11,12 @@
 |---|---|---|---|
 | 仓颉后端（主力） | `backend/`（18 包） | API / 认证 / AI 网关 / 持久化 | `rg-app/src/app.cj`（装配）、`rg-api/src/routes/routes.cj`（路由表） |
 | Vue3 前端（主力） | `web/` | 7 页 + 5 组件 | `web/src/router/index.ts`（路由）、`web/src/i18n/catalog.{zh,en,fr}.ts`（三语文案） |
-| Python 后端（兼容） | `demo/` | FastAPI 原始实现，仍受守护测试保护 | `demo/config.py`、`demo/providers.py` |
-| 离线构建 | `docker/wheels/` | Python 版离线 wheel（不入库） | `scripts/fetch_wheels.py` |
-| 契约 | `docs/openapi.yaml` | 仓颉后端 32 操作的 OpenAPI 3.0 | 守护测试逐条比对路由 |
+| 前端产物 | `demo/webapp/` | Vite 构建产物，由仓颉容器 COPY，勿删 | 由 `web/` 源码构建 |
+| Rust 启动器 | `launcher/` | WinUI 3 / GTK4 一键启停三容器 | `launcher/README.md` |
+| 契约 | `docs/openapi.yaml` | 仓颉后端 35 操作的 OpenAPI 3.0 | 守护测试逐条比对路由 |
 | 版本 | `VERSION` | 全局版本号 | `/api/config`、`package.json`、`CHANGELOG.md`、三份文档断言 |
 
-🔴 **两套实现并存**：业务规则一致，但改主力功能只动 `backend/` + `web/`；`demo/` 的路由/字段/配额变量受 `demo/tests/test_docs_consistency.py` 守护，不要为了"对齐"去改它的接口事实。
+🔴 **单一实现**：改功能只动 `backend/` + `web/`，接口事实以 [`backend/README.md`](../backend/README.md) 与 `docs/openapi.yaml` 为准。文中涉及早期双实现并存的描述保留当时叙事，当前事实以 `backend/README.md` 与根 `README.md` 为准。
 
 ## 2. 扩展点 A：新增 AI 平台
 
@@ -29,8 +29,6 @@
 
 前端下拉自动从 `GET /api/ai/providers` 读，无需改组件；如需在"允许数据出境"开关中分类，更新 `web/src/components/AiConfigForm.vue` 的 `onlineKeys`。
 
-Python 版对应声明在 `demo/providers.py`，两侧 key 集合应保持一致。
-
 ## 3. 扩展点 B：新增洞察维度
 
 洞察由案件数据规则派生，入口 `backend/rg-api/src/routes/insights.cj` 的 `insights(ctx, req)`：
@@ -42,7 +40,7 @@ Python 版对应声明在 `demo/providers.py`，两侧 key 集合应保持一致
 
 ## 4. 扩展点 C：新增路由（API）
 
-1. 在 `backend/rg-api/src/routes/routes.cj` 的 `registerRoutes()` 里注册，**并立即写进 `docs/openapi.yaml`**——`test_cangjie_routes_match_openapi_contract` 会逐条比对 `METHOD path`，漏写直接失败。
+1. 在 `backend/rg-api/src/routes/routes.cj` 的 `registerRoutes()` 里注册，**并立即写进 `docs/openapi.yaml`**——守护测试会逐条比对 `METHOD path`，漏写直接失败。
 2. 需登录的端点用 `currentUser(ctx, req).isEmpty()` 判 401；OAuth 写操作受全局 guard 限制（只读 scope 自动 403）。
 3. 响应统一用 `ApiResponse.ok/ fail`，错误语义用 `ErrKind`；不要把内部异常文本回传。
 4. 涉及密钥/令牌的字段：GET 只回掩码与布尔，POST 留空表示不修改，`clearKey=true` 才是清空（参照 `/api/ai/settings`）。
@@ -52,7 +50,7 @@ Python 版对应声明在 `demo/providers.py`，两侧 key 集合应保持一致
 
 1. `web/src/views/` 建 `XxxView.vue`，用现有 `AppIcon`（线性图标，无 emoji）与全局令牌（`--bg-*`/`--text-*`/`--accent`），不要新造配色。
 2. `web/src/router/index.ts` 注册路由；导航项在 `web/src/App.vue` 的 `nav` 数组（辅助功能放 `side-bottom`）。
-3. 三语文案写进三份 `catalog.*.ts`——守护要求三语键集合完全一致、零重复。
+3. 三语文案写进三份 `catalog.*.ts`——三语键集合须完全一致、零重复，新增文案同步补齐三份。
 4. 图省事复制 `AiConfigForm.vue` 的表单范式（`.ai-field` / `.field` / `.field-err`），键盘与焦点样式已内建。
 5. 可用组件契约（复用优先于新建）：
 
@@ -67,7 +65,7 @@ Python 版对应声明在 `demo/providers.py`，两侧 key 集合应保持一致
 
 | 变量 | 默认 | 作用 | 读取处 |
 |---|---|---|---|
-| `RG_VERSION` | `3.0.0` | `/api/config.version` | `backend/rg-server/src/main.cj` |
+| `RG_VERSION` | `3.1.0` | `/api/config.version` | `backend/rg-server/src/main.cj` |
 | `AUTH_SECRET` | 进程内随机 | 令牌 HMAC 密钥（生产必填） | `AppContext` 构造 |
 | `RG_DB_POOL` | `0` | 连接池大小，0=禁用（**勿改**，仓颉池并发死锁） | `AppContext` |
 | `RG_SESSION_MAX` | `5` | 并发会话上限，0=不限 | `AppContext` |
@@ -83,7 +81,7 @@ Python 版对应声明在 `demo/providers.py`，两侧 key 集合应保持一致
 - **契约兼容**：已发布的路由路径、字段名、i18n key 只增不改；确需破坏性变更时升 major 并在 CHANGELOG 独立分章说明迁移路径。
 - **配置兼容**：新增配置必须有默认值；文件存储用"缺列即补"的幂等迁移（参照 `db.cj` 的 `hasColumn` + `ALTER TABLE`），旧文件缺字段按默认处理。
 - **数据兼容**：表结构变更只加列不删列；`rg_sessions` 的 `refresh_hash`/`used`/`last_used_ms` 都是后加列，历史数据自动兼容。
-- **双实现并存**：Python 版 `demo/` 是兼容基线，守护测试保护其接口事实；新功能先落仓颉主力，确认稳定后再决定是否同步 Python 版。
+- **单一实现**：所有功能直接落仓颉主力；接口事实以 `backend/README.md` 与 `docs/openapi.yaml` 为准，无需再同步其它实现。
 
 ## 8. 构建与验证命令（必跑）
 
@@ -97,13 +95,13 @@ cd .. && bash docker/build-cangjie-docker.sh   # 或见 backend/build-linux.sh
 # 前端
 cd web && npx vue-tsc --noEmit && npx vite build   # 产物落 demo/webapp/
 
-# 守护 + 全量测试
-cd .. && python -m pytest -q demo/tests
-python scripts/check_i18n.py
+# 守护 + 质量门禁（见根 README.md「测试与质量门禁」）
+cd .. && cargo test --manifest-path launcher/Cargo.toml -p rg-core
 
 # 容器部署与判活
 cd docker && docker compose -f docker-compose.cangjie.yml up -d --build
-curl --noproxy '*' http://127.0.0.1:58080/api/config | python -m json.tool
+curl --noproxy '*' http://127.0.0.1:58080/health
+curl --noproxy '*' http://127.0.0.1:58080/api/config
 ```
 
-**验收清单**：新增端点在 openapi 有对应 operation；三语键集合一致；`pytest demo/tests` 全绿；前端类型检查零错误；`curl` 判活版本与 `VERSION` 一致。涉及浏览器交互的改动需实际点一遍（新建账户 / AI 保存 / 引导流程），不能只靠静态检查宣称通过。
+**验收清单**：新增端点在 openapi 有对应 operation；三语键集合一致；仓颉核心引擎测试（`cargo test -p rg-core`）全绿；前端类型检查零错误；`curl` 判活版本与 `VERSION` 一致。涉及浏览器交互的改动需实际点一遍（新建账户 / AI 保存 / 引导流程），不能只靠静态检查宣称通过。

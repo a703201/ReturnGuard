@@ -1,6 +1,12 @@
 # ReturnGuard 退货判定逻辑说明（DECISION_LOGIC）
 
-> 适用版本：3.0.0（仓库根 `VERSION` 为单一来源）
+> **🟢 当前技术形态（2026-11-22）**：后端为**仓颉原生 18 包**（`backend/`），前端为 **Vue3 + TS**（`web/`），
+> 单库 `returnguard_cj` + openGauss，AI 平台注册表在 [`backend/rg-ai/src/providers.cj`](../backend/rg-ai/src/providers.cj)（14 家可选），
+> 契约见 [`docs/openapi.yaml`](openapi.yaml) 与 [`backend/README.md`](../backend/README.md)。
+>
+> **说明**：下文判定规则的业务语义与口径与当前仓颉版一致，但代码位置均为 Python 兼容版（历史实现）的叙事；**历史记录保留当时叙事，当前事实以 `backend/README.md` 与 `README.md` 为准**。当前仓颉后端的分层与判定实现见 `backend/` 各包（分层说明见 `backend/README.md`），模型能力声明见 `backend/rg-ai/src/providers.cj`。
+>
+> 适用版本：3.1.0（仓库根 `VERSION` 为单一来源）
 > 关联文档：[`ARCHITECTURE.md`](ARCHITECTURE.md)（功能实现逻辑）、[`AI_PROVIDERS.md`](AI_PROVIDERS.md)（多平台对接）、[`API.md`](API.md)（接口契约）、[`AB_ROI_实证说明.md`](AB_ROI_实证说明.md)（口径边界）
 
 本文回答一个问题：**「退货信息被判定成什么」这件事，具体是按哪条规则算出来的。**
@@ -294,9 +300,12 @@ headroom     = max(0, min(0.95 − 当前胜诉率, 1 − 当前胜诉率))   �
 
 ---
 
-## 4. 快速索引：想改某条判定，该动哪里
+## 4. 快速索引：想改某条判定，该动哪里（历史 Python 版）
 
-| 想调整… | 改这里 |
+> 下表文件均为历史 Python 实现语境，保留供查阅；当前仓颉版的分层与实现见 `backend/` 各包，
+> 具体文件与端点以 [`backend/README.md`](../backend/README.md) 及源码为准。
+
+| 想调整… | 历史实现位置 |
 |---|---|
 | 同款阈值默认值 | `demo/constants.py` → `SAME_ITEM_THRESHOLD`；运行期用 `/api/calibrate` 标定 |
 | 缺陷词表 / 严重度 | `demo/constants.py` → `DEFECT_POOL` / `SEVERITY` |
@@ -310,5 +319,5 @@ headroom     = max(0, min(0.95 − 当前胜诉率, 1 − 当前胜诉率))   �
 | 写入收敛规则 | `demo/db.py` → `_clamp_values` |
 | 接口入参边界 | `demo/routers/*.py` + `demo/schemas.py` |
 
-> 改动后请同步 `demo/tests/`（`test_pipeline.py` / `test_roi_backtest.py` / `test_hardening.py` / `test_docs_consistency.py`）
-> 与本文档；`test_docs_consistency.py` 会校验文档与代码的可机检事实。
+> 当前仓颉后端的端到端验证脚本与质量门禁见 [`backend/README.md`](../backend/README.md) 与 [`ARCHITECTURE.md`](ARCHITECTURE.md) §9；
+> 历史 Python 版回归测试（`demo/tests/`）随技术栈切换归档，仅作参考。改动判定规则后须同步 `docs/openapi.yaml` 契约与本文档。

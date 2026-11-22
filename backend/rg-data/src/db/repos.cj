@@ -18,7 +18,7 @@ public class UserRepo {
     public func loadAll(store: Store): Unit {
         let c = this.db.connect()
         try {
-            let st = c.prepareStatement("SELECT username, password_hash, tenant_name, token_version, failed_count, locked_until_ms, totp_secret, hash_algo FROM rg_users")
+            let st = c.prepareStatement("SELECT username, password_hash, tenant_name, token_version, failed_count, locked_until_ms, totp_secret, hash_algo, display_name, email FROM rg_users")
             for (row in readRows(st.query())) {
                 let u = UserRec(row.get("username") ?? "", row.get("password_hash") ?? "", row.get("tenant_name") ?? "")
                 u.tokenVersion = parseInt64(row.get("token_version"))
@@ -27,6 +27,8 @@ public class UserRepo {
                 u.totpSecret = row.get("totp_secret") ?? ""
                 let algo = row.get("hash_algo") ?? "sha256"
                 u.hashAlgo = if (algo.isEmpty()) { "sha256" } else { algo }
+                u.displayName = row.get("display_name") ?? ""
+                u.email = row.get("email") ?? ""
                 store.addUser(u)
             }
         } finally { c.close() }
@@ -39,15 +41,17 @@ public class UserRepo {
             // openGauss 5.0 不支持 ON CONFLICT，用 MERGE INTO 实现 upsert。
             let st = c.prepareStatement(
                 "MERGE INTO rg_users t USING (SELECT ? AS k) s ON (t.username = s.k) " +
-                "WHEN MATCHED THEN UPDATE SET password_hash=?, tenant_name=?, token_version=?, failed_count=?, locked_until_ms=?, totp_secret=?, hash_algo=? " +
-                "WHEN NOT MATCHED THEN INSERT(username,password_hash,tenant_name,token_version,failed_count,locked_until_ms,totp_secret,hash_algo) " +
-                "VALUES(?,?,?,?,?,?,?,?)")
+                "WHEN MATCHED THEN UPDATE SET password_hash=?, tenant_name=?, token_version=?, failed_count=?, locked_until_ms=?, totp_secret=?, hash_algo=?, display_name=?, email=? " +
+                "WHEN NOT MATCHED THEN INSERT(username,password_hash,tenant_name,token_version,failed_count,locked_until_ms,totp_secret,hash_algo,display_name,email) " +
+                "VALUES(?,?,?,?,?,?,?,?,?,?)")
             st.set(0, u.username)
             st.set(1, u.passwordHash); st.set(2, u.tenantName); st.set(3, u.tokenVersion)
             st.set(4, u.failedCount); st.set(5, u.lockedUntilMs); st.set(6, u.totpSecret); st.set(7, u.hashAlgo)
-            st.set(8, u.username); st.set(9, u.passwordHash); st.set(10, u.tenantName)
-            st.set(11, u.tokenVersion); st.set(12, u.failedCount); st.set(13, u.lockedUntilMs)
-            st.set(14, u.totpSecret); st.set(15, u.hashAlgo)
+            st.set(8, u.displayName); st.set(9, u.email)
+            st.set(10, u.username); st.set(11, u.passwordHash); st.set(12, u.tenantName)
+            st.set(13, u.tokenVersion); st.set(14, u.failedCount); st.set(15, u.lockedUntilMs)
+            st.set(16, u.totpSecret); st.set(17, u.hashAlgo)
+            st.set(18, u.displayName); st.set(19, u.email)
             st.update()
         } finally { c.close() }
     }
@@ -57,9 +61,10 @@ public class UserRepo {
         let c = this.db.connect()
         try {
             let st = c.prepareStatement(
-                "UPDATE rg_users SET token_version=?, failed_count=?, locked_until_ms=?, totp_secret=?, hash_algo=? WHERE username=?")
+                "UPDATE rg_users SET token_version=?, failed_count=?, locked_until_ms=?, totp_secret=?, hash_algo=?, display_name=?, email=? WHERE username=?")
             st.set(0, u.tokenVersion); st.set(1, u.failedCount); st.set(2, u.lockedUntilMs)
-            st.set(3, u.totpSecret); st.set(4, u.hashAlgo); st.set(5, u.username)
+            st.set(3, u.totpSecret); st.set(4, u.hashAlgo); st.set(5, u.displayName)
+            st.set(6, u.email); st.set(7, u.username)
             st.update()
         } finally { c.close() }
     }

@@ -75,6 +75,41 @@ public class FlatJson {
     private let fields = HashMap<String, String>()
     private init() {}
 
+    /** 4 位十六进制 → 码点；非法字符返回 0xFFFD（替换符，不崩）。 */
+    internal static func hex4(bs: Array<Byte>): Int64 {
+        var cp: Int64 = 0
+        for (i in 0..bs.size) {
+            let c = bs[i]
+            let v = if (c >= 0x30 && c <= 0x39) { Int64(c - 0x30) }
+                    else if (c >= 0x61 && c <= 0x66) { Int64(c - 0x61) + 10 }
+                    else if (c >= 0x41 && c <= 0x46) { Int64(c - 0x41) + 10 }
+                    else { return 0xFFFD }
+            cp = cp * 16 + v
+        }
+        return cp
+    }
+
+    /** Unicode 码点 → UTF-8 字节数组（含代理对区间兜底为替换符）。 */
+    internal static func utf8(cp: Int64): Array<Byte> {
+        if (cp < 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) { return [0xEF, 0xBD, 0xBD] }
+        let out = ArrayList<Byte>()
+        if (cp < 0x80) { out.add(UInt8(cp)) }
+        else if (cp < 0x800) {
+            out.add(UInt8(0xC0 | (cp >> 6)))
+            out.add(UInt8(0x80 | (cp & 0x3F)))
+        } else if (cp < 0x10000) {
+            out.add(UInt8(0xE0 | (cp >> 12)))
+            out.add(UInt8(0x80 | ((cp >> 6) & 0x3F)))
+            out.add(UInt8(0x80 | (cp & 0x3F)))
+        } else {
+            out.add(UInt8(0xF0 | (cp >> 18)))
+            out.add(UInt8(0x80 | ((cp >> 12) & 0x3F)))
+            out.add(UInt8(0x80 | ((cp >> 6) & 0x3F)))
+            out.add(UInt8(0x80 | (cp & 0x3F)))
+        }
+        return out.toArray()
+    }
+
     private var bytes: Array<Byte> = []
     private var pos: Int64 = 0
 
@@ -127,6 +162,11 @@ public class FlatJson {
                 else if (ec == 0x74) { sb.append("\t") }
                 else if (ec == 0x22) { sb.append("\"") }
                 else if (ec == 0x5c) { sb.append("\\") }
+                else if (ec == 0x75 && j + 4 < n) { // \uXXXX → UTF-8（标准 JSON 客户端会转义中文）
+                    let cp = FlatJson.hex4(this.bytes[j + 1..j + 5])
+                    sb.append(String.fromUtf8(FlatJson.utf8(cp)))
+                    j += 4
+                }
                 else { sb.append(String.fromUtf8(this.bytes[j..j+1])) }
             } else {
                 sb.append(String.fromUtf8(this.bytes[j..j+1]))
