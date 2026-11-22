@@ -5,6 +5,9 @@
   "type": "module",
   "description": "ReturnGuard 退货情报站 · 前端（Vue 3 + TypeScript + Vite）",
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",

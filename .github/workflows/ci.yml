@@ -71,7 +71,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 与本地构建环境一致：Node 20 与 22 下 Vite 产物哈希不同，
+          # 会导致「产物已入库同步」门禁因哈希漂移而误报。
+          node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: 安装依赖（lock 已入库，可重现构建）
