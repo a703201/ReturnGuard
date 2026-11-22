@@ -126,7 +126,7 @@ cd /root/build/launcher && cargo build -p rg-gtk
 | WinAppSDK runtime staging | ❌ 未验证 | build.rs 需从 nuget.org 下载；交叉编译刻意跳过，**该产物不可分发**，正式分发须在未跳过 staging 的 Windows + MSVC 环境构建 |
 | `rg-gtk` 真实构建（Linux 容器） | ✅ 已验证 | Ubuntu 22.04 容器 + GTK 4.6.9 + Rust 1.100，`cargo build -p rg-gtk` 成功；产物 55MB，`ldd` 确认链接 libgtk-4.so.1 / libglib-2.0.so.0。全程在容器 Linux overlay 上编译（避免 Windows 挂载路径 I/O 瓶颈） |
 | `rg-gtk` 真实 GUI 运行 | ✅ 已验证 | Xvfb 虚拟显示 + `RG_PROJECT_ROOT=/project` 启动成功：进程存活、日志零错误、截图确认中文无乱码、7 按钮全可见、状态卡片正常。并由此发现 GTK CSS 不支持 `@media`，已改 Rust 侧读 `gtk4::Settings` |
-| 真实启动/停止/日志按钮链路 | ❌ 未验证 | GUI 已能显示，但容器内无 docker 命令（走 Docker 不可用分支）；真正点击启停需在装有 Docker 的桌面上人工验收 |
+| 真实启动/停止/日志按钮链路 | ✅ 已验证 | 容器挂载 host `docker.sock` + docker CLI，用临时集成器直接调 `apply_action`（GUI 按钮的唯一入口）：`refresh` 返回成功；`logs` 读到真实 `rg_cj_app` 日志；`stop` 停掉三容器；`start` 按 db→app→autoheal 恢复；`restart` 只重启 app（db/autoheal 运行时长不变）。测试后三容器全部 healthy、`/health` 200。顺序与 stop_order/start 契约一致 |
 
 **CI 分工**（`.github/workflows/ci.yml` 六路并行）：静态门禁（仓库根 `python scripts/ci_checks.py`，7 项）、
 版本一致性、`rg-core` 测试、前端构建、**WinUI 真实构建**、**GTK4 真实构建**。
