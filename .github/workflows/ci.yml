@@ -27,8 +27,8 @@ jobs:
     name: 静态门禁（契约/版本/红线）
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: python scripts/ci_checks.py
@@ -42,7 +42,7 @@ jobs:
     name: 版本一致性（快速）
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: VERSION ↔ package.json ↔ launcher workspace
         run: |
           V="$(tr -d '[:space:]' < VERSION)"
@@ -56,7 +56,7 @@ jobs:
     name: Rust 核心引擎测试
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: CI 环境直连 crates.io（移除本地 USTC 镜像覆盖）
         run: rm -f launcher/.cargo/config.toml
@@ -68,8 +68,8 @@ jobs:
     name: Vue 前端类型检查与构建
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
         with:
           # 与本地构建环境一致：Node 20 与 22 下 Vite 产物哈希不同，
           # 会导致「产物已入库同步」门禁因哈希漂移而误报。
@@ -110,7 +110,7 @@ jobs:
       # 只验证编译与链接，不下载 WinAppSDK Runtime（正式分发由 build-windows.ps1 执行 staging）
       RG_SKIP_WINAPP_STAGE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
@@ -129,7 +129,7 @@ jobs:
     name: GTK4 启动器真实构建
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: 安装 GTK4 系统依赖
         run: |

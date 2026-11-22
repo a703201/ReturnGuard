@@ -1,0 +1,11 @@
+# Copyright 2026 何宇翔 (He Yuxiang) <https://github.com/a703201>
+# SPDX-License-Identifier: Apache-2.0
+# 自动跟踪 GitHub Actions 版本，避免 Node 运行时弃用（如 Node 20 → 24）再次突发。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
